@@ -1,0 +1,1 @@
+"""Single-worker process entrypoint."""

@@ -1,0 +1,12 @@
+{% extends "base.html" %}
+{% block title %}创建新修订 · Engirdle{% endblock %}
+{% block content %}
+<section class="page-heading"><p class="eyebrow">NEW REVISION</p><h1>修改 {{ article.title }}</h1><p>当前修订 {{ article.revision }} 保持不可变；保存后创建修订 {{ article.revision + 1 }}。</p></section>
+<form class="panel form" action="/articles/{{ article.article_id }}/revisions" method="post">
+  <label>标题 <input name="title" value="{{ article.title }}" required maxlength="512"></label>
+  <label>英文正文 <textarea name="body" required rows="18">{{ article.raw_text }}</textarea></label>
+  <div class="grid two"><label>作者（可选）<input name="author" value="{{ article.source.author or '' }}"></label><label>来源名称（可选）<input name="source_name" value="{{ article.source.display_name or '' }}"></label></div>
+  <div class="grid two"><label>来源 URL（可选）<input name="source_url" type="url" value="{{ article.source.url or '' }}"></label><label>许可说明 <input name="license_name" value="{{ article.source.license_name }}" required></label></div>
+  <div class="actions"><a href="/articles/{{ article.article_id }}/revisions/{{ article.revision }}">取消</a><button type="submit">创建新修订</button></div>
+</form>
+{% endblock %}

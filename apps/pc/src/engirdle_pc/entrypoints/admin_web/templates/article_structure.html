@@ -1,0 +1,16 @@
+{% extends "base.html" %}
+{% block title %}{{ article.title }} · 结构确认{% endblock %}
+{% block content %}
+<section class="page-heading"><p class="eyebrow">STEP 2 · STRUCTURE</p><h1>{{ article.title }}</h1><p>{{ article.blocks|length }} 个块 · 状态 {{ article.status.value }} · 修订 {{ article.revision }}</p></section>
+{% if article.status.value in ['draft', 'structured'] %}
+<form class="panel form" action="/articles/{{ article.article_id }}/revisions/{{ article.revision }}/structure" method="post">
+  <label>结构 JSON <textarea class="code-editor" name="structure_json" rows="24" spellcheck="false">{{ structure_json }}</textarea></label>
+  <p class="hint">调整数组顺序即可重排；移动句子可合并块，修改 text 可编辑句子，新增或删除 sentence 对象可拆分或合并。ID 留空时自动分配。</p>
+  <div class="actions"><a href="/">返回工作台</a><button type="submit">保存结构</button></div>
+</form>
+<form class="approve panel compact" action="/articles/{{ article.article_id }}/revisions/{{ article.revision }}/approve" method="post"><div><strong>冻结此修订</strong><p>确认后正文和句界不可原地修改，并创建后台生产任务。</p></div><button type="submit">确认结构并创建任务</button></form>
+{% else %}
+<section class="panel"><h2>此修订已冻结</h2><p>可保持正文不变重新生成制品，或基于原始输入创建新修订。</p><div class="actions"><a class="button" href="/articles/{{ article.article_id }}/new-revision">创建新修订</a><form action="/articles/{{ article.article_id }}/revisions/{{ article.revision }}/rebuild" method="post"><button>重建此修订</button></form></div></section>
+<form class="panel danger form" action="/articles/{{ article.article_id }}/delete" method="post"><h2>删除本地文章</h2><p>已下载到移动端的内容不受影响。源文件、工作文件和制品将移入可恢复 trash。</p><label>输入文章 ID 以确认 <input name="confirmation" required placeholder="{{ article.article_id }}"></label><button type="submit">删除本地文章</button></form>
+{% endif %}
+{% endblock %}

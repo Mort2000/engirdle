@@ -1,0 +1,12 @@
+{% extends "base.html" %}
+{% block title %}生产任务 · Engirdle{% endblock %}
+{% block content %}
+<section class="page-heading"><p class="eyebrow">STEP 3 · PRODUCTION</p><h1>任务 {{ job.job_id[:8] }}</h1><p>阶段 {{ job.stage.value }} · 状态 {{ job.status.value }} · 尝试 {{ job.attempts }}</p></section>
+<aside class="notice"><strong>适配器：</strong>翻译 {{ job.config.translation_adapter }} · TTS {{ job.config.speech_adapter }}。当前输出只用于全流程验证。</aside>
+{% if job.status.value == 'queued' %}<section class="panel"><h2>等待 Worker</h2><p>运行 <code>engirdle-pc-worker</code>，或用 <code>engirdle-pc worker-once</code> 处理一个任务。页面刷新后显示进度。</p></section>{% endif %}
+{% if job.status.value == 'failed' %}<section class="panel danger"><h2>任务失败</h2><p>{{ job.error_code }} · {{ job.error_message }}</p><form action="/jobs/{{ job.job_id }}/retry" method="post"><button>从安全检查点重试</button></form></section>{% endif %}
+{% if audio %}<section class="panel"><h2>音频抽听</h2><audio controls preload="metadata" src="/api/jobs/{{ job.job_id }}/audio/file"></audio><p class="hint">{{ audio.timings|length }} 句 · {{ audio.duration_ms }} ms · {{ audio.encoder_version }}</p></section>{% endif %}
+{% if translations %}<section class="panel"><h2>译文审阅</h2><div class="translation-list">{% for item in translations %}<form action="/jobs/{{ job.job_id }}/translations/{{ item.sentence_id }}" method="post"><label><span>{{ item.sentence_id }}</span><p class="source-sentence">{{ source_by_id[item.sentence_id] }}</p><textarea name="text_zh" rows="2" required>{{ item.published_text }}</textarea></label><button>保存修正</button></form>{% endfor %}</div></section>{% endif %}
+{% if job.status.value == 'review_required' %}<form class="approve panel compact" action="/jobs/{{ job.job_id }}/publish" method="post"><div><strong>发布不可变制品</strong><p>将重新校验包并原子切换 catalog 当前指针。</p></div><button type="submit">构建并发布 readpack</button></form>{% endif %}
+{% if job.status.value == 'succeeded' %}<section class="panel success"><h2>发布完成</h2><p>当前制品已进入局域网只读目录。</p></section>{% endif %}
+{% endblock %}

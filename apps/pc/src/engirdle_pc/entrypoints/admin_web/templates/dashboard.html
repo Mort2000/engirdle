@@ -1,0 +1,21 @@
+{% extends "base.html" %}
+{% block title %}工作台 · Engirdle{% endblock %}
+{% block content %}
+<section class="hero">
+  <div><p class="eyebrow">LOCAL CONTENT WORKBENCH</p><h1>把一篇文章变成可离线阅读的制品</h1>
+  <p>在本机确认文本结构、审阅译文与声音，然后发布为不可变 readpack。</p></div>
+  <a class="button" href="/articles/new">＋ 录入新文章</a>
+</section>
+<aside class="notice"><strong>验证模式：</strong>翻译与 TTS 当前为验证桩。生成结果会显式标注，不会调用 DeepSeek 或加载 Qwen3-TTS。</aside>
+<section class="grid two">
+  <div class="panel"><div class="panel-title"><h2>文章库</h2><span>{{ articles|length }} 篇</span></div>
+    {% if articles %}<div class="list">{% for article in articles %}<a class="list-row" href="/articles/{{ article.article_id }}/revisions/{{ article.revision }}"><span><strong>{{ article.title }}</strong><small>修订 {{ article.revision }} · {{ article.status.value }}</small></span><span>→</span></a>{% endfor %}</div>
+    {% else %}<p class="empty">还没有文章。录入正文后将自动生成候选分句。</p>{% endif %}
+  </div>
+  <div class="panel"><div class="panel-title"><h2>生产任务</h2><span>{{ jobs|length }} 个</span></div>
+    {% if jobs %}<div class="list">{% for job in jobs %}<a class="list-row" href="/jobs/{{ job.job_id }}"><span><strong>{{ job.stage.value }}</strong><small>{{ job.article_id[:8] }} · 尝试 {{ job.attempts }}</small></span><span class="status {{ job.status.value }}">{{ job.status.value }}</span></a>{% endfor %}</div>
+    {% else %}<p class="empty">确认文章结构后，生产任务会出现在这里。</p>{% endif %}
+  </div>
+</section>
+<section class="panel compact"><h2>局域网目录</h2><p>{% if catalog_available %}目录已生成。可启动独立只读发布进程。{% else %}尚无已发布制品。{% endif %}</p><code>engirdle-pc publisher</code></section>
+{% endblock %}

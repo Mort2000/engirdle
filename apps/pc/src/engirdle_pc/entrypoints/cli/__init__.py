@@ -1,0 +1,1 @@
+"""Maintenance command-line entrypoint."""
