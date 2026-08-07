@@ -1,0 +1,116 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:engirdle:contracts:readpack:v1:article",
+  "title": "Engirdle Readpack v1 article",
+  "type": "object",
+  "required": [
+    "format",
+    "format_version",
+    "article_id",
+    "revision",
+    "title",
+    "source",
+    "source_sha256",
+    "structure_sha256",
+    "blocks"
+  ],
+  "properties": {
+    "format": {"const": "readpack-article"},
+    "format_version": {"$ref": "#/$defs/v1Version"},
+    "article_id": {"$ref": "#/$defs/uuid"},
+    "revision": {"$ref": "#/$defs/positiveInteger"},
+    "title": {"type": "string", "minLength": 1, "maxLength": 512},
+    "source": {
+      "type": "object",
+      "required": ["display_name", "url", "author"],
+      "properties": {
+        "display_name": {
+          "type": ["string", "null"],
+          "minLength": 1,
+          "maxLength": 512
+        },
+        "url": {
+          "anyOf": [
+            {"type": "string", "format": "uri", "maxLength": 2048},
+            {"type": "null"}
+          ]
+        },
+        "author": {
+          "type": ["string", "null"],
+          "minLength": 1,
+          "maxLength": 512
+        }
+      },
+      "additionalProperties": true
+    },
+    "source_sha256": {"$ref": "#/$defs/sha256"},
+    "structure_sha256": {"$ref": "#/$defs/sha256"},
+    "blocks": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 10000,
+      "items": {"$ref": "#/$defs/block"}
+    }
+  },
+  "additionalProperties": true,
+  "$defs": {
+    "v1Version": {"type": "string", "pattern": "^1\\.[0-9]+$"},
+    "uuid": {"type": "string", "format": "uuid"},
+    "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "positiveInteger": {"type": "integer", "minimum": 1, "maximum": 2147483647},
+    "order": {"type": "integer", "minimum": 0, "maximum": 2147483647},
+    "opaqueId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128,
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]*$"
+    },
+    "samplePosition": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 9007199254740991
+    },
+    "millisecondPosition": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 86400000
+    },
+    "block": {
+      "type": "object",
+      "required": ["block_id", "kind", "order", "sentences"],
+      "properties": {
+        "block_id": {"$ref": "#/$defs/opaqueId"},
+        "kind": {"enum": ["paragraph", "list_item", "quote"]},
+        "order": {"$ref": "#/$defs/order"},
+        "sentences": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 10000,
+          "items": {"$ref": "#/$defs/sentence"}
+        }
+      },
+      "additionalProperties": true
+    },
+    "sentence": {
+      "type": "object",
+      "required": ["sentence_id", "order", "text"],
+      "properties": {
+        "sentence_id": {"$ref": "#/$defs/opaqueId"},
+        "order": {"$ref": "#/$defs/order"},
+        "text": {"type": "string", "minLength": 1, "maxLength": 20000},
+        "translation_zh": {"type": "string", "minLength": 1, "maxLength": 40000},
+        "audio_start_sample": {"$ref": "#/$defs/samplePosition"},
+        "audio_end_sample": {"$ref": "#/$defs/samplePosition"},
+        "audio_start_ms": {"$ref": "#/$defs/millisecondPosition"},
+        "audio_end_ms": {"$ref": "#/$defs/millisecondPosition"}
+      },
+      "dependentRequired": {
+        "audio_start_sample": ["audio_end_sample", "audio_start_ms", "audio_end_ms"],
+        "audio_end_sample": ["audio_start_sample", "audio_start_ms", "audio_end_ms"],
+        "audio_start_ms": ["audio_start_sample", "audio_end_sample", "audio_end_ms"],
+        "audio_end_ms": ["audio_start_sample", "audio_end_sample", "audio_start_ms"]
+      },
+      "additionalProperties": true
+    }
+  }
+}

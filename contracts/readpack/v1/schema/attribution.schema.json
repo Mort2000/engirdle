@@ -1,0 +1,202 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:engirdle:contracts:readpack:v1:attribution",
+  "title": "Engirdle Readpack v1 attribution",
+  "type": "object",
+  "required": ["format", "format_version", "article", "resources"],
+  "properties": {
+    "format": {"const": "readpack-attribution"},
+    "format_version": {"$ref": "#/$defs/v1Version"},
+    "article": {
+      "type": "object",
+      "required": ["id", "revision"],
+      "properties": {
+        "id": {"$ref": "#/$defs/uuid"},
+        "revision": {"$ref": "#/$defs/positiveInteger"}
+      },
+      "additionalProperties": true
+    },
+    "resources": {
+      "type": "array",
+      "minItems": 7,
+      "maxItems": 128,
+      "items": {"$ref": "#/$defs/resource"},
+      "allOf": [
+        {"contains": {"$ref": "#/$defs/articleSource"}, "minContains": 1},
+        {"contains": {"$ref": "#/$defs/translationService"}, "minContains": 1},
+        {"contains": {"$ref": "#/$defs/customVoiceModel"}, "minContains": 1},
+        {"contains": {"$ref": "#/$defs/baseModel"}, "minContains": 1},
+        {"contains": {"$ref": "#/$defs/voiceProfile"}, "minContains": 1},
+        {"contains": {"$ref": "#/$defs/pipelineSoftware"}, "minContains": 1},
+        {"contains": {"$ref": "#/$defs/audioEncoder"}, "minContains": 1}
+      ]
+    }
+  },
+  "additionalProperties": true,
+  "$defs": {
+    "v1Version": {"type": "string", "pattern": "^1\\.[0-9]+$"},
+    "uuid": {"type": "string", "format": "uuid"},
+    "positiveInteger": {"type": "integer", "minimum": 1, "maximum": 2147483647},
+    "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "resourceId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128,
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]*$"
+    },
+    "knownValue": {
+      "type": "object",
+      "required": ["status", "value"],
+      "properties": {
+        "status": {"const": "known"},
+        "value": {"type": "string", "minLength": 1, "maxLength": 4096}
+      },
+      "additionalProperties": true
+    },
+    "unavailableValue": {
+      "type": "object",
+      "required": ["status"],
+      "properties": {
+        "status": {"enum": ["unknown", "not_applicable"]}
+      },
+      "not": {"required": ["value"]},
+      "additionalProperties": true
+    },
+    "provenanceValue": {
+      "oneOf": [
+        {"$ref": "#/$defs/knownValue"},
+        {"$ref": "#/$defs/unavailableValue"}
+      ]
+    },
+    "knownLicense": {
+      "type": "object",
+      "required": ["status", "name"],
+      "properties": {
+        "status": {"const": "known"},
+        "name": {"type": "string", "minLength": 1, "maxLength": 512},
+        "url": {"type": "string", "format": "uri", "maxLength": 2048}
+      },
+      "additionalProperties": true
+    },
+    "unavailableLicense": {
+      "type": "object",
+      "required": ["status"],
+      "properties": {
+        "status": {"enum": ["unknown", "not_applicable"]}
+      },
+      "not": {"anyOf": [{"required": ["name"]}, {"required": ["url"]}]},
+      "additionalProperties": true
+    },
+    "license": {
+      "oneOf": [
+        {"$ref": "#/$defs/knownLicense"},
+        {"$ref": "#/$defs/unavailableLicense"}
+      ]
+    },
+    "hash": {
+      "type": "object",
+      "required": ["algorithm", "value"],
+      "properties": {
+        "algorithm": {"const": "sha256"},
+        "value": {"$ref": "#/$defs/sha256"}
+      },
+      "additionalProperties": true
+    },
+    "resource": {
+      "type": "object",
+      "required": [
+        "resource_id",
+        "kind",
+        "role",
+        "name",
+        "source",
+        "version",
+        "license",
+        "modifications",
+        "hashes"
+      ],
+      "properties": {
+        "resource_id": {"$ref": "#/$defs/resourceId"},
+        "kind": {
+          "enum": [
+            "article_source",
+            "translation_service",
+            "tts_model",
+            "voice_profile",
+            "software_dependency"
+          ]
+        },
+        "role": {"type": "string", "minLength": 1, "maxLength": 128},
+        "name": {"type": "string", "minLength": 1, "maxLength": 512},
+        "source": {"$ref": "#/$defs/provenanceValue"},
+        "version": {"$ref": "#/$defs/provenanceValue"},
+        "license": {"$ref": "#/$defs/license"},
+        "modifications": {"$ref": "#/$defs/provenanceValue"},
+        "hashes": {
+          "type": "array",
+          "maxItems": 16,
+          "uniqueItems": true,
+          "items": {"$ref": "#/$defs/hash"}
+        },
+        "notes": {"type": "string", "minLength": 1, "maxLength": 4096}
+      },
+      "additionalProperties": true
+    },
+    "articleSource": {
+      "type": "object",
+      "required": ["kind", "role"],
+      "properties": {
+        "kind": {"const": "article_source"},
+        "role": {"const": "content"}
+      }
+    },
+    "translationService": {
+      "type": "object",
+      "required": ["kind", "role"],
+      "properties": {
+        "kind": {"const": "translation_service"},
+        "role": {"const": "translation"}
+      }
+    },
+    "customVoiceModel": {
+      "type": "object",
+      "required": ["kind", "role"],
+      "properties": {
+        "kind": {"const": "tts_model"},
+        "role": {"const": "custom_voice"}
+      }
+    },
+    "baseModel": {
+      "type": "object",
+      "required": ["kind", "role"],
+      "properties": {
+        "kind": {"const": "tts_model"},
+        "role": {"const": "base_voice_clone"}
+      }
+    },
+    "voiceProfile": {
+      "type": "object",
+      "required": ["kind", "role"],
+      "properties": {
+        "kind": {"const": "voice_profile"},
+        "role": {"const": "narration"}
+      }
+    },
+    "pipelineSoftware": {
+      "type": "object",
+      "required": ["kind", "role"],
+      "properties": {
+        "kind": {"const": "software_dependency"},
+        "role": {"const": "pipeline"}
+      }
+    },
+    "audioEncoder": {
+      "type": "object",
+      "required": ["kind", "role"],
+      "properties": {
+        "kind": {"const": "software_dependency"},
+        "role": {"const": "audio_encoder"}
+      }
+    }
+  }
+}

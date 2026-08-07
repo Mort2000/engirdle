@@ -1,0 +1,56 @@
+{
+  "format": "readpack",
+  "format_version": "1.0",
+  "required_capabilities": [],
+  "package_id": "22222222-2222-4222-8222-222222222222",
+  "created_at": "2026-08-07T08:00:00Z",
+  "article": {
+    "id": "11111111-1111-4111-8111-111111111111",
+    "revision": 1,
+    "artifact_revision": 1
+  },
+  "files": [
+    {
+      "path": "article.json",
+      "size": 908,
+      "sha256": "e9bd568ab0b07b4536e96d1475574985bdb909524c7dd318c92476eb7e9abe90",
+      "media_type": "application/json"
+    },
+    {
+      "path": "attribution.json",
+      "size": 3769,
+      "sha256": "63b7ef99a32da8d4e89a67127dea92b418fd2a9075336e27f18435de1f6913a5",
+      "media_type": "application/json"
+    },
+    {
+      "path": "audio/article.m4a",
+      "size": 1021,
+      "sha256": "9d1b5eadcb69dbc6da763d2d09d19145b9b1d4ca9e383ea260d5b475180a9bf6",
+      "media_type": "audio/mp4"
+    }
+  ],
+  "audio": {
+    "path": "audio/article.m4a",
+    "codec": "aac-lc",
+    "sample_rate_hz": 24000,
+    "channels": 1,
+    "duration_ms": 1000
+  },
+  "pipeline": {
+    "version": "0.1.0",
+    "segmenter": "engirdle-fixture-segmenter@1",
+    "translation": {
+      "provider": "deepseek",
+      "model": "deepseek-v4-flash",
+      "thinking": "enabled",
+      "reasoning_effort": "max",
+      "prompt": "full-article-sequential-blocks@v1"
+    },
+    "tts": {
+      "custom_voice_model": "Qwen/Qwen3-TTS-12Hz-1.7B-CustomVoice@fixture-revision",
+      "base_model": "Qwen/Qwen3-TTS-12Hz-1.7B-Base@fixture-revision",
+      "voice_profile": "fixture-voice-profile@1",
+      "anchor_sha256": "c569a398cb7c7c4fc5cd4c413fb807b151081a8565f216d8723b7f05e4ed10ca"
+    }
+  }
+}

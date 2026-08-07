@@ -1,0 +1,166 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:engirdle:contracts:readpack:v1:manifest",
+  "title": "Engirdle Readpack v1 manifest",
+  "type": "object",
+  "required": [
+    "format",
+    "format_version",
+    "package_id",
+    "created_at",
+    "article",
+    "files",
+    "audio",
+    "pipeline"
+  ],
+  "properties": {
+    "format": {"const": "readpack"},
+    "format_version": {"$ref": "#/$defs/v1Version"},
+    "required_capabilities": {
+      "type": "array",
+      "maxItems": 0,
+      "uniqueItems": true,
+      "items": {"type": "string", "minLength": 1, "maxLength": 128}
+    },
+    "package_id": {"$ref": "#/$defs/uuid"},
+    "created_at": {"type": "string", "format": "date-time"},
+    "article": {
+      "type": "object",
+      "required": ["id", "revision", "artifact_revision"],
+      "properties": {
+        "id": {"$ref": "#/$defs/uuid"},
+        "revision": {"$ref": "#/$defs/positiveInteger"},
+        "artifact_revision": {"$ref": "#/$defs/positiveInteger"}
+      },
+      "additionalProperties": true
+    },
+    "files": {
+      "type": "array",
+      "minItems": 3,
+      "maxItems": 3,
+      "items": {
+        "oneOf": [
+          {"$ref": "#/$defs/articleFile"},
+          {"$ref": "#/$defs/attributionFile"},
+          {"$ref": "#/$defs/audioFile"}
+        ]
+      },
+      "allOf": [
+        {"contains": {"$ref": "#/$defs/articleFile"}, "minContains": 1, "maxContains": 1},
+        {"contains": {"$ref": "#/$defs/attributionFile"}, "minContains": 1, "maxContains": 1},
+        {"contains": {"$ref": "#/$defs/audioFile"}, "minContains": 1, "maxContains": 1}
+      ]
+    },
+    "audio": {
+      "type": "object",
+      "required": ["path", "codec", "sample_rate_hz", "channels", "duration_ms"],
+      "properties": {
+        "path": {"const": "audio/article.m4a"},
+        "codec": {"const": "aac-lc"},
+        "sample_rate_hz": {"const": 24000},
+        "channels": {"const": 1},
+        "duration_ms": {"type": "integer", "minimum": 1, "maximum": 86400000}
+      },
+      "additionalProperties": true
+    },
+    "pipeline": {
+      "type": "object",
+      "required": ["version", "segmenter", "translation", "tts"],
+      "properties": {
+        "version": {"$ref": "#/$defs/semanticVersion"},
+        "segmenter": {"$ref": "#/$defs/revisionedIdentifier"},
+        "translation": {
+          "type": "object",
+          "required": ["provider", "model", "thinking", "reasoning_effort", "prompt"],
+          "properties": {
+            "provider": {"$ref": "#/$defs/nonEmptyString"},
+            "model": {"$ref": "#/$defs/nonEmptyString"},
+            "thinking": {"$ref": "#/$defs/nonEmptyString"},
+            "reasoning_effort": {"$ref": "#/$defs/nonEmptyString"},
+            "prompt": {"$ref": "#/$defs/revisionedIdentifier"}
+          },
+          "additionalProperties": true
+        },
+        "tts": {
+          "type": "object",
+          "required": [
+            "custom_voice_model",
+            "base_model",
+            "voice_profile",
+            "anchor_sha256"
+          ],
+          "properties": {
+            "custom_voice_model": {"$ref": "#/$defs/revisionedIdentifier"},
+            "base_model": {"$ref": "#/$defs/revisionedIdentifier"},
+            "voice_profile": {"$ref": "#/$defs/revisionedIdentifier"},
+            "anchor_sha256": {"$ref": "#/$defs/sha256"}
+          },
+          "additionalProperties": true
+        }
+      },
+      "additionalProperties": true
+    }
+  },
+  "additionalProperties": true,
+  "$defs": {
+    "v1Version": {"type": "string", "pattern": "^1\\.[0-9]+$"},
+    "semanticVersion": {
+      "type": "string",
+      "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+(?:[-+][0-9A-Za-z.-]+)?$"
+    },
+    "uuid": {"type": "string", "format": "uuid"},
+    "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "positiveInteger": {"type": "integer", "minimum": 1, "maximum": 2147483647},
+    "nonEmptyString": {"type": "string", "minLength": 1, "maxLength": 512},
+    "revisionedIdentifier": {
+      "type": "string",
+      "minLength": 3,
+      "maxLength": 512,
+      "pattern": "^.+@[^@]+$"
+    },
+    "fileBase": {
+      "type": "object",
+      "required": ["path", "size", "sha256", "media_type"],
+      "properties": {
+        "size": {"type": "integer", "minimum": 1, "maximum": 1073741824},
+        "sha256": {"$ref": "#/$defs/sha256"}
+      }
+    },
+    "articleFile": {
+      "allOf": [
+        {"$ref": "#/$defs/fileBase"},
+        {
+          "type": "object",
+          "properties": {
+            "path": {"const": "article.json"},
+            "media_type": {"const": "application/json"}
+          }
+        }
+      ]
+    },
+    "attributionFile": {
+      "allOf": [
+        {"$ref": "#/$defs/fileBase"},
+        {
+          "type": "object",
+          "properties": {
+            "path": {"const": "attribution.json"},
+            "media_type": {"const": "application/json"}
+          }
+        }
+      ]
+    },
+    "audioFile": {
+      "allOf": [
+        {"$ref": "#/$defs/fileBase"},
+        {
+          "type": "object",
+          "properties": {
+            "path": {"const": "audio/article.m4a"},
+            "media_type": {"const": "audio/mp4"}
+          }
+        }
+      ]
+    }
+  }
+}

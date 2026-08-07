@@ -1,0 +1,95 @@
+{
+  "format": "readpack-attribution",
+  "format_version": "1.0",
+  "article": {
+    "id": "11111111-1111-4111-8111-111111111111",
+    "revision": 1
+  },
+  "resources": [
+    {
+      "resource_id": "article-source",
+      "kind": "article_source",
+      "role": "content",
+      "name": "Minimal Contract Article",
+      "source": {"status": "known", "value": "Generated for the Engirdle contract fixture"},
+      "version": {"status": "not_applicable"},
+      "license": {"status": "known", "name": "CC0-1.0", "url": "https://creativecommons.org/publicdomain/zero/1.0/"},
+      "modifications": {"status": "known", "value": "Synthetic one-sentence fixture; no external article was used"},
+      "hashes": [
+        {"algorithm": "sha256", "value": "f8c3bf62a9aa3e6fc1619c250e48abe7519373d3edf41be62eb5dc45199af2ef"}
+      ]
+    },
+    {
+      "resource_id": "translation-service",
+      "kind": "translation_service",
+      "role": "translation",
+      "name": "DeepSeek API",
+      "source": {"status": "known", "value": "https://api.deepseek.com"},
+      "version": {"status": "known", "value": "deepseek-v4-flash"},
+      "license": {"status": "not_applicable"},
+      "modifications": {"status": "not_applicable"},
+      "hashes": [],
+      "notes": "The fixture translation is synthetic and does not contain a recorded provider response."
+    },
+    {
+      "resource_id": "tts-custom-voice-model",
+      "kind": "tts_model",
+      "role": "custom_voice",
+      "name": "Qwen3-TTS-12Hz-1.7B-CustomVoice",
+      "source": {"status": "known", "value": "Qwen/Qwen3-TTS-12Hz-1.7B-CustomVoice"},
+      "version": {"status": "known", "value": "fixture-revision"},
+      "license": {"status": "unknown"},
+      "modifications": {"status": "not_applicable"},
+      "hashes": [],
+      "notes": "No model weights or model-generated audio are included in this fixture."
+    },
+    {
+      "resource_id": "tts-base-model",
+      "kind": "tts_model",
+      "role": "base_voice_clone",
+      "name": "Qwen3-TTS-12Hz-1.7B-Base",
+      "source": {"status": "known", "value": "Qwen/Qwen3-TTS-12Hz-1.7B-Base"},
+      "version": {"status": "known", "value": "fixture-revision"},
+      "license": {"status": "unknown"},
+      "modifications": {"status": "not_applicable"},
+      "hashes": [],
+      "notes": "No model weights or model-generated audio are included in this fixture."
+    },
+    {
+      "resource_id": "voice-profile",
+      "kind": "voice_profile",
+      "role": "narration",
+      "name": "Synthetic fixture voice",
+      "source": {"status": "known", "value": "Generated locally for contract testing"},
+      "version": {"status": "known", "value": "1"},
+      "license": {"status": "unknown"},
+      "modifications": {"status": "not_applicable"},
+      "hashes": [
+        {"algorithm": "sha256", "value": "c569a398cb7c7c4fc5cd4c413fb807b151081a8565f216d8723b7f05e4ed10ca"}
+      ],
+      "notes": "The hash identifies fixture metadata only; no anchor WAV is distributed."
+    },
+    {
+      "resource_id": "engirdle-pipeline",
+      "kind": "software_dependency",
+      "role": "pipeline",
+      "name": "Engirdle PC pipeline",
+      "source": {"status": "known", "value": "Engirdle repository"},
+      "version": {"status": "known", "value": "0.1.0"},
+      "license": {"status": "unknown"},
+      "modifications": {"status": "not_applicable"},
+      "hashes": []
+    },
+    {
+      "resource_id": "audio-encoder",
+      "kind": "software_dependency",
+      "role": "audio_encoder",
+      "name": "FFmpeg",
+      "source": {"status": "known", "value": "https://ffmpeg.org/"},
+      "version": {"status": "known", "value": "7.0.2-static"},
+      "license": {"status": "unknown"},
+      "modifications": {"status": "not_applicable"},
+      "hashes": []
+    }
+  ]
+}
