@@ -1,0 +1,3 @@
+# Local Qwen3-TTS reference assets and model checkpoints.
+# The application must build and run without this directory.
+/.tts/
