@@ -10,18 +10,18 @@ from engirdle_pc.modules.production.domain.models import (
     BuildJob,
     JobStatus,
     PipelineConfig,
+    ProductionCheckpoint,
     ProductionStage,
 )
-from engirdle_pc.modules.production.infrastructure.sqlite_repository import JobRepository
 
 __all__ = [
     "AdapterContractError",
     "BuildJob",
     "InvalidJobState",
     "JobNotFound",
-    "JobRepository",
     "JobStatus",
     "PipelineConfig",
+    "ProductionCheckpoint",
     "ProductionError",
     "ProductionService",
     "ProductionStage",

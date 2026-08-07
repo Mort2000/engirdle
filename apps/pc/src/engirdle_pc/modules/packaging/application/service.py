@@ -1,15 +1,11 @@
 from __future__ import annotations
 
 import json
-import os
 from collections.abc import Mapping
-from uuid import uuid4
-from zipfile import ZIP_DEFLATED, ZIP_STORED, ZipFile
 
 from engirdle_pc.modules.audio.public import AudioService, SentenceTiming
 from engirdle_pc.modules.content.public import ArticleRevision, ContentService
-from engirdle_pc.modules.packaging.application.validator import ReadpackValidator
-from engirdle_pc.modules.packaging.domain.models import (
+from engirdle_pc.modules.packaging.application.contracts import (
     ArticleBlock,
     ArticlePayload,
     ArticleSentence,
@@ -17,12 +13,12 @@ from engirdle_pc.modules.packaging.domain.models import (
     AttributionArticle,
     AttributionPayload,
     AttributionResource,
+    AudioEncodingPipeline,
     KnownLicense,
     KnownValue,
     Manifest,
     ManifestArticle,
     ManifestAudio,
-    PackageArtifact,
     PayloadFile,
     PipelineMetadata,
     ResourceHash,
@@ -31,30 +27,39 @@ from engirdle_pc.modules.packaging.domain.models import (
     UnavailableLicense,
     UnavailableValue,
 )
-from engirdle_pc.modules.packaging.infrastructure.sqlite_repository import ArtifactRepository
+from engirdle_pc.modules.packaging.application.models import (
+    PackageArtifact,
+    PackageContents,
+)
+from engirdle_pc.modules.packaging.application.ports import (
+    ArtifactStore,
+    PackageWriter,
+)
 from engirdle_pc.modules.production.public import BuildJob, JobStatus
-from engirdle_pc.modules.translation.public import TranslationRepository
+from engirdle_pc.modules.translation.public import TranslationService
+from engirdle_pc.shared.application.runtime import Clock, IdentifierGenerator
+from engirdle_pc.shared.domain.hashing import sha256_bytes
 from engirdle_pc.shared.domain.time import isoformat_utc
-from engirdle_pc.shared.infrastructure.hashing import sha256_bytes, sha256_file
-from engirdle_pc.shared.infrastructure.workspace import Workspace
 
 
 class PackagingService:
     def __init__(
         self,
-        artifacts: ArtifactRepository,
+        artifacts: ArtifactStore,
         content: ContentService,
-        translations: TranslationRepository,
+        translations: TranslationService,
         audio: AudioService,
-        validator: ReadpackValidator,
-        workspace: Workspace,
+        writer: PackageWriter,
+        clock: Clock,
+        identifiers: IdentifierGenerator,
     ) -> None:
         self._artifacts = artifacts
         self._content = content
         self._translations = translations
         self._audio = audio
-        self._validator = validator
-        self._workspace = workspace
+        self._writer = writer
+        self._clock = clock
+        self._identifiers = identifiers
 
     def build(self, job: BuildJob) -> PackageArtifact:
         if job.status is not JobStatus.REVIEW_REQUIRED:
@@ -77,17 +82,22 @@ class PackagingService:
         artifact_revision = self._artifacts.next_artifact_revision(
             job.article_id, job.revision
         )
-        package_id = str(uuid4())
-        created_at = isoformat_utc()
+        package_id = self._identifiers.new()
+        created_at = isoformat_utc(self._clock.now())
         article_payload = _article_payload(revision, translations, timings)
         attribution_payload = _attribution_payload(revision, job, audio.encoder_version)
         article_bytes = _json_bytes(article_payload)
         attribution_bytes = _json_bytes(attribution_payload)
-        audio_bytes = audio.path.read_bytes()
+        audio_metadata = self._writer.describe_input(audio.path)
         files = [
             _payload_file("article.json", "application/json", article_bytes),
             _payload_file("attribution.json", "application/json", attribution_bytes),
-            _payload_file("audio/article.m4a", "audio/mp4", audio_bytes),
+            PayloadFile(
+                path="audio/article.m4a",
+                size=audio_metadata.size,
+                sha256=audio_metadata.sha256,
+                media_type="audio/mp4",
+            ),
         ]
         manifest = Manifest(
             package_id=package_id,
@@ -117,24 +127,31 @@ class PackagingService:
                     anchor_sha256=job.config.anchor_sha256,
                     generation=job.config.speech_generation,
                 ),
+                audio_encoding=AudioEncodingPipeline(
+                    codec="aac-lc",
+                    bitrate_kbps=job.config.audio_bitrate_kbps,
+                    sample_rate_hz=audio.sample_rate_hz,
+                    channels=audio.channels,
+                    loudness_target_lufs=job.config.audio_loudness_target_lufs,
+                    true_peak_dbfs=job.config.audio_true_peak_dbfs,
+                    loudness_range_lu=job.config.audio_loudness_range_lu,
+                ),
             ),
         )
         manifest_bytes = _json_bytes(manifest)
-        artifact_dir = self._workspace.artifact_dir(
-            job.article_id, job.revision, artifact_revision
-        )
-        artifact_dir.mkdir(parents=True, exist_ok=True)
         opaque_name = f"{package_id}.readpack"
-        final_path = artifact_dir / opaque_name
-        temporary_path = artifact_dir / f".{opaque_name}.tmp"
-        with ZipFile(temporary_path, "w") as archive:
-            archive.writestr("manifest.json", manifest_bytes, compress_type=ZIP_DEFLATED)
-            archive.writestr("article.json", article_bytes, compress_type=ZIP_DEFLATED)
-            archive.writestr("attribution.json", attribution_bytes, compress_type=ZIP_DEFLATED)
-            archive.writestr("audio/article.m4a", audio_bytes, compress_type=ZIP_STORED)
-        self._validator.validate(temporary_path)
-        os.replace(temporary_path, final_path)
-        self._validator.validate(final_path)
+        stored = self._writer.write(
+            job.article_id,
+            job.revision,
+            artifact_revision,
+            opaque_name,
+            PackageContents(
+                manifest=manifest_bytes,
+                article=article_bytes,
+                attribution=attribution_bytes,
+                audio_path=audio.path,
+            ),
+        )
         artifact = PackageArtifact(
             package_id=package_id,
             article_id=job.article_id,
@@ -142,14 +159,30 @@ class PackagingService:
             artifact_revision=artifact_revision,
             job_id=job.job_id,
             opaque_name=opaque_name,
-            path=final_path,
-            size=final_path.stat().st_size,
-            sha256=sha256_file(final_path),
+            path=stored.path,
+            size=stored.size,
+            sha256=stored.sha256,
             state="validated",
             created_at=created_at,
         )
         self._artifacts.insert(artifact)
         return artifact
+
+    def mark_published(self, package_id: str) -> None:
+        self._artifacts.mark_published(package_id)
+
+    def get_verified(self, package_id: str) -> PackageArtifact:
+        artifact = self._artifacts.get(package_id)
+        actual = self._writer.verify(artifact.path)
+        if actual.size != artifact.size or actual.sha256 != artifact.sha256:
+            raise ValueError("stored package metadata does not match its bytes")
+        return artifact
+
+    def list_for_article(self, article_id: str) -> tuple[PackageArtifact, ...]:
+        return self._artifacts.list_for_article(article_id)
+
+    def delete_for_article(self, article_id: str) -> None:
+        self._artifacts.delete_for_article(article_id)
 
 
 def _article_payload(

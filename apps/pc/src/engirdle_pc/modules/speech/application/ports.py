@@ -20,6 +20,16 @@ class SentenceSpeech:
     sample_count: int
 
 
+class SpeechStore(Protocol):
+    def save(
+        self, job_id: str, speech: SentenceSpeech, adapter_name: str
+    ) -> None: ...
+
+    def list_reusable_for_job(
+        self, job_id: str, adapter_name: str
+    ) -> tuple[SentenceSpeech, ...]: ...
+
+
 class SpeechAdapter(Protocol):
     name: str
     custom_voice_model: str

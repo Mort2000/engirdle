@@ -3,7 +3,7 @@ from __future__ import annotations
 from fastapi import FastAPI, HTTPException, Path
 from fastapi.responses import FileResponse, Response
 
-from engirdle_pc.modules.publishing.public import PublisherQueries
+from engirdle_pc.modules.publishing.infrastructure.query_service import PublisherQueries
 
 
 def create_publisher_app(queries: PublisherQueries) -> FastAPI:

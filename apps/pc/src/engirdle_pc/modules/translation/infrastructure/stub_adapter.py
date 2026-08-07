@@ -1,12 +1,11 @@
 from __future__ import annotations
 
-from uuid import uuid4
-
 from engirdle_pc.modules.content.public import ArticleRevision, Block
 from engirdle_pc.modules.translation.application.ports import (
     SentenceTranslation,
     TranslationBatch,
 )
+from engirdle_pc.shared.application.runtime import IdentifierGenerator
 
 
 class StubTranslationAdapter:
@@ -16,6 +15,9 @@ class StubTranslationAdapter:
     provider = "stub-deepseek"
     endpoint = "stub://deepseek"
     model = "deepseek-v4-flash"
+
+    def __init__(self, identifiers: IdentifierGenerator) -> None:
+        self._identifiers = identifiers
 
     def begin(self, revision: ArticleRevision) -> str:
         return f"stub-context-{revision.article_id}-{revision.revision}"
@@ -33,5 +35,5 @@ class StubTranslationAdapter:
                 )
                 for sentence in block.sentences
             ),
-            request_id=f"stub-{uuid4()}",
+            request_id=f"stub-{self._identifiers.new()}",
         )

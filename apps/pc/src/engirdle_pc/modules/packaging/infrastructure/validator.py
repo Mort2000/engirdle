@@ -8,11 +8,8 @@ from zipfile import ZipFile
 
 from jsonschema import Draft202012Validator, FormatChecker  # type: ignore[import-untyped]
 
-from engirdle_pc.shared.infrastructure.hashing import sha256_bytes
-
-
-class InvalidReadpack(ValueError):
-    """A readpack violates its container, schema, integrity, or semantic contract."""
+from engirdle_pc.modules.packaging.application.errors import InvalidReadpack
+from engirdle_pc.shared.domain.hashing import sha256_bytes
 
 
 class ReadpackValidator:
@@ -39,6 +36,8 @@ class ReadpackValidator:
             if set(names) != self._ALLOWED_PATHS:
                 raise InvalidReadpack("readpack has a missing or unapproved path")
             for entry in archive.infolist():
+                if entry.flag_bits & 0x1:
+                    raise InvalidReadpack("encrypted ZIP entries are not supported")
                 path = PurePosixPath(entry.filename)
                 if path.is_absolute() or ".." in path.parts or not entry.filename:
                     raise InvalidReadpack("unsafe ZIP path")
@@ -125,6 +124,20 @@ def _validate_article_semantics(
                 <= max_sample
             ):
                 raise InvalidReadpack("sentence audio ranges must be ordered and bounded")
+            expected_start_ms = (
+                sentence["audio_start_sample"] * 1000 // audio["sample_rate_hz"]
+            )
+            expected_end_ms = (
+                sentence["audio_end_sample"] * 1000
+                + audio["sample_rate_hz"]
+                - 1
+            ) // audio["sample_rate_hz"]
+            if (
+                sentence["audio_start_ms"] != expected_start_ms
+                or sentence["audio_end_ms"] != expected_end_ms
+                or sentence["audio_end_ms"] > audio["duration_ms"]
+            ):
+                raise InvalidReadpack("sample and millisecond audio ranges disagree")
             previous_end = sentence["audio_end_sample"]
 
 

@@ -2,7 +2,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from engirdle_pc.modules.audio.domain.models import AudioOutput, SentenceTiming
+from engirdle_pc.modules.audio.application.models import AudioOutput
+from engirdle_pc.modules.audio.domain.models import SentenceTiming
 from engirdle_pc.shared.infrastructure.database.connection import Database
 
 

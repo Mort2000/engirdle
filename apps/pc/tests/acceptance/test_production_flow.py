@@ -53,6 +53,19 @@ def test_user_can_produce_review_and_publish_an_article(tmp_path: Path) -> None:
     assert review.json()["config_snapshot"]["translation"]["endpoint"] == "stub://deepseek"
     assert review.json()["config_snapshot"]["speech"]["generation"] == "tone-pcm@v1"
 
+    audio_review = admin.get(f"/api/jobs/{job_id}/audio")
+    assert audio_review.status_code == 200
+    assert audio_review.json()["checks"] == {
+        "missing_sentence_ids": [],
+        "zero_duration_sentence_ids": [],
+        "abnormal_duration_sentence_ids": [],
+    }
+    assert len(audio_review.json()["sentences"]) == 3
+    review_page = admin.get(f"/jobs/{job_id}")
+    assert review_page.status_code == 200
+    assert "播放此句" in review_page.text
+    assert "缺失 0" in review_page.text
+
     translations = admin.get(f"/api/jobs/{job_id}/translations").json()
     first_sentence_id = translations[0]["sentence_id"]
     assert translations[0]["source_text"] == "First sentence."
@@ -86,7 +99,29 @@ def test_user_can_produce_review_and_publish_an_article(tmp_path: Path) -> None:
             "audio/article.m4a",
         }
         article_payload = json.loads(archive.read("article.json"))
+        manifest_payload = json.loads(archive.read("manifest.json"))
+        assert manifest_payload["pipeline"]["audio_encoding"] == {
+            "codec": "aac-lc",
+            "bitrate_kbps": 64,
+            "sample_rate_hz": 24000,
+            "channels": 1,
+            "loudness_target_lufs": -18.0,
+            "true_peak_dbfs": -3.0,
+            "loudness_range_lu": 11.0,
+        }
         assert (
             article_payload["blocks"][0]["sentences"][0]["translation_zh"]
             == "人工确认的第一句。"
         )
+
+    dashboard = admin.get("/")
+    assert "当前已发布制品" in dashboard.text
+    assert "制品修订 1" in dashboard.text
+    republished = admin.post(f"/api/artifacts/{package['package_id']}/republish")
+    assert republished.status_code == 201
+    assert publisher.get(catalog_item["url"]).status_code == 200
+
+    public_package = settings.public_dir / catalog_item["url"].removeprefix("/")
+    public_package.unlink()
+    container.publishing.regenerate_catalog()
+    assert publisher.get("/catalog.json").json()["packages"] == []

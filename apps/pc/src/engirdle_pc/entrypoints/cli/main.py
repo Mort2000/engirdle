@@ -2,13 +2,11 @@ from __future__ import annotations
 
 import argparse
 import logging
+import time
 
 import uvicorn
 
 from engirdle_pc.bootstrap.config import Settings
-from engirdle_pc.bootstrap.container import Container
-from engirdle_pc.entrypoints.admin_web.app import create_admin_app
-from engirdle_pc.entrypoints.publisher.app import create_publisher_app
 
 
 def main() -> None:
@@ -17,18 +15,40 @@ def main() -> None:
     arguments = parser.parse_args()
     logging.basicConfig(level=logging.INFO)
     settings = Settings()
+    if arguments.command == "publisher":
+        from engirdle_pc.modules.publishing.infrastructure.process_controller import (
+            PublisherProcessController,
+        )
+        from engirdle_pc.shared.infrastructure.runtime import (
+            SystemClock,
+            UuidIdentifierGenerator,
+        )
+
+        publisher = PublisherProcessController(
+            settings.workspace,
+            settings.publisher_host,
+            settings.publisher_port,
+            SystemClock(),
+            UuidIdentifierGenerator(),
+        )
+        publisher.start()
+        try:
+            while publisher.status().running:
+                time.sleep(0.5)
+        except KeyboardInterrupt:
+            publisher.stop()
+        return
+
+    from engirdle_pc.bootstrap.container import Container
+
     container = Container.build(settings)
     if arguments.command == "admin":
+        from engirdle_pc.entrypoints.admin_web.app import create_admin_app
+
         uvicorn.run(
             create_admin_app(container),
             host=settings.management_host,
             port=settings.management_port,
-        )
-    elif arguments.command == "publisher":
-        uvicorn.run(
-            create_publisher_app(container.publisher_queries),
-            host=settings.publisher_host,
-            port=settings.publisher_port,
         )
     elif arguments.command == "worker-once":
         processed = container.worker.run_once()

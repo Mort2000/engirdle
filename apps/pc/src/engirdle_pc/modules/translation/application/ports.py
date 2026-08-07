@@ -19,6 +19,30 @@ class TranslationBatch:
     request_id: str
 
 
+@dataclass(frozen=True)
+class ReviewedTranslation:
+    sentence_id: str
+    generated_text: str
+    edited_text: str | None
+
+    @property
+    def published_text(self) -> str:
+        return self.edited_text or self.generated_text
+
+
+class TranslationStore(Protocol):
+    def save(
+        self,
+        job_id: str,
+        translations: tuple[SentenceTranslation, ...],
+        adapter_name: str,
+    ) -> None: ...
+
+    def edit(self, job_id: str, sentence_id: str, text: str) -> None: ...
+
+    def list_for_job(self, job_id: str) -> tuple[ReviewedTranslation, ...]: ...
+
+
 class TranslationAdapter(Protocol):
     name: str
     provider: str

@@ -3,13 +3,15 @@ from engirdle_pc.modules.speech.application.ports import (
     SpeechAdapter,
     VoiceProfileRef,
 )
-from engirdle_pc.modules.speech.infrastructure.sqlite_repository import SpeechRepository
-from engirdle_pc.modules.speech.infrastructure.stub_adapter import StubSpeechAdapter
+from engirdle_pc.modules.speech.application.service import (
+    InvalidSpeechResult,
+    SpeechService,
+)
 
 __all__ = [
+    "InvalidSpeechResult",
     "SentenceSpeech",
     "SpeechAdapter",
-    "SpeechRepository",
-    "StubSpeechAdapter",
+    "SpeechService",
     "VoiceProfileRef",
 ]

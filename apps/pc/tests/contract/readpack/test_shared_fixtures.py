@@ -1,7 +1,8 @@
 import pytest
 
 from engirdle_pc.bootstrap.config import Settings
-from engirdle_pc.modules.packaging.public import InvalidReadpack, ReadpackValidator
+from engirdle_pc.modules.packaging.infrastructure.validator import ReadpackValidator
+from engirdle_pc.modules.packaging.public import InvalidReadpack
 
 
 def test_pc_validator_accepts_shared_valid_readpack_fixture() -> None:

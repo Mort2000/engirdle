@@ -1,16 +1,21 @@
 from __future__ import annotations
 
-import json
 import logging
 
 from engirdle_pc.modules.audio.public import AudioService
 from engirdle_pc.modules.content.public import ContentService
+from engirdle_pc.modules.production.application.ports import (
+    JobStore,
+    ProductionWorkspace,
+)
 from engirdle_pc.modules.production.domain.errors import AdapterContractError
-from engirdle_pc.modules.production.domain.models import ProductionStage
-from engirdle_pc.modules.production.infrastructure.sqlite_repository import JobRepository
-from engirdle_pc.modules.speech.public import SpeechAdapter, SpeechRepository
-from engirdle_pc.modules.translation.public import TranslationAdapter, TranslationRepository
-from engirdle_pc.shared.infrastructure.workspace import Workspace
+from engirdle_pc.modules.production.domain.models import (
+    BuildJob,
+    ProductionCheckpoint,
+    ProductionStage,
+)
+from engirdle_pc.modules.speech.public import SentenceSpeech, SpeechService
+from engirdle_pc.modules.translation.public import TranslationService
 
 LOGGER = logging.getLogger(__name__)
 
@@ -18,21 +23,17 @@ LOGGER = logging.getLogger(__name__)
 class ProductionWorker:
     def __init__(
         self,
-        jobs: JobRepository,
+        jobs: JobStore,
         content: ContentService,
-        translator: TranslationAdapter,
-        translations: TranslationRepository,
-        speech_adapter: SpeechAdapter,
-        speech_repository: SpeechRepository,
+        translations: TranslationService,
+        speech: SpeechService,
         audio: AudioService,
-        workspace: Workspace,
+        workspace: ProductionWorkspace,
     ) -> None:
         self._jobs = jobs
         self._content = content
-        self._translator = translator
         self._translations = translations
-        self._speech_adapter = speech_adapter
-        self._speech_repository = speech_repository
+        self._speech = speech
         self._audio = audio
         self._workspace = workspace
 
@@ -50,45 +51,71 @@ class ProductionWorker:
         }
         try:
             revision = self._content.get(job.article_id, job.revision)
-            checkpoint_id = self._translator.begin(revision)
-            accepted_blocks: list[str] = []
+            self._verify_adapter_snapshot(job)
+            checkpoint = ProductionCheckpoint.from_json(job.checkpoint_json)
+            if checkpoint is None:
+                checkpoint = ProductionCheckpoint(self._translations.begin(revision))
+            saved_translation_ids = {
+                translation.sentence_id
+                for translation in self._translations.list_for_job(job.job_id)
+            }
             for block in revision.blocks:
-                batch = self._translator.translate_block(revision, block, checkpoint_id)
                 expected = {sentence.sentence_id for sentence in block.sentences}
-                actual = {translation.sentence_id for translation in batch.translations}
-                if batch.block_id != block.block_id or actual != expected or len(actual) != len(
-                    batch.translations
+                if (
+                    block.block_id in checkpoint.accepted_block_ids
+                    and expected <= saved_translation_ids
                 ):
-                    raise AdapterContractError(
-                        f"translation adapter returned a mismatched ID set for {block.block_id}"
-                    )
-                self._translations.save(
-                    job.job_id, batch.translations, self._translator.name
+                    continue
+                batch = self._translations.translate_block(
+                    job.job_id,
+                    revision,
+                    block,
+                    checkpoint.translation_checkpoint_id,
                 )
-                accepted_blocks.append(block.block_id)
+                actual = {translation.sentence_id for translation in batch.translations}
+                saved_translation_ids.update(actual)
+                checkpoint = checkpoint.accept_block(block.block_id)
                 self._jobs.checkpoint(
                     job.job_id,
                     ProductionStage.TRANSLATION,
-                    json.dumps(
-                        {"checkpoint_id": checkpoint_id, "accepted_blocks": accepted_blocks},
-                        sort_keys=True,
-                    ),
+                    checkpoint.to_json(),
                 )
 
-            self._jobs.checkpoint(job.job_id, ProductionStage.SPEECH)
+            self._jobs.checkpoint(
+                job.job_id, ProductionStage.SPEECH, checkpoint.to_json()
+            )
             target_dir = self._workspace.job_dir(job.job_id)
-            speech_items = []
+            speech_items: list[SentenceSpeech] = []
+            cached_speech = {
+                speech.sentence_id: speech
+                for speech in self._speech.reusable_for_job(job.job_id)
+            }
             for block in revision.blocks:
                 for sentence in block.sentences:
-                    speech = self._speech_adapter.synthesize(
-                        sentence.sentence_id, sentence.text, target_dir / "pcm"
+                    cached = cached_speech.get(sentence.sentence_id)
+                    if (
+                        sentence.sentence_id in checkpoint.synthesized_sentence_ids
+                        and cached is not None
+                    ):
+                        speech_items.append(cached)
+                        continue
+                    speech = self._speech.synthesize(
+                        job.job_id,
+                        sentence.sentence_id,
+                        sentence.text,
+                        target_dir / "pcm",
                     )
-                    if speech.sentence_id != sentence.sentence_id:
-                        raise AdapterContractError("speech adapter changed the sentence ID")
-                    self._speech_repository.save(job.job_id, speech, self._speech_adapter.name)
                     speech_items.append(speech)
+                    checkpoint = checkpoint.accept_speech(sentence.sentence_id)
+                    self._jobs.checkpoint(
+                        job.job_id,
+                        ProductionStage.SPEECH,
+                        checkpoint.to_json(),
+                    )
 
-            self._jobs.checkpoint(job.job_id, ProductionStage.AUDIO)
+            self._jobs.checkpoint(
+                job.job_id, ProductionStage.AUDIO, checkpoint.to_json()
+            )
             self._audio.build(
                 job.job_id, revision, tuple(speech_items), target_dir / "audio"
             )
@@ -98,3 +125,9 @@ class ProductionWorker:
             LOGGER.exception("Production job failed", extra=context)
             self._jobs.fail(job.job_id, type(error).__name__, str(error))
         return True
+
+    def _verify_adapter_snapshot(self, job: BuildJob) -> None:
+        if job.config.translation_adapter != self._translations.name:
+            raise AdapterContractError("translation adapter differs from the job snapshot")
+        if job.config.speech_adapter != self._speech.name:
+            raise AdapterContractError("speech adapter differs from the job snapshot")

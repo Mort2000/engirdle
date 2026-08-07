@@ -10,6 +10,15 @@ from fastapi.templating import Jinja2Templates
 
 from engirdle_pc.bootstrap.container import Container
 from engirdle_pc.entrypoints.admin_web.app import EditStructureRequest
+from engirdle_pc.entrypoints.admin_web.view_models import (
+    article_view,
+    artifact_view,
+    audio_review_view,
+    job_view,
+    published_view,
+    publisher_view,
+    translation_views,
+)
 from engirdle_pc.modules.content.public import (
     ArticleRevision,
     EditedBlock,
@@ -25,15 +34,45 @@ def create_pages_router(container: Container) -> APIRouter:
 
     @router.get("/")
     def dashboard(request: Request) -> object:
+        publisher_status = container.publisher_process.status()
+        article_entities = container.content.list_latest()
+        artifacts = container.local_library.list_artifacts(
+            tuple(article.article_id for article in article_entities)
+        )
         return _TEMPLATES.TemplateResponse(
             request=request,
             name="dashboard.html",
             context={
-                "articles": container.content.list_latest(),
-                "jobs": container.production.list_recent(),
+                "articles": tuple(
+                    article_view(article) for article in article_entities
+                ),
+                "jobs": tuple(
+                    job_view(job) for job in container.production.list_recent()
+                ),
+                "published": tuple(
+                    published_view(package)
+                    for package in container.publishing.list_current()
+                ),
+                "artifacts": tuple(artifact_view(artifact) for artifact in artifacts),
                 "catalog_available": container.publisher_queries.catalog_path.is_file(),
+                "publisher": publisher_view(publisher_status),
             },
         )
+
+    @router.post("/artifacts/{package_id}/republish")
+    def republish_artifact(package_id: str) -> RedirectResponse:
+        container.local_library.republish(package_id)
+        return RedirectResponse("/", status_code=303)
+
+    @router.post("/publisher/start")
+    def start_publisher() -> RedirectResponse:
+        container.publisher_process.start()
+        return RedirectResponse("/", status_code=303)
+
+    @router.post("/publisher/stop")
+    def stop_publisher() -> RedirectResponse:
+        container.publisher_process.stop()
+        return RedirectResponse("/", status_code=303)
 
     @router.get("/articles/new")
     def article_entry(request: Request) -> object:
@@ -71,7 +110,7 @@ def create_pages_router(container: Container) -> APIRouter:
         return _TEMPLATES.TemplateResponse(
             request=request,
             name="article_revision_new.html",
-            context={"article": article},
+            context={"article": article_view(article)},
         )
 
     @router.post("/articles/{article_id}/revisions")
@@ -108,7 +147,7 @@ def create_pages_router(container: Container) -> APIRouter:
             request=request,
             name="article_structure.html",
             context={
-                "article": revision,
+                "article": article_view(revision),
                 "structure_json": _structure_json(revision),
             },
         )
@@ -171,24 +210,29 @@ def create_pages_router(container: Container) -> APIRouter:
     @router.get("/jobs/{job_id}")
     def job_review(request: Request, job_id: str) -> object:
         job = container.production.get(job_id)
-        translations = container.translations.list_for_job(job_id)
+        translation_entities = container.translations.list_for_job(job_id)
         revision = container.content.get(job.article_id, job.revision)
         source_by_id = {
             sentence.sentence_id: sentence.text
             for block in revision.blocks
             for sentence in block.sentences
         }
-        audio = None
-        if job.status.value in {"review_required", "succeeded"}:
-            audio = container.audio.get(job_id)
+        audio_review = None
+        if container.production.audio_is_ready(job_id):
+            audio_entity = container.audio.review(
+                job_id,
+                tuple(source_by_id),
+            )
+            audio_review = audio_review_view(audio_entity, source_by_id)
         return _TEMPLATES.TemplateResponse(
             request=request,
             name="job.html",
             context={
-                "job": job,
-                "translations": translations,
-                "source_by_id": source_by_id,
-                "audio": audio,
+                "job": job_view(job),
+                "translations": translation_views(
+                    translation_entities, source_by_id
+                ),
+                "audio_review": audio_review,
             },
         )
 
@@ -198,8 +242,7 @@ def create_pages_router(container: Container) -> APIRouter:
         sentence_id: str,
         text_zh: Annotated[str, Form()],
     ) -> RedirectResponse:
-        if container.production.get(job_id).status.value != "review_required":
-            raise HTTPException(status_code=409, detail="translation review is closed")
+        container.production.require_review(job_id)
         container.translations.edit(job_id, sentence_id, text_zh)
         return RedirectResponse(f"/jobs/{job_id}", status_code=303)
 

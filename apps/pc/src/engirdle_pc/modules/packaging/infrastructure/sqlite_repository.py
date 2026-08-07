@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from engirdle_pc.modules.packaging.domain.models import PackageArtifact
+from engirdle_pc.modules.packaging.application.models import PackageArtifact
 from engirdle_pc.shared.infrastructure.database.connection import Database
 
 
@@ -62,6 +62,15 @@ class ArtifactRepository:
                 (article_id,),
             ).fetchall()
             return tuple(_map_artifact(row) for row in rows)
+
+    def mark_published(self, package_id: str) -> None:
+        with self._database.connect() as connection:
+            updated = connection.execute(
+                "UPDATE package_artifacts SET state = 'published' WHERE package_id = ?",
+                (package_id,),
+            ).rowcount
+            if updated != 1:
+                raise KeyError(f"package {package_id} not found")
 
     def delete_for_article(self, article_id: str) -> None:
         with self._database.connect() as connection:

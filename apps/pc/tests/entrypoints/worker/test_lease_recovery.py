@@ -5,10 +5,9 @@ import pytest
 from engirdle_pc.bootstrap.config import Settings
 from engirdle_pc.bootstrap.container import Container
 from engirdle_pc.modules.content.public import ArticleRevision, Block, NewArticle
-from engirdle_pc.modules.translation.public import (
-    StubTranslationAdapter,
-    TranslationBatch,
-)
+from engirdle_pc.modules.translation.infrastructure.stub_adapter import StubTranslationAdapter
+from engirdle_pc.modules.translation.public import TranslationBatch
+from engirdle_pc.shared.infrastructure.runtime import UuidIdentifierGenerator
 
 
 class CrashOnceTranslator:
@@ -18,7 +17,7 @@ class CrashOnceTranslator:
     model = "deepseek-v4-flash-stub"
 
     def __init__(self) -> None:
-        self._delegate = StubTranslationAdapter()
+        self._delegate = StubTranslationAdapter(UuidIdentifierGenerator())
         self._crashed = False
 
     def begin(self, revision: ArticleRevision) -> str:

@@ -1,9 +1,11 @@
 from __future__ import annotations
 
-import json
 from dataclasses import replace
-from uuid import uuid4
 
+from engirdle_pc.modules.content.application.ports import (
+    ContentStore,
+    SourceSnapshotStore,
+)
 from engirdle_pc.modules.content.domain.entities import (
     ArticleRevision,
     EditedBlock,
@@ -18,22 +20,29 @@ from engirdle_pc.modules.content.domain.structure import (
     segment_text,
     structure_sha256,
 )
-from engirdle_pc.modules.content.infrastructure.sqlite_repository import ContentRepository
+from engirdle_pc.shared.application.runtime import Clock, IdentifierGenerator
+from engirdle_pc.shared.domain.hashing import sha256_text
 from engirdle_pc.shared.domain.time import isoformat_utc
-from engirdle_pc.shared.infrastructure.hashing import sha256_text
-from engirdle_pc.shared.infrastructure.workspace import Workspace
 
 
 class ContentService:
-    def __init__(self, repository: ContentRepository, workspace: Workspace) -> None:
+    def __init__(
+        self,
+        repository: ContentStore,
+        source_snapshots: SourceSnapshotStore,
+        clock: Clock,
+        identifiers: IdentifierGenerator,
+    ) -> None:
         self._repository = repository
-        self._workspace = workspace
+        self._source_snapshots = source_snapshots
+        self._clock = clock
+        self._identifiers = identifiers
 
     def create(self, command: NewArticle) -> ArticleRevision:
-        revision = self._build_revision(str(uuid4()), 1, command)
-        created_at = isoformat_utc()
+        revision = self._build_revision(self._identifiers.new(), 1, command)
+        created_at = isoformat_utc(self._clock.now())
         self._repository.insert(revision, created_at)
-        self._save_source_snapshot(revision)
+        self._source_snapshots.save(revision)
         return revision
 
     def create_revision(self, article_id: str, command: NewArticle) -> ArticleRevision:
@@ -41,8 +50,8 @@ class ContentService:
         if previous.status in {RevisionStatus.DRAFT, RevisionStatus.STRUCTURED}:
             raise ImmutableRevision("finish the current editable revision before creating another")
         revision = self._build_revision(article_id, previous.revision + 1, command)
-        self._repository.insert_revision(revision, isoformat_utc())
-        self._save_source_snapshot(revision)
+        self._repository.insert_revision(revision, isoformat_utc(self._clock.now()))
+        self._source_snapshots.save(revision)
         return revision
 
     @staticmethod
@@ -87,14 +96,16 @@ class ContentService:
             status=RevisionStatus.STRUCTURED,
         )
         self._repository.replace_structure(updated)
-        self._save_source_snapshot(updated)
+        self._source_snapshots.save(updated)
         return updated
 
     def approve(self, article_id: str, revision: int) -> ArticleRevision:
         current = self._repository.get(article_id, revision)
         if current.status is not RevisionStatus.STRUCTURED:
             raise ImmutableRevision("only a structured revision can be approved")
-        self._repository.approve(article_id, revision, isoformat_utc())
+        self._repository.approve(
+            article_id, revision, isoformat_utc(self._clock.now())
+        )
         return replace(current, status=RevisionStatus.APPROVED)
 
     def get(self, article_id: str, revision: int) -> ArticleRevision:
@@ -107,35 +118,12 @@ class ContentService:
         return self._repository.latest_revision(article_id)
 
     def mark_published(self, article_id: str, revision: int) -> None:
-        self._repository.mark_published(article_id, revision, isoformat_utc())
+        self._repository.mark_published(
+            article_id, revision, isoformat_utc(self._clock.now())
+        )
 
     def delete_metadata(self, article_id: str) -> None:
         self._repository.delete_article(article_id)
-
-    def _save_source_snapshot(self, revision: ArticleRevision) -> None:
-        target = self._workspace.source_revision_dir(revision.article_id, revision.revision)
-        target.mkdir(parents=True, exist_ok=True)
-        (target / "raw.txt").write_text(revision.raw_text, encoding="utf-8")
-        (target / "normalized.txt").write_text(revision.normalized_text, encoding="utf-8")
-        structure = [
-            {
-                "block_id": block.block_id,
-                "kind": block.kind.value,
-                "order": block.order,
-                "sentences": [
-                    {
-                        "sentence_id": sentence.sentence_id,
-                        "order": sentence.order,
-                        "text": sentence.text,
-                    }
-                    for sentence in block.sentences
-                ],
-            }
-            for block in revision.blocks
-        ]
-        (target / "structure.json").write_text(
-            json.dumps(structure, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
-        )
 
 
 def _optional(value: str | None) -> str | None:

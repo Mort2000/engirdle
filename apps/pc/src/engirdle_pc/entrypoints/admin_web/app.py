@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from pathlib import Path as FilePath
 from typing import Annotated
 
@@ -58,7 +60,12 @@ class EditTranslationRequest(RequestModel):
 
 
 def create_admin_app(container: Container) -> FastAPI:
-    app = FastAPI(title="Engirdle PC Admin", version="0.1.0")
+    @asynccontextmanager
+    async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
+        yield
+        container.publisher_process.stop()
+
+    app = FastAPI(title="Engirdle PC Admin", version="0.1.0", lifespan=lifespan)
     resource_root = FilePath(__file__).resolve().parent
     app.mount("/static", StaticFiles(directory=resource_root / "static"), name="static")
 
@@ -85,6 +92,33 @@ def create_admin_app(container: Container) -> FastAPI:
     @app.get("/api/health")
     def health() -> dict[str, str]:
         return {"status": "ok"}
+
+    @app.get("/api/publisher/status")
+    def publisher_status() -> dict[str, object]:
+        return _publisher_status_payload(container)
+
+    @app.post("/api/publisher/start", status_code=status.HTTP_202_ACCEPTED)
+    def start_publisher() -> dict[str, object]:
+        try:
+            container.publisher_process.start()
+        except RuntimeError as error:
+            raise HTTPException(status_code=503, detail=str(error)) from error
+        return _publisher_status_payload(container)
+
+    @app.post("/api/publisher/stop")
+    def stop_publisher() -> dict[str, object]:
+        container.publisher_process.stop()
+        return _publisher_status_payload(container)
+
+    @app.post("/api/artifacts/{package_id}/republish", status_code=status.HTTP_201_CREATED)
+    def republish_artifact(package_id: str) -> dict[str, object]:
+        artifact = container.local_library.republish(package_id)
+        return {
+            "package_id": artifact.package_id,
+            "article_id": artifact.article_id,
+            "revision": artifact.revision,
+            "artifact_revision": artifact.artifact_revision,
+        }
 
     @app.post("/api/articles", status_code=status.HTTP_201_CREATED)
     def create_article(request: CreateArticleRequest) -> dict[str, object]:
@@ -217,9 +251,7 @@ def create_admin_app(container: Container) -> FastAPI:
     def edit_translation(
         job_id: str, sentence_id: str, request: EditTranslationRequest
     ) -> dict[str, str]:
-        job = container.production.get(job_id)
-        if job.status.value != "review_required":
-            raise HTTPException(status_code=409, detail="translations are editable during review")
+        container.production.require_review(job_id)
         try:
             container.translations.edit(job_id, sentence_id, request.text_zh)
         except KeyError as error:
@@ -228,10 +260,10 @@ def create_admin_app(container: Container) -> FastAPI:
 
     @app.get("/api/jobs/{job_id}/audio")
     def get_audio_review(job_id: str) -> dict[str, object]:
-        job = container.production.get(job_id)
-        if job.status.value not in {"review_required", "succeeded"}:
-            raise HTTPException(status_code=409, detail="audio is not ready")
-        output = container.audio.get(job_id)
+        job = container.production.require_audio_ready(job_id)
+        revision = container.content.get(job.article_id, job.revision)
+        review = container.audio.review(job_id, _sentence_ids(revision))
+        output = review.output
         return {
             "url": f"/api/jobs/{job_id}/audio/file",
             "duration_ms": output.duration_ms,
@@ -247,13 +279,10 @@ def create_admin_app(container: Container) -> FastAPI:
                 for timing in output.timings
             ],
             "checks": {
-                "missing_sentences": 0,
-                "zero_duration_sentences": 0,
-                "abnormal_duration_sentences": sum(
-                    1
-                    for timing in output.timings
-                    if timing.end_ms - timing.start_ms < 200
-                    or timing.end_ms - timing.start_ms > 60_000
+                "missing_sentence_ids": review.checks.missing_sentence_ids,
+                "zero_duration_sentence_ids": review.checks.zero_duration_sentence_ids,
+                "abnormal_duration_sentence_ids": (
+                    review.checks.abnormal_duration_sentence_ids
                 ),
             },
         }
@@ -262,9 +291,7 @@ def create_admin_app(container: Container) -> FastAPI:
     def get_audio_file(job_id: str) -> object:
         from fastapi.responses import FileResponse
 
-        job = container.production.get(job_id)
-        if job.status.value not in {"review_required", "succeeded"}:
-            raise HTTPException(status_code=409, detail="audio is not ready")
+        container.production.require_audio_ready(job_id)
         return FileResponse(container.audio.get(job_id).path, media_type="audio/mp4")
 
     @app.post("/api/jobs/{job_id}/publish", status_code=status.HTTP_201_CREATED)
@@ -321,6 +348,29 @@ def _revision_payload(revision: ArticleRevision) -> dict[str, object]:
     }
 
 
+def _sentence_ids(revision: ArticleRevision) -> tuple[str, ...]:
+    return tuple(
+        sentence.sentence_id
+        for block in revision.blocks
+        for sentence in block.sentences
+    )
+
+
+def _publisher_status_payload(container: Container) -> dict[str, object]:
+    publisher = container.publisher_process.status()
+    return {
+        "running": publisher.running,
+        "binding_host": publisher.binding_host,
+        "port": publisher.port,
+        "binding_url": publisher.binding_url,
+        "started_at": publisher.started_at,
+        "pid": publisher.pid,
+        "last_exit_code": publisher.last_exit_code,
+        "authentication": "none",
+        "trusted_network_only": True,
+    }
+
+
 def _job_payload(job: BuildJob) -> dict[str, object]:
     return {
         "job_id": job.job_id,
@@ -350,6 +400,13 @@ def _job_payload(job: BuildJob) -> dict[str, object]:
                 "generation": job.config.speech_generation,
                 "voice_profile": job.config.voice_profile,
                 "anchor_sha256": job.config.anchor_sha256,
+            },
+            "audio_encoding": {
+                "codec": job.config.audio_codec,
+                "bitrate_kbps": job.config.audio_bitrate_kbps,
+                "loudness_target_lufs": job.config.audio_loudness_target_lufs,
+                "true_peak_dbfs": job.config.audio_true_peak_dbfs,
+                "loudness_range_lu": job.config.audio_loudness_range_lu,
             },
         },
         "created_at": job.created_at,

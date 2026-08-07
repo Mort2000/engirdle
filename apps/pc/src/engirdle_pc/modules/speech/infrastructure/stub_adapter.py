@@ -5,7 +5,7 @@ from array import array
 from pathlib import Path
 
 from engirdle_pc.modules.speech.application.ports import SentenceSpeech, VoiceProfileRef
-from engirdle_pc.shared.infrastructure.hashing import sha256_text
+from engirdle_pc.shared.domain.hashing import sha256_text
 
 
 class StubSpeechAdapter:

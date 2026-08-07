@@ -39,6 +39,8 @@ class FfmpegAudioEncoder:
                 "error",
                 "-i",
                 str(wav_path),
+                "-af",
+                "loudnorm=I=-18:TP=-3:LRA=11",
                 "-c:a",
                 "aac",
                 "-profile:a",
@@ -66,4 +68,29 @@ class FfmpegAudioEncoder:
             diagnostic = completed.stderr.strip()[-1000:]
             raise AudioEncodingError(
                 f"FFmpeg failed with exit code {completed.returncode}: {diagnostic}"
+            )
+        self._verify_decodable(output_path)
+
+    def _verify_decodable(self, output_path: Path) -> None:
+        completed = subprocess.run(
+            [
+                self._executable,
+                "-hide_banner",
+                "-loglevel",
+                "error",
+                "-i",
+                str(output_path),
+                "-f",
+                "null",
+                "-",
+            ],
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=120,
+        )
+        if completed.returncode != 0:
+            diagnostic = completed.stderr.strip()[-1000:]
+            raise AudioEncodingError(
+                f"FFmpeg could not decode the generated AAC: {diagnostic}"
             )

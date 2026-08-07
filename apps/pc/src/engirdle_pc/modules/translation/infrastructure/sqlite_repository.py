@@ -1,20 +1,10 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
-
-from engirdle_pc.modules.translation.application.ports import SentenceTranslation
+from engirdle_pc.modules.translation.application.ports import (
+    ReviewedTranslation,
+    SentenceTranslation,
+)
 from engirdle_pc.shared.infrastructure.database.connection import Database
-
-
-@dataclass(frozen=True)
-class ReviewedTranslation:
-    sentence_id: str
-    generated_text: str
-    edited_text: str | None
-
-    @property
-    def published_text(self) -> str:
-        return self.edited_text or self.generated_text
 
 
 class TranslationRepository:

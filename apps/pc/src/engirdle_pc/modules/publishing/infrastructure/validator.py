@@ -7,9 +7,7 @@ from urllib.parse import urlparse
 
 from jsonschema import Draft202012Validator, FormatChecker  # type: ignore[import-untyped]
 
-
-class InvalidCatalog(ValueError):
-    """A catalog violates its schema or v1 semantic constraints."""
+from engirdle_pc.modules.publishing.application.errors import InvalidCatalog
 
 
 class CatalogValidator:

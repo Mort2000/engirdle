@@ -18,7 +18,7 @@ def test_candidate_structure_handles_abbreviations_lists_and_dialogue_tags(
         json={
             "title": "Segmentation",
             "body": (
-                "Dr. Rivera reviewed version 2.1. It worked well.\n\n"
+                "Dr. A. Rivera reviewed version 2.1. It worked well.\n\n"
                 "- First item.\n- Second item!\n\n"
                 '> "Are we ready?" she asked.'
             ),
@@ -33,7 +33,7 @@ def test_candidate_structure_handles_abbreviations_lists_and_dialogue_tags(
         "quote",
     ]
     assert [item["text"] for item in blocks[0]["sentences"]] == [
-        "Dr. Rivera reviewed version 2.1.",
+        "Dr. A. Rivera reviewed version 2.1.",
         "It worked well.",
     ]
     assert [item["text"] for item in blocks[3]["sentences"]] == [

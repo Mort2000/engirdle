@@ -1,19 +1,19 @@
 from engirdle_pc.modules.translation.application.ports import (
+    ReviewedTranslation,
     SentenceTranslation,
     TranslationAdapter,
     TranslationBatch,
 )
-from engirdle_pc.modules.translation.infrastructure.sqlite_repository import (
-    ReviewedTranslation,
-    TranslationRepository,
+from engirdle_pc.modules.translation.application.service import (
+    InvalidTranslationBatch,
+    TranslationService,
 )
-from engirdle_pc.modules.translation.infrastructure.stub_adapter import StubTranslationAdapter
 
 __all__ = [
+    "InvalidTranslationBatch",
     "ReviewedTranslation",
     "SentenceTranslation",
-    "StubTranslationAdapter",
     "TranslationAdapter",
     "TranslationBatch",
-    "TranslationRepository",
+    "TranslationService",
 ]

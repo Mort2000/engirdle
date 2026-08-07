@@ -17,5 +17,9 @@
     {% else %}<p class="empty">确认文章结构后，生产任务会出现在这里。</p>{% endif %}
   </div>
 </section>
-<section class="panel compact"><h2>局域网目录</h2><p>{% if catalog_available %}目录已生成。可启动独立只读发布进程。{% else %}尚无已发布制品。{% endif %}</p><code>engirdle-pc publisher</code></section>
+<section class="grid two">
+  <div class="panel"><div class="panel-title"><h2>当前已发布制品</h2><span>{{ published|length }} 个</span></div>{% if published %}<div class="list">{% for item in published %}<div class="list-row"><span><strong>{{ item.title }}</strong><small>正文修订 {{ item.revision }} · 制品修订 {{ item.artifact_revision }} · {{ item.size }} bytes<br><code>{{ item.sha256[:16] }}…</code></small></span></div>{% endfor %}</div>{% else %}<p class="empty">还没有当前发布制品。</p>{% endif %}</div>
+  <div class="panel"><div class="panel-title"><h2>可重新发布制品</h2><span>{{ artifacts|length }} 个</span></div>{% if artifacts %}<div class="list">{% for artifact in artifacts %}<form class="list-row" action="/artifacts/{{ artifact.package_id }}/republish" method="post"><span><strong>{{ artifact.article_id[:8] }} · r{{ artifact.revision }}/a{{ artifact.artifact_revision }}</strong><small>{{ artifact.state }} · {{ artifact.size }} bytes</small></span><button type="submit">重新发布</button></form>{% endfor %}</div>{% else %}<p class="empty">成功构建后会保留不可变制品。</p>{% endif %}</div>
+</section>
+<section class="panel"><div class="panel-title"><h2>局域网只读服务</h2><span class="status {{ 'succeeded' if publisher.running else '' }}">{{ '运行中' if publisher.running else '已停止' }}</span></div><p>{% if catalog_available %}目录已生成。{% else %}尚无已发布制品；服务启动后目录仍会返回 404。{% endif %}</p><dl class="service-status"><div><dt>绑定地址</dt><dd><code>{{ publisher.binding_url }}</code></dd></div><div><dt>启动时间</dt><dd>{{ publisher.started_at or '—' }}</dd></div><div><dt>进程</dt><dd>{{ publisher.pid or '—' }}</dd></div></dl><aside class="notice"><strong>风险提示：</strong>此服务没有鉴权，只能在你信任的局域网中临时开启；同一网络内的设备可读取目录与全部已发布包。</aside><form action="/publisher/{{ 'stop' if publisher.running else 'start' }}" method="post"><button type="submit">{{ '停止局域网服务' if publisher.running else '启动局域网服务' }}</button></form></section>
 {% endblock %}

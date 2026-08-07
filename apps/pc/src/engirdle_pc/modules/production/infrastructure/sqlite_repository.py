@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from datetime import timedelta
-from uuid import uuid4
 
 from engirdle_pc.modules.production.domain.errors import InvalidJobState, JobNotFound
 from engirdle_pc.modules.production.domain.models import (
@@ -10,17 +9,25 @@ from engirdle_pc.modules.production.domain.models import (
     PipelineConfig,
     ProductionStage,
 )
-from engirdle_pc.shared.domain.time import isoformat_utc, utc_now
+from engirdle_pc.shared.application.runtime import Clock, IdentifierGenerator
+from engirdle_pc.shared.domain.time import isoformat_utc
 from engirdle_pc.shared.infrastructure.database.connection import Database
 
 
 class JobRepository:
-    def __init__(self, database: Database) -> None:
+    def __init__(
+        self,
+        database: Database,
+        clock: Clock,
+        identifiers: IdentifierGenerator,
+    ) -> None:
         self._database = database
+        self._clock = clock
+        self._identifiers = identifiers
 
     def create(self, article_id: str, revision: int, config: PipelineConfig) -> BuildJob:
-        job_id = str(uuid4())
-        created_at = isoformat_utc()
+        job_id = self._identifiers.new()
+        created_at = self._now()
         with self._database.connect() as connection:
             connection.execute(
                 """
@@ -68,7 +75,9 @@ class JobRepository:
             connection.execute("DELETE FROM build_jobs WHERE article_id = ?", (article_id,))
 
     def recover_stale(self, lease_seconds: int = 300) -> int:
-        threshold = isoformat_utc(utc_now() - timedelta(seconds=lease_seconds))
+        threshold = isoformat_utc(
+            self._clock.now() - timedelta(seconds=lease_seconds)
+        )
         with self._database.connect() as connection:
             cursor = connection.execute(
                 """
@@ -88,7 +97,7 @@ class JobRepository:
             return cursor.rowcount
 
     def claim_next(self) -> BuildJob | None:
-        now = isoformat_utc()
+        now = self._now()
         with self._database.connect() as connection:
             connection.execute("BEGIN IMMEDIATE")
             row = connection.execute(
@@ -124,13 +133,14 @@ class JobRepository:
         with self._database.connect() as connection:
             updated = connection.execute(
                 """
-                UPDATE build_jobs SET stage = ?, checkpoint_json = ?, heartbeat_at = ?
+                UPDATE build_jobs
+                SET stage = ?, checkpoint_json = COALESCE(?, checkpoint_json), heartbeat_at = ?
                 WHERE job_id = ? AND status = ?
                 """,
                 (
                     stage.value,
                     checkpoint_json,
-                    isoformat_utc(),
+                    self._now(),
                     job_id,
                     JobStatus.RUNNING.value,
                 ),
@@ -148,8 +158,8 @@ class JobRepository:
                 (
                     JobStatus.REVIEW_REQUIRED.value,
                     ProductionStage.REVIEW.value,
-                    isoformat_utc(),
-                    isoformat_utc(),
+                    self._now(),
+                    self._now(),
                     job_id,
                     JobStatus.RUNNING.value,
                 ),
@@ -168,7 +178,7 @@ class JobRepository:
                 """,
                 (
                     stage.value,
-                    isoformat_utc(),
+                    self._now(),
                     job_id,
                     JobStatus.REVIEW_REQUIRED.value,
                 ),
@@ -187,8 +197,8 @@ class JobRepository:
                 """,
                 (
                     JobStatus.FAILED.value,
-                    isoformat_utc(),
-                    isoformat_utc(),
+                    self._now(),
+                    self._now(),
                     code,
                     message[:2000],
                     job_id,
@@ -224,13 +234,16 @@ class JobRepository:
                 (
                     JobStatus.SUCCEEDED.value,
                     ProductionStage.COMPLETE.value,
-                    isoformat_utc(),
+                    self._now(),
                     job_id,
                     JobStatus.REVIEW_REQUIRED.value,
                 ),
             ).rowcount
             if updated != 1:
                 raise InvalidJobState("only a reviewed job can succeed")
+
+    def _now(self) -> str:
+        return isoformat_utc(self._clock.now())
 
 
 def _map_job(row: object) -> BuildJob:

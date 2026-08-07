@@ -12,7 +12,7 @@ from engirdle_pc.modules.content.domain.entities import (
     Sentence,
 )
 from engirdle_pc.modules.content.domain.errors import InvalidContent
-from engirdle_pc.shared.infrastructure.hashing import sha256_text
+from engirdle_pc.shared.domain.hashing import sha256_text
 
 _LIST_MARKER = re.compile(r"^\s*(?:[-*+]\s+|\d+[.)]\s+)(.+)$")
 _NONTERMINAL_ABBREVIATIONS = {
@@ -158,10 +158,11 @@ def _period_is_nonterminal(text: str, index: int) -> bool:
         text[token_start - 1].isalpha() or text[token_start - 1] == "."
     ):
         token_start -= 1
-    token = text[token_start:index].lower()
+    raw_token = text[token_start:index]
+    token = raw_token.lower()
     if token in _NONTERMINAL_ABBREVIATIONS:
         return True
-    if len(token) == 1 and token.isalpha() and token.upper() == token:
+    if len(raw_token) == 1 and raw_token.isupper():
         return True
     dotted = f"{token}."
     return bool(re.fullmatch(r"(?:[a-z]\.){2,}", dotted))

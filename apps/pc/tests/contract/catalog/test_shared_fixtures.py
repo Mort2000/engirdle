@@ -1,7 +1,8 @@
 import pytest
 
 from engirdle_pc.bootstrap.config import Settings
-from engirdle_pc.modules.publishing.public import CatalogValidator, InvalidCatalog
+from engirdle_pc.modules.publishing.infrastructure.validator import CatalogValidator
+from engirdle_pc.modules.publishing.public import InvalidCatalog
 
 
 def test_pc_validator_accepts_shared_valid_catalog_fixture() -> None:

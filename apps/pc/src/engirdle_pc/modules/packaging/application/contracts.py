@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
-from pathlib import Path
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict
@@ -49,11 +47,22 @@ class TtsPipeline(ContractModel):
     generation: str
 
 
+class AudioEncodingPipeline(ContractModel):
+    codec: Literal["aac-lc"] = "aac-lc"
+    bitrate_kbps: int
+    sample_rate_hz: int
+    channels: int
+    loudness_target_lufs: float
+    true_peak_dbfs: float
+    loudness_range_lu: float
+
+
 class PipelineMetadata(ContractModel):
     version: str
     segmenter: str
     translation: TranslationPipeline
     tts: TtsPipeline
+    audio_encoding: AudioEncodingPipeline
 
 
 class Manifest(ContractModel):
@@ -152,18 +161,3 @@ class AttributionPayload(ContractModel):
     format_version: Literal["1.0"] = "1.0"
     article: AttributionArticle
     resources: list[AttributionResource]
-
-
-@dataclass(frozen=True)
-class PackageArtifact:
-    package_id: str
-    article_id: str
-    revision: int
-    artifact_revision: int
-    job_id: str
-    opaque_name: str
-    path: Path
-    size: int
-    sha256: str
-    state: str
-    created_at: str

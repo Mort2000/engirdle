@@ -1,8 +1,5 @@
 from __future__ import annotations
 
-from pathlib import Path
-
-from engirdle_pc.modules.packaging.public import PackageArtifact
 from engirdle_pc.modules.publishing.domain.models import PublishedPackage
 from engirdle_pc.shared.infrastructure.database.connection import Database
 
@@ -11,21 +8,25 @@ class PublishingRepository:
     def __init__(self, database: Database) -> None:
         self._database = database
 
-    def publish(self, artifact: PackageArtifact, published_at: str) -> int:
+    def publish(self, package: PublishedPackage) -> int:
         with self._database.connect() as connection:
             connection.execute(
                 """
-                INSERT INTO published_articles(article_id, package_id, published_at)
-                VALUES (?, ?, ?)
+                INSERT INTO published_articles(
+                    article_id, package_id, revision, artifact_revision, title,
+                    opaque_name, size, sha256, published_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(article_id) DO UPDATE SET
                     package_id = excluded.package_id,
+                    revision = excluded.revision,
+                    artifact_revision = excluded.artifact_revision,
+                    title = excluded.title,
+                    opaque_name = excluded.opaque_name,
+                    size = excluded.size,
+                    sha256 = excluded.sha256,
                     published_at = excluded.published_at
                 """,
-                (artifact.article_id, artifact.package_id, published_at),
-            )
-            connection.execute(
-                "UPDATE package_artifacts SET state = 'published' WHERE package_id = ?",
-                (artifact.package_id,),
+                _package_values(package),
             )
             connection.execute(
                 """
@@ -38,6 +39,50 @@ class PublishingRepository:
             ).fetchone()
             assert row is not None
             return int(row["value"])
+
+    def restore(
+        self,
+        article_id: str,
+        previous: PublishedPackage | None,
+        catalog_version: int,
+    ) -> None:
+        with self._database.connect() as connection:
+            if previous is None:
+                connection.execute(
+                    "DELETE FROM published_articles WHERE article_id = ?",
+                    (article_id,),
+                )
+            else:
+                connection.execute(
+                    """
+                    INSERT INTO published_articles(
+                        article_id, package_id, revision, artifact_revision, title,
+                        opaque_name, size, sha256, published_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ON CONFLICT(article_id) DO UPDATE SET
+                        package_id = excluded.package_id,
+                        revision = excluded.revision,
+                        artifact_revision = excluded.artifact_revision,
+                        title = excluded.title,
+                        opaque_name = excluded.opaque_name,
+                        size = excluded.size,
+                        sha256 = excluded.sha256,
+                        published_at = excluded.published_at
+                    """,
+                    _package_values(previous),
+                )
+            connection.execute(
+                "UPDATE system_metadata SET value = ? WHERE key = 'catalog_version'",
+                (str(catalog_version),),
+            )
+
+    def current_for_article(self, article_id: str) -> PublishedPackage | None:
+        with self._database.connect() as connection:
+            row = connection.execute(
+                "SELECT * FROM published_articles WHERE article_id = ?",
+                (article_id,),
+            ).fetchone()
+            return _map_published(row) if row is not None else None
 
     def catalog_version(self) -> int:
         with self._database.connect() as connection:
@@ -69,54 +114,36 @@ class PublishingRepository:
         with self._database.connect() as connection:
             rows = connection.execute(
                 """
-                SELECT artifacts.*, revisions.title
-                FROM published_articles AS published
-                JOIN package_artifacts AS artifacts USING(package_id)
-                JOIN article_revisions AS revisions
-                    ON revisions.article_id = artifacts.article_id
-                    AND revisions.revision = artifacts.revision
-                ORDER BY revisions.title COLLATE NOCASE, artifacts.article_id
+                SELECT * FROM published_articles
+                ORDER BY title COLLATE NOCASE, article_id
                 """
             ).fetchall()
-            return tuple(
-                PublishedPackage(
-                    package_id=row["package_id"],
-                    article_id=row["article_id"],
-                    revision=row["revision"],
-                    artifact_revision=row["artifact_revision"],
-                    title=row["title"],
-                    opaque_name=row["opaque_name"],
-                    artifact_path=Path(row["path"]),
-                    size=row["size"],
-                    sha256=row["sha256"],
-                )
-                for row in rows
-            )
+            return tuple(_map_published(row) for row in rows)
 
-    def resolve_published_name(self, opaque_name: str) -> PublishedPackage | None:
-        with self._database.connect() as connection:
-            row = connection.execute(
-                """
-                SELECT artifacts.*, revisions.title
-                FROM published_articles AS published
-                JOIN package_artifacts AS artifacts USING(package_id)
-                JOIN article_revisions AS revisions
-                    ON revisions.article_id = artifacts.article_id
-                    AND revisions.revision = artifacts.revision
-                WHERE artifacts.opaque_name = ?
-                """,
-                (opaque_name,),
-            ).fetchone()
-            if row is None:
-                return None
-            return PublishedPackage(
-                package_id=row["package_id"],
-                article_id=row["article_id"],
-                revision=row["revision"],
-                artifact_revision=row["artifact_revision"],
-                title=row["title"],
-                opaque_name=row["opaque_name"],
-                artifact_path=Path(row["path"]),
-                size=row["size"],
-                sha256=row["sha256"],
-            )
+
+def _package_values(package: PublishedPackage) -> tuple[object, ...]:
+    return (
+        package.article_id,
+        package.package_id,
+        package.revision,
+        package.artifact_revision,
+        package.title,
+        package.opaque_name,
+        package.size,
+        package.sha256,
+        package.published_at,
+    )
+
+
+def _map_published(row: object) -> PublishedPackage:
+    return PublishedPackage(
+        package_id=row["package_id"],  # type: ignore[index]
+        article_id=row["article_id"],  # type: ignore[index]
+        revision=row["revision"],  # type: ignore[index]
+        artifact_revision=row["artifact_revision"],  # type: ignore[index]
+        title=row["title"],  # type: ignore[index]
+        opaque_name=row["opaque_name"],  # type: ignore[index]
+        size=row["size"],  # type: ignore[index]
+        sha256=row["sha256"],  # type: ignore[index]
+        published_at=row["published_at"],  # type: ignore[index]
+    )
