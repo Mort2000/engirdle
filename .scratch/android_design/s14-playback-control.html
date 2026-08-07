@@ -1,0 +1,113 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>14 · 播放控制条 · Engirdle Android</title>
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<div class="scr-top">
+  <a href="index.html">← 返回索引</a>
+  <span class="gtag">分组 4 · 播放、设置与信息</span>
+  <h2>14 · 播放控制条</h2>
+</div>
+
+<div class="row" id="s14">
+  <div class="phwrap">
+    <div class="phone"><div class="dsp">
+      <div class="sb"><span>11:02</span><span class="r">
+        <svg><use href="icons.svg#i-cell"/></svg><svg><use href="icons.svg#i-wifi"/></svg><svg><use href="icons.svg#i-batt"/></svg></span></div>
+      <div class="ab">
+        <span class="ib"><svg class="ic"><use href="icons.svg#i-back"/></svg></span>
+        <span class="tt">The Quiet Practice of…</span>
+        <span class="ib"><svg class="ic"><use href="icons.svg#i-more"/></svg></span>
+      </div>
+      <div class="bd np">
+        <div class="rd">
+          <div class="prg">
+            <span class="st">The workshop smelled of cedar and old glue.</span>
+            <span class="st play">On the bench lay a chair that had survived three generations, its joints loose but its story intact.</span>
+            <span class="st">Martin ran his thumb along the worn armrest and smiled.</span>
+          </div>
+        </div>
+      </div>
+      <div class="pbar">
+        <span class="pbtn"><svg class="ic"><use href="icons.svg#i-pause"/></svg></span>
+        <span class="pbtn ghost"><svg class="ic"><use href="icons.svg#i-stop"/></svg></span>
+        <div class="pt">
+          <b>单句播放 · 第 1 段第 2 句</b>
+          <span>00:07 / 00:12 · 句末自动停止</span>
+        </div>
+      </div>
+      <div class="gb"><i></i></div>
+    </div></div>
+    <div class="cap">14A · 单句播放中（播放句：暖色底 + 左竖线，行内无图标）</div>
+  </div>
+
+  <div class="phwrap">
+    <div class="phone"><div class="dsp">
+      <div class="sb"><span>11:05</span><span class="r">
+        <svg><use href="icons.svg#i-cell"/></svg><svg><use href="icons.svg#i-wifi"/></svg><svg><use href="icons.svg#i-batt"/></svg></span></div>
+      <div class="ab">
+        <span class="ib"><svg class="ic"><use href="icons.svg#i-back"/></svg></span>
+        <span class="tt">The Quiet Practice of…</span>
+        <span class="ib"><svg class="ic"><use href="icons.svg#i-more"/></svg></span>
+      </div>
+      <div class="bd np" style="position:relative">
+        <div class="rd">
+          <div class="prg">
+            <span class="st">“People throw away things that only need an hour of patience,” he said.</span>
+          </div>
+          <div class="prg" style="position:relative">
+            <span class="st play">He believes that mending is a form of attention.</span>
+            <span class="st">When you repair a chair, you learn how it was made, and you honor the hands that made it.</span>
+            <span class="st">The work is slow, but slowness is the point.</span>
+          </div>
+        </div>
+        <div class="snack" style="bottom:76px">
+          <svg class="ic"><use href="icons.svg#i-info"/></svg>
+          <span>「从此开始朗读」已取代上一连续播放会话（单一会话：新请求取代旧请求；此提示仅在连续会话被取代时出现一次）。</span>
+        </div>
+      </div>
+      <div class="pbar">
+        <span class="pbtn"><svg class="ic"><use href="icons.svg#i-pause"/></svg></span>
+        <span class="pbtn ghost"><svg class="ic"><use href="icons.svg#i-stop"/></svg></span>
+        <div class="pt">
+          <b>连续播放 · 当前第 2 段第 1 句</b>
+          <span>起点：第 2 段第 1 句 · 保留句间停顿 · 播放至文末结束</span>
+        </div>
+      </div>
+      <div class="gb"><i></i></div>
+    </div></div>
+    <div class="cap">14B · 连续播放中 + 会话取代提示（仅连续播放会话被新请求取代时弹一次）</div>
+  </div>
+
+  <div class="note">
+    <div class="no">SCREEN 14</div>
+    <h3>播放控制条</h3>
+    <div><span class="req">MOB-AUD-001</span><span class="req">MOB-AUD-002</span><span class="req">MOB-AUD-003</span><span class="req">MOB-AUD-004</span><span class="req x">排除：倍速 / 循环 / 播放列表 / 进度拖拽 / 锁屏后台播放</span></div>
+    <div class="box">
+      <h4>屏幕目的</h4>
+      <p>底部控制条呈现唯一播放会话的状态：单句播放 / 连续播放两种模式，支持暂停、继续、停止。</p>
+      <h4>交互说明</h4>
+      <ul>
+        <li><b>行内无图标约定</b>：阅读区没有句旁扬声器；播放起点统一由「短按句子 → 句菜单」（屏幕 06A）触发——「单句朗读」= 单句播放（14A），「从此开始朗读」= 连续播放（14B）；段落入口解析为该块首句（MOB-AUD-002）；</li>
+        <li><b>当前播放指示</b>：播放句以暖色底 + 左侧竖线标识（暗色主题同步适配，见 13B），不使用任何图标；自动滚动不属于 MVP；</li>
+        <li><b>单句模式</b>：按 <span class="mono">[audio_start_ms, audio_end_ms)</span> 裁剪，句末自动停止回 Idle；</li>
+        <li><b>连续模式</b>：清除结束裁剪，从目标句播到文章末尾，保留句间/段间停顿（design §4.6）；控制条实时显示当前句标识；</li>
+        <li><b>暂停 / 继续 / 停止</b>（MOB-AUD-003）：停止后控制条收起，状态清晰；</li>
+        <li><b>单一会话</b>（MOB-AUD-004）：任何新播放请求先取消旧裁剪与待处理回调再开新会话，结束事件校验会话 token；单句与连续播放不会同时发声。<b>提示降噪约定</b>：「新请求取代旧请求」snackbar 仅在<b>连续播放会话被新播放请求取代</b>时提示一次（14B）；单句与单句之间的切换不再弹出——控制条的句标识与播放高亮已充分表达状态变化（MOB-AUD-004 语义不变）。</li>
+      </ul>
+      <h4>刻意省略（MVP 排除项）</h4>
+      <p>控制条<b>没有</b>倍速、循环、上一句/下一句队列、播放列表与可拖拽进度条；应用不注册媒体通知，退到后台或锁屏即停止（无后台播放）。</p>
+    </div>
+  </div>
+</div>
+
+<div class="scr-nav">
+  <a href="s13-typography-settings.html">← 上一屏：排版设置</a>
+  <a href="s15-attribution-info.html">下一屏：归属与词典资源信息页 →</a>
+</div>
+</body>
+</html>

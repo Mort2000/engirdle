@@ -1,0 +1,84 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>09 · 选词查词 · Engirdle Android</title>
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<div class="scr-top">
+  <a href="index.html">← 返回索引</a>
+  <span class="gtag">分组 3 · 词典与生词</span>
+  <h2>09 · 选词查词</h2>
+</div>
+
+<div class="row" id="s9">
+  <div class="phwrap">
+    <div class="phone"><div class="dsp">
+      <div class="sb"><span>10:31</span><span class="r">
+        <svg><use href="icons.svg#i-cell"/></svg><svg><use href="icons.svg#i-wifi"/></svg><svg><use href="icons.svg#i-batt"/></svg></span></div>
+      <div class="ab">
+        <span class="ib"><svg class="ic"><use href="icons.svg#i-back"/></svg></span>
+        <span class="tt">The Quiet Practice of…</span>
+        <span class="badge b-off" style="margin-right:2px"><svg class="ic" style="width:11px;height:11px"><use href="icons.svg#i-trans"/></svg>仅英文 ▾</span>
+        <span class="ib"><svg class="ic"><use href="icons.svg#i-more"/></svg></span>
+      </div>
+      <div class="bd np" style="position:relative">
+        <div class="rd">
+          <div class="prg">
+            <span class="st">The workshop smelled of cedar and old glue.</span>
+            <span class="st">On the bench lay a chair that had survived three generations, its joints loose but its story intact.</span>
+          </div>
+          <div class="prg" style="position:relative">
+            <span class="st">He believes that <span class="selw">mending</span> is a form of attention.</span>
+            <span class="st">When you repair a chair, you learn how it was made, and you honor the hands that made it.</span>
+          </div>
+        </div>
+        <div class="ctxmenu" style="left:56px;top:196px">
+          <span class="hot"><svg class="ic"><use href="icons.svg#i-book"/></svg>英英翻译</span>
+          <span><svg class="ic"><use href="icons.svg#i-book"/></svg>英中翻译</span>
+          <span><svg class="ic"><use href="icons.svg#i-save"/></svg>复制</span>
+        </div>
+        <div style="position:absolute;left:104px;top:238px;display:flex;gap:78px">
+          <span style="width:12px;height:16px;border-radius:6px 6px 8px 2px;background:var(--pri);box-shadow:0 2px 5px rgba(0,0,0,.3)"></span>
+          <span style="width:12px;height:16px;border-radius:6px 6px 2px 8px;background:var(--pri);box-shadow:0 2px 5px rgba(0,0,0,.3)"></span>
+        </div>
+        <div class="snack" style="bottom:14px;background:#3a3f36">
+          <svg class="ic"><use href="icons.svg#i-info"/></svg>
+          <span>选择范围仅限当前句子；拖动句内手柄调整选区，不可跨句选择。</span>
+        </div>
+      </div>
+      <div class="gb"><i></i></div>
+    </div></div>
+    <div class="cap">09 · 单句内长按选词 + 单词/短语菜单（英英翻译 / 英中翻译 / 复制）</div>
+  </div>
+
+  <div class="note">
+    <div class="no">SCREEN 09</div>
+    <h3>选词查词</h3>
+    <div><span class="req">MOB-DIC-001</span><span class="req">MOB-READ-001</span><span class="req x">排除：跨句选择</span></div>
+    <div class="box">
+      <h4>屏幕目的</h4>
+      <p>在<b>单个句子</b>内长按选择单词或短语，弹出单词/短语菜单并发起离线词典查询。</p>
+      <h4>交互说明</h4>
+      <ul>
+        <li>每个句子是独立的 selectable region（design §8.3）：长按进入选择，拖动手柄只能在当前句内调整选区——MVP 明确接受不能跨句选择；</li>
+        <li>单词/短语菜单三项：<b>英英翻译</b>（默认高亮）/ <b>英中翻译</b> / <b>复制</b>（保留系统复制能力）；菜单需在目标 Android 版本上验证（阶段 0 原型）；</li>
+        <li>选「英英翻译」或「英中翻译」都打开同一个词典底部抽屉（屏幕 10），仅默认展示语言不同，抽屉内可切换；</li>
+        <li>选中文本进入查询前统一 Unicode 并去除首尾标点/空白，不静默改写句中内容（MOB-DIC-002 的前置处理）；</li>
+        <li>选择单词与选择短语走同一入口；多词短语先按原样短语精确查询（见屏幕 10 查询路径）。</li>
+        <li><b>短按取消优先</b>（与屏幕 06 同一约定）：存在选区、词菜单或词典抽屉等任何开启态时，短按优先取消选区 / 关闭菜单 / 收起抽屉，回到无开启态；不会因短按句内其他位置而误触句菜单；滚动/翻页手势不触发任何菜单。</li>
+      </ul>
+      <h4>不出现</h4>
+      <p>菜单中无“发音”（词汇发音为排除项）、无“分享/联网翻译”等出网动作。</p>
+    </div>
+  </div>
+</div>
+
+<div class="scr-nav">
+  <a href="s08-reader-zh-only.html">← 上一屏：阅读器 · 仅中文模式</a>
+  <a href="s10-dictionary-panel.html">下一屏：词典结果面板 →</a>
+</div>
+</body>
+</html>

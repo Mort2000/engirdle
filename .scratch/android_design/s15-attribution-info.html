@@ -1,0 +1,84 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>15 · 归属与词典资源信息页 · Engirdle Android</title>
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<div class="scr-top">
+  <a href="index.html">← 返回索引</a>
+  <span class="gtag">分组 4 · 播放、设置与信息</span>
+  <h2>15 · 归属与词典资源信息页</h2>
+</div>
+
+<div class="row" id="s15">
+  <div class="phwrap">
+    <div class="phone"><div class="dsp">
+      <div class="sb"><span>11:20</span><span class="r">
+        <svg><use href="icons.svg#i-cell"/></svg><svg><use href="icons.svg#i-wifi"/></svg><svg><use href="icons.svg#i-batt"/></svg></span></div>
+      <div class="ab">
+        <span class="ib"><svg class="ic"><use href="icons.svg#i-back"/></svg></span>
+        <span class="tt">归属与许可<span class="sub">入口：书架 / 阅读器溢出菜单 › 归属信息</span></span>
+      </div>
+      <div class="bd" style="padding-top:4px">
+        <div class="card">
+          <b style="font-size:12.5px">文章</b>
+          <div class="kv" style="margin-top:3px"><span class="k">标题</span><span class="v">The Quiet Practice of Mending</span></div>
+          <div class="kv"><span class="k">作者 / 来源</span><span class="v">Elena Marsh · The Hudson Review（示例）</span></div>
+          <div class="kv"><span class="k">许可</span><span class="v">CC BY-NC 4.0</span></div>
+          <div class="kv"><span class="k">版本</span><span class="v mono">rev 2 · 制品 r1 · package 7c9e…</span></div>
+        </div>
+        <div class="card">
+          <b style="font-size:12.5px">翻译服务</b>
+          <div class="kv" style="margin-top:3px"><span class="k">提供方 / 模型</span><span class="v mono">DeepSeek · deepseek-v4-flash</span></div>
+          <div class="kv"><span class="k">配置</span><span class="v mono">thinking on · effort max</span></div>
+          <div class="kv"><span class="k">提示词版本</span><span class="v mono">full-article-sequential-blocks@v1</span></div>
+        </div>
+        <div class="card">
+          <b style="font-size:12.5px">语音合成（PC 本地）</b>
+          <div class="kv" style="margin-top:3px"><span class="k">合成模型</span><span class="v mono">Qwen3-TTS-12Hz-1.7B-Base @ 2026.07</span></div>
+          <div class="kv"><span class="k">锚点模型</span><span class="v mono">…-CustomVoice @ 2026.07 · Apache-2.0</span></div>
+          <div class="kv"><span class="k">声音配置</span><span class="v mono">vp-elena-m @ 3 · anchor 9c41…</span></div>
+          <div class="kv"><span class="k">音频</span><span class="v mono">AAC-LC · 24 kHz · 单声道</span></div>
+        </div>
+        <div class="card">
+          <b style="font-size:12.5px">词典资源</b>
+          <div class="kv" style="margin-top:3px"><span class="k">ID / 修订</span><span class="v mono">dict-en-zh-core · r14</span></div>
+          <div class="kv"><span class="k">大小 / SHA-256</span><span class="v mono">48.2 MB · 3f9a…b7c2</span></div>
+          <div class="kv"><span class="k">英英数据源</span><span class="v">Wiktionary（CC BY-SA 3.0）</span></div>
+          <div class="kv"><span class="k">英中数据源</span><span class="v">CC-CEDICT（CC BY-SA 4.0）</span></div>
+          <div class="kv"><span class="k">修改说明</span><span class="v">裁剪常用词 12 万词条，重排为 SQLite</span></div>
+        </div>
+        <p class="small muted" style="text-align:center;margin-top:4px">未知或不适用字段显式标记为 unknown / n/a；词典独立于文章包安装与升级。</p>
+      </div>
+      <div class="gb"><i></i></div>
+    </div></div>
+    <div class="cap">15 · 归属与词典资源信息页</div>
+  </div>
+
+  <div class="note">
+    <div class="no">SCREEN 15</div>
+    <h3>归属与词典资源信息页</h3>
+    <div><span class="req nfr">NFR-LIC-001</span><span class="req">MOB-DIC-004</span><span class="req nfr">NFR-PRV-001</span></div>
+    <div class="box">
+      <h4>屏幕目的</h4>
+      <p>集中展示当前文章的完整归属链与词典资源的版本化信息，满足“包、模型、提示词、词典和文章来源具有可检查的版本与归属信息”的验收条件。</p>
+      <h4>交互说明</h4>
+      <ul>
+        <li>入口：书架/阅读器溢出菜单「归属信息」，数据来自包内 <span class="mono">attribution.json</span> 与 manifest 的 pipeline 段（design §6.2）；</li>
+        <li>四段：文章（作者/来源/许可/修订与包 ID）、翻译服务（端点模型、思考配置、提示词版本）、TTS（两个检查点修订、声音配置 ID/修订/锚点哈希、编码参数）、词典资源（<b>ID、修订、大小、SHA-256、许可与修改说明</b>，MOB-DIC-004）；</li>
+        <li>未知或不适用字段显式表示（NFR-LIC-001），不空白省略；</li>
+        <li>页面只读展示，不提供任何模型/引擎切换 UI（排除项）；API Key、锚点 WAV、模型权重不进入包，自然不会出现在此页。</li>
+      </ul>
+    </div>
+  </div>
+</div>
+
+<div class="scr-nav">
+  <a href="s14-playback-control.html">← 上一屏：播放控制条</a>
+  <a href="s16-offline-default.html">下一屏：本地优先 · 默认离线 →</a>
+</div>
+</body>
+</html>

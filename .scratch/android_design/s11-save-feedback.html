@@ -1,0 +1,96 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>11 · 保存即时反馈 · Engirdle Android</title>
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<div class="scr-top">
+  <a href="index.html">← 返回索引</a>
+  <span class="gtag">分组 3 · 词典与生词</span>
+  <h2>11 · 保存即时反馈</h2>
+</div>
+
+<div class="row" id="s11">
+  <div class="phwrap">
+    <div class="phone"><div class="dsp">
+      <div class="sb"><span>10:33</span><span class="r">
+        <svg><use href="icons.svg#i-cell"/></svg><svg><use href="icons.svg#i-wifi"/></svg><svg><use href="icons.svg#i-batt"/></svg></span></div>
+      <div class="bd np" style="opacity:.5">
+        <div class="rd">
+          <div class="prg">
+            <span class="st">He believes that <span class="selw">mending</span> is a form of attention.</span>
+          </div>
+        </div>
+      </div>
+      <div class="scrim"></div>
+      <div class="sheet" style="height:400px">
+        <div class="handle"></div>
+        <div style="display:flex;align-items:center;gap:8px">
+          <b style="font-size:19px;font-family:Georgia,serif;flex:1">mending</b>
+          <span class="seg" style="width:132px;flex:0 0 auto"><span class="on">英英</span><span>英中</span></span>
+        </div>
+        <p class="small muted" style="margin:2px 0 8px">动名词 / 名词 · 原形 <b>mend</b> · 抽屉保持打开，可继续查词</p>
+        <div class="card" style="margin-bottom:8px;border-color:#b9d4c0;background:#f3faf4">
+          <div style="display:flex;gap:8px;align-items:flex-start">
+            <b style="color:var(--pri);flex:0 0 auto">1.</b>
+            <div style="flex:1">
+              <span class="small muted">v.</span>
+              <p style="font-size:12.5px;font-family:Georgia,serif">to repair something that is broken or damaged</p>
+              <p class="small muted" style="margin-top:3px">切到「英中」：修理，修补；（伤口）愈合</p>
+            </div>
+          </div>
+          <div class="btnrow" style="margin-top:6px"><span class="badge b-ok"><svg class="ic" style="width:11px;height:11px"><use href="icons.svg#i-check"/></svg>已保存到生词本</span></div>
+        </div>
+        <div class="card" style="margin-bottom:0">
+          <div style="display:flex;gap:8px;align-items:flex-start">
+            <b style="color:var(--pri);flex:0 0 auto">2.</b>
+            <div style="flex:1">
+              <span class="small muted">n.</span>
+              <p style="font-size:12.5px;font-family:Georgia,serif">the act of repairing; clothes or other items that need to be repaired</p>
+            </div>
+          </div>
+          <div class="btnrow" style="margin-top:6px"><span class="btn o" style="padding:5px 13px;font-size:11.5px"><svg class="ic" style="width:13px;height:13px"><use href="icons.svg#i-save"/></svg>保存该义项</span></div>
+        </div>
+      </div>
+      <div class="snack" style="bottom:412px;background:#234534;align-items:center">
+        <svg class="ic"><use href="icons.svg#i-check"/></svg>
+        <span style="flex:1">已保存 <b>mending</b>（义项 1）到生词本</span>
+        <span style="flex:0 0 auto;color:#bfe0cc;font-weight:700;letter-spacing:.05em">撤销</span>
+      </div>
+      <div class="gb"><i></i></div>
+    </div></div>
+    <div class="cap">11 · 保存即时反馈（snackbar 可撤销；抽屉保持打开，可继续查词）</div>
+  </div>
+
+  <div class="note">
+    <div class="no">SCREEN 11</div>
+    <h3>保存即时反馈</h3>
+    <div><span class="req">MOB-VOC-001</span><span class="req">MOB-DIC-003</span><span class="req nfr">PRD §7.1 / §7.2</span></div>
+    <div class="box">
+      <h4>屏幕目的</h4>
+      <p><b>一步保存</b>：在词典抽屉（屏幕 10A）点「保存该义项」即直接入库——义项选择本身就是 MOB-VOC-001 要求的“用户显式选定义项”动作，不再经过二次确认页；本屏展示保存后的即时反馈：snackbar 浮现、被存义项原位变为「已保存」状态，<b>抽屉保持打开</b>，可继续查词或为其他义项保存。</p>
+      <h4>保存内容（MOB-VOC-001 验收要点，字段不变）</h4>
+      <ul>
+        <li>表面形式（mending）、lemma（mend）、词性；</li>
+        <li><b>用户选定的义项</b>（英英 + 英中 + 带命名空间的 sense id <span class="mono">wk.en/mend#v.1</span>，避免多数据源碰撞，design §8.5）；</li>
+        <li>完整句子引用 <span class="mono">article_id + revision + sentence_id</span>（不只存句子 ID）；</li>
+        <li>原句快照与译文快照、词典版本快照（<span class="mono">dict-en-zh-core @ r14</span>）——文章升级、删除或词典更新后，该记录仍按当时内容完整可读；</li>
+        <li>屏内不再展示全字段预览卡：完整快照在生词详情（屏幕 12B）随时可查看。</li>
+      </ul>
+      <h4>撤销</h4>
+      <p>snackbar 存活期内点「撤销」即回滚本次保存（删除刚写入的生词记录）；snackbar 超时消失后，需到生词本（屏幕 12）删除。</p>
+      <h4>不出现</h4>
+      <p>保存时不询问“熟练度”“复习计划”等任何记忆调度信息（排除项）；不再有独立的全字段预览确认页。</p>
+    </div>
+  </div>
+</div>
+
+<div class="scr-nav">
+  <a href="s10-dictionary-panel.html">← 上一屏：词典结果面板</a>
+  <a href="s12-vocab-book.html">下一屏：生词本 · 列表与详情 →</a>
+</div>
+</body>
+</html>

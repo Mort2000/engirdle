@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>05 · 文章库 · 书架管理 · Engirdle Android</title>
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<div class="scr-top">
+  <a href="index.html">← 返回索引</a>
+  <span class="gtag">分组 2 · 书架与阅读</span>
+  <h2>05 · 文章库 · 书架管理</h2>
+</div>
+
+<div class="row" id="s5">
+  <div class="phwrap">
+    <div class="phone"><div class="dsp">
+      <div class="sb"><span>10:15</span><span class="r">
+        <svg><use href="icons.svg#i-cell"/></svg><svg><use href="icons.svg#i-wifi"/></svg><svg><use href="icons.svg#i-batt"/></svg></span></div>
+      <div class="ab">
+        <span class="tt">书架<span class="sub">3 篇文章 · 全部离线可用</span></span>
+        <span class="ib"><svg class="ic"><use href="icons.svg#i-search"/></svg></span>
+      </div>
+      <div class="bd" style="padding-top:4px">
+        <div class="it">
+          <div class="av a1">TQ</div>
+          <div class="tx">
+            <b>The Quiet Practice of Mending</b>
+            <span>Elena Marsh · 音频 9:03</span>
+          </div>
+          <div style="display:flex;flex-direction:column;align-items:flex-end;gap:6px">
+            <span class="badge b-ok">可用</span>
+            <span class="ib" style="width:30px;height:30px"><svg class="ic" style="width:17px;height:17px"><use href="icons.svg#i-more"/></svg></span>
+          </div>
+        </div>
+        <div class="it">
+          <div class="av a2">No</div>
+          <div class="tx">
+            <b>Notes on Slowness</b>
+            <span>Priya Raman · 音频 6:12</span>
+          </div>
+          <span class="badge b-ok">可用</span>
+        </div>
+        <div class="it">
+          <div class="av a4">Mo</div>
+          <div class="tx">
+            <b>Meditations on Brevity</b>
+            <span>S. O'Hara · 音频 4:05</span>
+          </div>
+          <span class="badge b-ok">可用</span>
+        </div>
+      </div>
+      <div class="scrim"></div>
+      <div class="dlg" style="top:52%">
+        <h5><svg class="ic" style="color:var(--err)"><use href="icons.svg#i-del"/></svg>删除这篇文章？</h5>
+        <p>将删除本机《The Quiet Practice of Mending》的文章文本与音频。</p>
+        <p><b>生词保留策略：</b>生词本中引用本文的 <b>2 条生词</b>（mending、joints）已保存原句与释义内容，删除文章后仍可完整查看。</p>
+        <p class="small muted">此操作不影响 PC 端已发布内容；如需再次阅读，可在书架点「检查更新」后重新下载。</p>
+        <div class="btnrow"><span class="btn t">取消</span><span class="btn danger">删除</span></div>
+      </div>
+      <div class="gb"><i></i></div>
+    </div></div>
+    <div class="cap">05 · 文章库（书架管理视角）+ 删除确认弹窗</div>
+  </div>
+
+  <div class="note">
+    <div class="no">SCREEN 05</div>
+    <h3>文章库 · 书架管理</h3>
+    <div><span class="req">MOB-LIB-001</span><span class="req nfr">PRD §7.1 修订规则</span></div>
+    <div class="box">
+      <h4>屏幕目的</h4>
+      <p>管理本机已安装文章：标题、作者、音频时长与可用状态，并支持删除（书架与屏幕 03 是同一页面的两个视角：03 强调默认离线与手动刷新，05 强调条目管理与删除）。</p>
+      <h4>交互说明</h4>
+      <ul>
+        <li>条目同样只保留名/作者/时长 + <span class="badge b-ok">可用</span> 状态徽章；修订号、制品修订与归属细节收纳于溢出菜单的「归属信息」（→ 屏幕 15）；</li>
+        <li>默认离线态下不显示“有更新”类信息；只有手动刷新（屏幕 03B）后更新提示才出现；</li>
+        <li>删除前弹窗确认，并<b>显式说明生词保留策略</b>（MOB-LIB-001 验收要点）：生词存的是快照，文章删除后仍可查看（对应 design §3.1）；</li>
+        <li>删除只影响本机；远程删除同样不影响已下载内容（PC-LIB-002 的跨端镜像规则）。</li>
+      </ul>
+      <h4>数据一致性</h4>
+      <p>弹窗中的“2 条生词”即屏幕 12 生词本里的 mending 与 joints，均出自本文 rev 2。</p>
+    </div>
+  </div>
+</div>
+
+<div class="scr-nav">
+  <a href="s04-download-import.html">← 上一屏：下载与导入</a>
+  <a href="s06-reader-en-only.html">下一屏：阅读器 · 仅英文模式 →</a>
+</div>
+</body>
+</html>

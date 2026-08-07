@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>16 · 本地优先 · 默认离线 · Engirdle Android</title>
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<div class="scr-top">
+  <a href="index.html">← 返回索引</a>
+  <span class="gtag">分组 4 · 播放、设置与信息</span>
+  <h2>16 · 本地优先 · 默认离线</h2>
+</div>
+
+<div class="row" id="s16">
+  <div class="phwrap">
+    <div class="phone"><div class="dsp">
+      <div class="sb"><span>11:26</span><span class="r">
+        <svg><use href="icons.svg#i-cell"/></svg><svg><use href="icons.svg#i-wifi"/></svg><svg><use href="icons.svg#i-batt"/></svg></span></div>
+      <div class="ab">
+        <span class="ib"><svg class="ic"><use href="icons.svg#i-back"/></svg></span>
+        <span class="tt">连接与离线<span class="sub">设置 › 连接与离线</span></span>
+      </div>
+      <div class="bd" style="padding-top:4px">
+        <div class="card" style="background:var(--pric);border-color:#bcd6c2">
+          <b style="font-size:13px;display:flex;gap:6px;align-items:center;color:#234534"><svg class="ic" style="width:16px;height:16px"><use href="icons.svg#i-off"/></svg>本地优先 · 默认离线</b>
+          <p class="small" style="margin-top:5px;color:#2c4a3a">应用从不后台连接、不轮询目录。无论飞行模式、移动网络还是 Wi-Fi，只有你主动操作时才会联网。</p>
+        </div>
+        <div class="card">
+          <b style="font-size:12.5px">会联网的操作（均需你手动触发）</b>
+          <div class="kv" style="margin-top:3px"><span class="k">验证 / 保存服务地址</span><span class="v">屏幕 01 · 手动点「验证连接」</span></div>
+          <div class="kv"><span class="k">检查更新与下载</span><span class="v">书架「检查更新」按钮</span></div>
+          <div class="kv"><span class="k">上次检查更新</span><span class="v">昨天 21:14</span></div>
+          <div class="kv"><span class="k">后台连接 / 自动同步</span><span class="v" style="color:var(--err);font-weight:600">不存在</span></div>
+        </div>
+        <div class="card">
+          <b style="font-size:12.5px">永远离线可用的功能</b>
+          <div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:7px">
+            <span class="badge b-ok"><svg class="ic" style="width:11px;height:11px"><use href="icons.svg#i-check"/></svg>阅读</span>
+            <span class="badge b-ok"><svg class="ic" style="width:11px;height:11px"><use href="icons.svg#i-check"/></svg>三种译文模式</span>
+            <span class="badge b-ok"><svg class="ic" style="width:11px;height:11px"><use href="icons.svg#i-check"/></svg>句级 / 连续播放</span>
+            <span class="badge b-ok"><svg class="ic" style="width:11px;height:11px"><use href="icons.svg#i-check"/></svg>离线查词</span>
+            <span class="badge b-ok"><svg class="ic" style="width:11px;height:11px"><use href="icons.svg#i-check"/></svg>生词增删</span>
+          </div>
+          <p class="small muted" style="margin-top:7px">文章、音频、词典与生词全部保存在本机；飞行模式只是充分条件，不是前提。</p>
+        </div>
+      </div>
+      <div class="gb"><i></i></div>
+    </div></div>
+    <div class="cap">16 · 连接与离线说明页（默认离线、从不后台连接；状态栏为普通 Wi-Fi 而非飞行模式）</div>
+  </div>
+
+  <div class="note">
+    <div class="no">SCREEN 16</div>
+    <h3>本地优先 · 默认离线</h3>
+    <div><span class="req nfr">NFR-OFF-001</span><span class="req">MOB-CAT-001</span><span class="req">MOB-NET-001</span></div>
+    <div class="box">
+      <h4>屏幕目的</h4>
+      <p>把连接策略做成用户可查看的说明页：<b>应用默认离线，从不后台连接</b>——离线不是某种“模式”，而是产品的默认状态。</p>
+      <h4>交互说明</h4>
+      <ul>
+        <li>策略卡：不后台连接、不轮询目录，与手机网络类型无关（飞行模式 / 移动网络 / Wi-Fi 一律不主动联网）；</li>
+        <li>联网清单：全应用只有两类联网动作——服务地址「验证连接」（屏幕 01）与书架「检查更新」及其后的下载（屏幕 03/04），均由用户手动触发；「上次检查时间」在此与书架顶部同步展示；</li>
+        <li>能力清单：阅读、三种译文模式、句级/连续播放、离线查词、生词增删永远离线可用——对应 NFR-OFF-001 与发布验收的飞行模式全链路（飞行模式只是充分条件：既然从不主动联网，断网自然无感）；</li>
+        <li>实现落点：播放器读本机 <span class="mono">articles/{id}/{rev}/{artifact}/article.m4a</span>，词典为只读 SQLite，书架默认渲染本机索引（屏幕 03A）。</li>
+      </ul>
+    </div>
+  </div>
+</div>
+
+<div class="scr-nav">
+  <a href="s15-attribution-info.html">← 上一屏：归属与词典资源信息页</a>
+  <a href="s17-empty-states.html">下一屏：空态 · 空书架与空生词本 →</a>
+</div>
+</body>
+</html>

@@ -1,0 +1,103 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>02 · 服务设置 · 错误态 · Engirdle Android</title>
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<div class="scr-top">
+  <a href="index.html">← 返回索引</a>
+  <span class="gtag">分组 1 · 连接与导入</span>
+  <h2>02 · 服务设置 · 错误态</h2>
+</div>
+
+<div class="row" id="s2">
+  <div class="phwrap">
+    <div class="phone"><div class="dsp">
+      <div class="sb"><span>9:43</span><span class="r">
+        <svg><use href="icons.svg#i-cell"/></svg><svg><use href="icons.svg#i-wifi"/></svg><svg><use href="icons.svg#i-batt"/></svg></span></div>
+      <div class="ab"><span class="tt">连接内容服务</span></div>
+      <div class="bd">
+        <div class="fld">
+          <div class="l">服务基础 URL（HTTP / HTTPS）</div>
+          <div class="v">http://192.168.1.12:8766</div>
+        </div>
+        <div class="fld-h">上次验证：失败 · 2 分钟前</div>
+        <div style="display:flex;gap:10px">
+          <span class="btn t" style="flex:1"><svg class="ic" style="width:15px;height:15px"><use href="icons.svg#i-refresh"/></svg>验证连接</span>
+          <span class="btn" style="flex:1;opacity:.45">保存</span>
+        </div>
+      </div>
+      <div class="scrim"></div>
+      <div class="dlg">
+        <h5><svg class="ic" style="color:var(--err)"><use href="icons.svg#i-err"/></svg>无法连接服务</h5>
+        <p><b>连接被拒绝（connection refused）。</b></p>
+        <p>请依次确认：<br>1. PC 端已显式开启「局域网只读服务」；<br>2. 手机与 PC 处于同一局域网；<br>3. 地址与端口（8766）填写正确。</p>
+        <p class="small muted">错误分类：连接错误 · 本机内容与已安装文章不受影响。</p>
+        <div class="btnrow"><span class="btn danger">取消</span><span class="btn t">重试验证</span></div>
+      </div>
+      <div class="gb"><i></i></div>
+    </div></div>
+    <div class="cap">02A · 连接被拒绝（对话框）</div>
+  </div>
+
+  <div class="phwrap">
+    <div class="phone"><div class="dsp">
+      <div class="sb"><span>9:44</span><span class="r">
+        <svg><use href="icons.svg#i-cell"/></svg><svg><use href="icons.svg#i-wifi"/></svg><svg><use href="icons.svg#i-batt"/></svg></span></div>
+      <div class="ab"><span class="tt">连接内容服务</span></div>
+      <div class="bd">
+        <div class="fld err">
+          <div class="l">服务基础 URL（HTTP / HTTPS）</div>
+          <div class="v">http://203.0.113.9:8766</div>
+        </div>
+        <div class="fld-h err"><b>已拒绝：非局域网 HTTP 地址。</b>明文 HTTP 仅限局域网（如 192.168.x.x / 10.x.x.x）；访问公网服务请改用 HTTPS。</div>
+        <div class="altbox">
+          <div class="alt-t">另一错误示例 · 无效 URL（同一输入框的校验文案）</div>
+          <div class="fld err" style="margin-bottom:4px">
+            <div class="l">服务基础 URL（HTTP / HTTPS）</div>
+            <div class="v">192.168.1.12:8766</div>
+          </div>
+          <div class="fld-h err" style="margin-bottom:0"><b>地址格式无效：</b>需以 http:// 或 https:// 开头，例如 http://192.168.1.12:8766。</div>
+        </div>
+        <div class="banner info" style="margin-top:12px">
+          <svg class="ic"><use href="icons.svg#i-info"/></svg>
+          <span>所有连接错误都不会清空已保存的地址，也不会影响已安装内容的离线使用。</span>
+        </div>
+      </div>
+      <div class="gb"><i></i></div>
+    </div></div>
+    <div class="cap">02B · 非局域网 HTTP 被拒绝 + 无效 URL（输入框内联错误）</div>
+  </div>
+
+  <div class="note">
+    <div class="no">SCREEN 02</div>
+    <h3>服务设置 · 错误态</h3>
+    <div><span class="req">MOB-NET-001</span><span class="req">错误分类：连接</span><span class="req nfr">NFR-UX-001</span></div>
+    <div class="box">
+      <h4>屏幕目的</h4>
+      <p>把移动端错误分类（mvp_design.md §10：连接 / 下载 / 包格式 / 资源超限 / 数据库 / 播放器）中的「连接错误」转译为用户可理解、可操作的提示。</p>
+      <h4>四类提示文案（验收要点）</h4>
+      <div class="quote">无效 URL：「地址格式无效：需以 http:// 或 https:// 开头，例如 http://192.168.1.12:8766。」（输入框内联，02B 虚线区）</div>
+      <div class="quote">连接拒绝：「无法连接服务 · 连接被拒绝。请确认 PC 已开启局域网只读服务、手机与 PC 在同一网络、端口正确。」（02A 对话框）</div>
+      <div class="quote">超时：「连接超时：8 秒内未收到响应。请检查 PC 是否在线，以及手机与电脑是否处于同一局域网。」（同 02A 对话框样式）</div>
+      <div class="quote">非局域网 HTTP 被拒绝：「已拒绝：非局域网 HTTP 地址。明文 HTTP 仅限局域网；公网请改用 HTTPS。」（02B 内联，提交前拦截，不发起请求）</div>
+      <div class="quote">权限拒绝：「局域网访问权限被拒绝：请在系统设置中允许 Engirdle 访问本地网络。」（附「打开系统设置」按钮）</div>
+      <h4>交互说明</h4>
+      <ul>
+        <li>格式类错误（无效 URL、非局域网 HTTP）在发起网络请求之前拦截；</li>
+        <li>所有错误均标注错误分类，并强调「不影响本机内容」；</li>
+        <li>「重试验证」使用同一地址重新请求，不静默修改用户输入。</li>
+      </ul>
+    </div>
+  </div>
+</div>
+
+<div class="scr-nav">
+  <a href="s01-service-setup.html">← 上一屏：首次启动 / 服务设置</a>
+  <a href="s03-bookshelf-refresh.html">下一屏：书架 · 默认离线 + 手动刷新 →</a>
+</div>
+</body>
+</html>

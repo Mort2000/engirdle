@@ -1,0 +1,81 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>01 · 首次启动 / 服务设置 · Engirdle Android</title>
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<div class="scr-top">
+  <a href="index.html">← 返回索引</a>
+  <span class="gtag">分组 1 · 连接与导入</span>
+  <h2>01 · 首次启动 / 服务设置</h2>
+</div>
+
+<div class="row" id="s1">
+  <div class="phwrap">
+    <div class="phone"><div class="dsp">
+      <div class="sb"><span>9:41</span><span class="r">
+        <svg><use href="icons.svg#i-cell"/></svg><svg><use href="icons.svg#i-wifi"/></svg><svg><use href="icons.svg#i-batt"/></svg></span></div>
+      <div class="ab">
+        <span class="tt">连接内容服务<span class="sub">首次启动 · 第 1 步，共 1 步</span></span>
+      </div>
+      <div class="bd">
+        <div class="card" style="background:var(--pric);border-color:#bcd6c2">
+          <b style="font-size:14px">欢迎使用 Engirdle</b>
+          <p class="small" style="margin-top:4px;color:#2c4a3a">在 PC 端发布文章后，输入 PC 的局域网只读服务地址，即可手动检查目录并下载文章。应用默认离线、不会自动连接该地址；下载完成后全部功能离线可用。</p>
+        </div>
+        <div class="fld">
+          <div class="l">服务基础 URL（HTTP / HTTPS）</div>
+          <div class="v">http://192.168.1.12:8766</div>
+        </div>
+        <div class="fld-h">PC 端管理界面 →「局域网发布」中显示的地址与端口。服务默认关闭，需在 PC 端显式开启。</div>
+        <div style="display:flex;gap:10px;margin-bottom:12px">
+          <span class="btn t" style="flex:1"><svg class="ic" style="width:15px;height:15px"><use href="icons.svg#i-refresh"/></svg>验证连接</span>
+          <span class="btn" style="flex:1"><svg class="ic" style="width:15px;height:15px"><use href="icons.svg#i-check"/></svg>保存</span>
+        </div>
+        <div class="banner warn">
+          <svg class="ic"><use href="icons.svg#i-warn"/></svg>
+          <span><b>仅在受信任的局域网使用。</b>该服务为无鉴权只读服务，请勿填写公网地址；完整性校验只能发现传输损坏，不能证明来源身份。</span>
+        </div>
+        <div class="card">
+          <b style="font-size:12.5px;display:flex;align-items:center;gap:6px"><svg class="ic" style="width:15px;height:15px;color:var(--pri)"><use href="icons.svg#i-shield"/></svg>Android 权限与明文流量说明</b>
+          <p class="small muted" style="margin-top:5px">· 需要「局域网访问」权限，拒绝时可手动授予；<br>· 明文 HTTP 仅允许局域网地址，<b>非局域网 HTTP 将被应用内拒绝</b>；<br>· HTTPS 地址正常支持，不做全局明文放行。</p>
+        </div>
+      </div>
+      <div class="snack" style="background:#234534">
+        <svg class="ic"><use href="icons.svg#i-check"/></svg>
+        <span>验证成功：目录服务可用，已发现 4 篇可下载文章，可保存。</span>
+      </div>
+      <div class="gb"><i></i></div>
+    </div></div>
+    <div class="cap">01 · 首次启动 / 服务设置（验证成功态）</div>
+  </div>
+
+  <div class="note">
+    <div class="no">SCREEN 01</div>
+    <h3>首次启动 · 服务设置</h3>
+    <div><span class="req">MOB-NET-001</span><span class="req nfr">NFR-SEC-002</span><span class="req nfr">PRD §7.3 信任模型</span></div>
+    <div class="box">
+      <h4>屏幕目的</h4>
+      <p>首次启动（或之后在设置中）配置、验证并保存 PC 局域网只读服务的基础 URL。这是移动端唯一需要联网的入口。</p>
+      <h4>交互说明</h4>
+      <ul>
+        <li>「验证连接」：GET 服务 <span class="mono">/catalog.json</span>（有限超时 + 最大响应限制），成功后以 snackbar 反馈目录版本与包数量；</li>
+        <li>「保存」：持久化到本机设置；未验证也可保存，但目录页会提示先验证；</li>
+        <li>风险横幅常驻：明示“仅受信任局域网 + 无鉴权只读”的信任模型（PRD §7.3）；</li>
+        <li>权限卡片说明 Android 局域网权限与明文流量策略：仅对局域网用例做最小范围配置，应用内拒绝非局域网 HTTP，不全局放宽。</li>
+      </ul>
+      <h4>验收落点</h4>
+      <p>无效 URL、连接拒绝、权限拒绝、超时均有可理解提示 → 见屏幕 02。</p>
+    </div>
+  </div>
+</div>
+
+<div class="scr-nav">
+  <a class="disabled" href="#">← 已是第一屏</a>
+  <a href="s02-connection-error.html">下一屏：服务设置 · 错误态 →</a>
+</div>
+</body>
+</html>

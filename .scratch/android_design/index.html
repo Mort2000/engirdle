@@ -1,0 +1,124 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Engirdle Android 客户端 · MVP 高保真设计稿</title>
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+<!-- ============ 顶部：设计说明 ============ -->
+<header class="top">
+  <div class="kicker">ENGIRDLE · ANDROID · MVP</div>
+  <h1>Engirdle Android 客户端<br>高保真页面设计稿</h1>
+  <p class="lede">单用户产品：PC 端生产内容（录入英文文章 → DeepSeek 翻译 → 本地 Qwen3-TTS 句级语音 → 打包 .readpack 局域网发布），Android 端（Flutter，仅验收 Android）下载、校验、原子导入后<strong>完全离线</strong>使用：阅读（三种译文模式）、句级/连续播放、离线词典查词、生词本。本设计稿依据 <span class="mono">mvp_prd.md</span> 第 6/7/9 章与 <span class="mono">mvp_design.md</span> 第 6.5/8/10 章绘制。</p>
+
+  <div class="meta-grid">
+    <div class="mc">
+      <h3>本目录结构</h3>
+      <ul>
+        <li><b>styles.css</b> — 公共样式（设计令牌、画板、手机框、所有公共组件）</li>
+        <li><b>icons.svg</b> — 25 个 SVG 图标 symbol，各屏通过 <span class="mono">&lt;use href="icons.svg#i-xxx"/&gt;</span> 外部引用</li>
+        <li><b>constraints.md</b> — 公共约束（产品定位、设计原则、排除项、设计令牌、组件规格、设计假设记录 ①–⑭）</li>
+        <li><b>sNN-*.html</b> — 17 个屏幕文件，每屏一份，独立可查看</li>
+      </ul>
+    </div>
+    <div class="mc">
+      <h3>查看提示</h3>
+      <p>本设计稿使用<b>外部 SVG 引用</b>。Chrome / Edge 在 <span class="mono">file://</span> 协议下会因 CORS 拦截外部 SVG，图标不显示——请通过本地服务器查看：</p>
+      <p class="mono" style="margin-top:6px;background:#f4efe2;padding:6px 9px;border-radius:6px">python3 -m http.server 8000<br>→ 浏览器打开 http://localhost:8000/</p>
+      <p class="small muted" style="margin-top:6px">Firefox 不受此限制，<span class="mono">file://</span> 直接打开亦可。</p>
+    </div>
+    <div class="mc">
+      <h3>公共约束（→ constraints.md）</h3>
+      <p>下列跨屏通用约束已抽取到 <a href="constraints.md"><b>constraints.md</b></a>，本索引不再重复：</p>
+      <ul>
+        <li>产品定位、设计原则、需求追溯说明、排除项自查；</li>
+        <li>贯穿示例文章与设计令牌（颜色变量、字体、排版档位）；</li>
+        <li>公共组件规格（封面、列表信息收敛、手势约定、行内零图标、错误分类、替代状态容器）；</li>
+        <li>14 条设计假设记录（含 ⑨ 待用户决策项、⑪–⑭ UX 评审采纳项）。</li>
+      </ul>
+    </div>
+  </div>
+
+  <h4 style="margin-top:22px;font-size:12px;letter-spacing:.14em;color:var(--mut)">屏幕清单（点击跳转）</h4>
+  <nav class="nav">
+    <a href="s01-service-setup.html"><b>01</b>服务设置</a>
+    <a href="s02-connection-error.html"><b>02</b>连接错误态</a>
+    <a href="s03-bookshelf-refresh.html"><b>03</b>书架·手动刷新目录</a>
+    <a href="s04-download-import.html"><b>04</b>下载与导入</a>
+    <a href="s05-bookshelf-manage.html"><b>05</b>文章库</a>
+    <a href="s06-reader-en-only.html"><b>06</b>阅读器·仅英文</a>
+    <a href="s07-reader-bilingual.html"><b>07</b>阅读器·英中对照</a>
+    <a href="s08-reader-zh-only.html"><b>08</b>阅读器·仅中文</a>
+    <a href="s09-word-selection.html"><b>09</b>选词查词</a>
+    <a href="s10-dictionary-panel.html"><b>10</b>词典结果面板</a>
+    <a href="s11-save-feedback.html"><b>11</b>保存反馈</a>
+    <a href="s12-vocab-book.html"><b>12</b>生词本</a>
+    <a href="s13-typography-settings.html"><b>13</b>排版设置</a>
+    <a href="s14-playback-control.html"><b>14</b>播放控制条</a>
+    <a href="s15-attribution-info.html"><b>15</b>归属与词典资源</a>
+    <a href="s16-offline-default.html"><b>16</b>本地优先·默认离线</a>
+    <a href="s17-empty-states.html"><b>17</b>空态</a>
+  </nav>
+  <p class="small muted" style="margin-top:14px">贯穿示例文章：《The Quiet Practice of Mending》（修补的静谧修行）· 作者 Elena Marsh · article_id <span class="mono">a3f1c982…</span> · 本机已装 rev 2，服务器已发布 rev 3。示例生词 mending / joints 均出自该文句子。</p>
+</header>
+
+<!-- ============ 分组 1：连接与导入 ============ -->
+<div class="grp">
+  <div class="gt">1 · 连接与导入</div>
+  <div class="gd">配置受信任局域网内的只读服务 → 浏览目录 → 下载校验 → 事务化导入。对应 PRD §6.1 与 mvp_design.md §6.5/§7/§8.2。</div>
+  <div class="gd" style="margin-top:8px">屏幕：
+    <a href="s01-service-setup.html">01 服务设置</a> ·
+    <a href="s02-connection-error.html">02 连接错误态</a> ·
+    <a href="s03-bookshelf-refresh.html">03 书架·手动刷新目录</a> ·
+    <a href="s04-download-import.html">04 下载与导入</a>
+  </div>
+</div>
+
+<!-- ============ 分组 2：书架与阅读 ============ -->
+<div class="grp">
+  <div class="gt">2 · 书架与阅读</div>
+  <div class="gd">已安装文章的管理与三种译文模式的阅读器。对应 PRD §6.2 与 mvp_design.md §8.3。贯穿示例文章共 2 段 7 句，句 ID 形如 <span class="mono">s-0101</span>（v1 可读 ID，消费者不解析编号含义）。</div>
+  <div class="gd" style="margin-top:8px">屏幕：
+    <a href="s05-bookshelf-manage.html">05 文章库</a> ·
+    <a href="s06-reader-en-only.html">06 阅读器·仅英文</a> ·
+    <a href="s07-reader-bilingual.html">07 阅读器·英中对照</a> ·
+    <a href="s08-reader-zh-only.html">08 阅读器·仅中文</a> ·
+    <a href="s17-empty-states.html">17 空态</a>
+  </div>
+</div>
+
+<!-- ============ 分组 3：词典与生词 ============ -->
+<div class="grp">
+  <div class="gt">3 · 词典与生词</div>
+  <div class="gd">单句内选词 → 离线词典查询 → 选定义项保存 → 生词本管理。对应 PRD §6.4 与 mvp_design.md §8.3/§8.5。</div>
+  <div class="gd" style="margin-top:8px">屏幕：
+    <a href="s09-word-selection.html">09 选词查词</a> ·
+    <a href="s10-dictionary-panel.html">10 词典结果面板</a> ·
+    <a href="s11-save-feedback.html">11 保存反馈</a> ·
+    <a href="s12-vocab-book.html">12 生词本</a>
+  </div>
+</div>
+
+<!-- ============ 分组 4：播放、设置与信息 ============ -->
+<div class="grp">
+  <div class="gt">4 · 播放、设置与信息</div>
+  <div class="gd">单一播放会话的控制条、排版与预设主题、归属/词典资源信息、离线可用性。对应 PRD §6.2/§6.3/§8 与 mvp_design.md §8.4。</div>
+  <div class="gd" style="margin-top:8px">屏幕：
+    <a href="s13-typography-settings.html">13 排版设置</a> ·
+    <a href="s14-playback-control.html">14 播放控制条</a> ·
+    <a href="s15-attribution-info.html">15 归属与词典资源</a> ·
+    <a href="s16-offline-default.html">16 本地优先·默认离线</a>
+  </div>
+</div>
+
+<!-- ============ 页脚 ============ -->
+<div class="fin">
+  <p>Engirdle Android MVP 设计稿 · 依据 <span class="mono">mvp_prd.md</span>（2026-08-07）与 <span class="mono">mvp_design.md</span> 绘制 · 已按 UX 评审（2026-08-07）采纳 4 项改进（假设 ⑪–⑭，详见 <a href="constraints.md#9-设计假设记录">constraints.md §9</a>）。</p>
+  <p style="margin-top:8px">文件结构：<a href="styles.css">styles.css</a>（公共样式）· <a href="icons.svg">icons.svg</a>（SVG 图标）· <a href="constraints.md">constraints.md</a>（公共约束）· 17 个 <span class="mono">sNN-*.html</span> 屏幕文件。</p>
+</div>
+
+</body>
+</html>
