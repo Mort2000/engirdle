@@ -30,6 +30,11 @@ class LocalPublicationFileStore:
         shutil.copyfile(artifact.path, temporary)
         os.replace(temporary, destination)
 
+    def unstage_package(self, opaque_name: str) -> None:
+        # Only ever called for a package this process just staged and that is not
+        # the currently published file, so removing it cannot break the old release.
+        (self._workspace.public_packages_dir / opaque_name).unlink(missing_ok=True)
+
     def prepare_catalog(self, catalog: Catalog) -> None:
         temporary = self._workspace.public_dir / ".catalog.json.tmp"
         temporary.parent.mkdir(parents=True, exist_ok=True)

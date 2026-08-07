@@ -83,7 +83,7 @@ class JobRepository:
                 """
                 UPDATE build_jobs
                 SET status = ?, stage = ?, error_code = ?, error_message = ?
-                WHERE status = ? AND heartbeat_at < ?
+                WHERE status = ? AND (heartbeat_at < ? OR heartbeat_at IS NULL)
                 """,
                 (
                     JobStatus.QUEUED.value,
@@ -193,7 +193,7 @@ class JobRepository:
                 UPDATE build_jobs
                 SET status = ?, finished_at = ?, heartbeat_at = ?,
                     error_code = ?, error_message = ?
-                WHERE job_id = ?
+                WHERE job_id = ? AND status IS NOT ?
                 """,
                 (
                     JobStatus.FAILED.value,
@@ -202,6 +202,7 @@ class JobRepository:
                     code,
                     message[:2000],
                     job_id,
+                    JobStatus.SUCCEEDED.value,
                 ),
             )
 

@@ -63,3 +63,36 @@ def test_worker_recovers_an_expired_running_lease_and_retries_safely(
     recovered = container.production.get(job.job_id)
     assert recovered.status.value == "review_required"
     assert recovered.attempts == 2
+
+
+def test_recover_stale_also_reclaims_jobs_with_null_heartbeat(tmp_path: Path) -> None:
+    """A RUNNING row with a NULL heartbeat must still be reclaimed.
+
+    SQLite evaluates ``NULL < threshold`` as NULL (not true), so a plain
+    ``heartbeat_at < ?`` predicate skips these rows entirely.
+    """
+    container = Container.build(Settings(workspace=tmp_path / "workspace"))
+    revision = container.content.create(
+        NewArticle(
+            title="Null heartbeat",
+            body="One sentence here.",
+            author=None,
+            source_name=None,
+            source_url=None,
+            license_name="unknown",
+        )
+    )
+    job = container.production.queue(
+        container.content.approve(revision.article_id, revision.revision)
+    )
+    container.worker.run_once()
+    with container.worker._jobs._database.connect() as connection:
+        connection.execute(
+            "UPDATE build_jobs SET status = 'running', heartbeat_at = NULL "
+            "WHERE job_id = ?",
+            (job.job_id,),
+        )
+    assert container.production.get(job.job_id).status.value == "running"
+
+    assert container.worker.recover_stale_jobs(lease_seconds=300) == 1
+    assert container.production.get(job.job_id).status.value == "queued"

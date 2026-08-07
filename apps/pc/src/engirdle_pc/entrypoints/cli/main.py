@@ -51,6 +51,7 @@ def main() -> None:
             port=settings.management_port,
         )
     elif arguments.command == "worker-once":
+        container.worker.recover_stale_jobs()
         processed = container.worker.run_once()
         print("processed" if processed else "idle")
     else:

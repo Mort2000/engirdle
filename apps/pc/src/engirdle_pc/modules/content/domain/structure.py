@@ -15,6 +15,13 @@ from engirdle_pc.modules.content.domain.errors import InvalidContent
 from engirdle_pc.shared.domain.hashing import sha256_text
 
 _LIST_MARKER = re.compile(r"^\s*(?:[-*+]\s+|\d+[.)]\s+)(.+)$")
+
+# Versioned identifier for the segmentation algorithm owned by this module. A
+# change to segmentation MUST bump this so the published manifest records which
+# segmenter produced the structure, and stored structure hashes stay traceable
+# to the algorithm revision that produced them. Sourced here (where the
+# algorithm lives) rather than hardcoded by the production module.
+SEGMENTER_VERSION = "engirdle-segmenter@1"
 _NONTERMINAL_ABBREVIATIONS = {
     "dr",
     "e.g",

@@ -114,7 +114,6 @@ class PackagingService:
                 segmenter=job.config.segmenter,
                 translation=TranslationPipeline(
                     provider=job.config.translation_provider,
-                    endpoint=job.config.translation_endpoint,
                     model=job.config.translation_model,
                     thinking=job.config.translation_thinking,
                     reasoning_effort=job.config.translation_reasoning_effort,

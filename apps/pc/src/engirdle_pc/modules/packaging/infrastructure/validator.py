@@ -19,6 +19,10 @@ class ReadpackValidator:
         "attribution.json",
         "audio/article.m4a",
     }
+    # Whole-package cap matches the catalog schema's package-size maximum so a
+    # package that could never be published is rejected at build time rather
+    # than only when the catalog is generated.
+    _MAX_PACKAGE_BYTES: ClassVar[int] = 512 * 1024 * 1024
 
     def __init__(self, contracts_dir: Path) -> None:
         schema_dir = contracts_dir / "readpack" / "v1" / "schema"
@@ -29,6 +33,8 @@ class ReadpackValidator:
         }
 
     def validate(self, package_path: Path) -> None:
+        if package_path.stat().st_size > self._MAX_PACKAGE_BYTES:
+            raise InvalidReadpack("readpack exceeds the v1 package size limit")
         with ZipFile(package_path) as archive:
             names = [entry.filename for entry in archive.infolist()]
             if len(names) != len(set(names)):
@@ -74,7 +80,11 @@ class ReadpackValidator:
                 "audio/article.m4a": archive.read("audio/article.m4a"),
             }
             for file_entry in manifest["files"]:
-                content = expected_payloads[file_entry["path"]]
+                content = expected_payloads.get(file_entry["path"])
+                if content is None:
+                    raise InvalidReadpack(
+                        f"manifest references unknown file path {file_entry['path']}"
+                    )
                 if file_entry["size"] != len(content):
                     raise InvalidReadpack(f"size mismatch for {file_entry['path']}")
                 if file_entry["sha256"] != sha256_bytes(content):

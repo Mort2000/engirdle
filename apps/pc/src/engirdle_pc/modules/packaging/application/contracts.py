@@ -32,7 +32,6 @@ class ManifestAudio(ContractModel):
 
 class TranslationPipeline(ContractModel):
     provider: str
-    endpoint: str
     model: str
     thinking: str
     reasoning_effort: str

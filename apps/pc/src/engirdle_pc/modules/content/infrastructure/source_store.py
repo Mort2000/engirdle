@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import shutil
 
 from engirdle_pc.modules.content.domain.entities import ArticleRevision
 from engirdle_pc.shared.infrastructure.workspace import Workspace
@@ -39,3 +40,11 @@ class FileSourceSnapshotStore:
             json.dumps(structure, ensure_ascii=False, indent=2) + "\n",
             encoding="utf-8",
         )
+
+    def discard(self, article_id: str, revision: int) -> None:
+        # Compensating cleanup for a files-first write whose database insert later
+        # failed. Only the failed revision's directory is removed; other revisions
+        # and the article directory are left untouched.
+        target = self._workspace.source_revision_dir(article_id, revision)
+        if target.is_dir():
+            shutil.rmtree(target)

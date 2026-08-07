@@ -1,6 +1,10 @@
 from __future__ import annotations
 
-from engirdle_pc.modules.content.public import ArticleRevision, RevisionStatus
+from engirdle_pc.modules.content.public import (
+    SEGMENTER_VERSION,
+    ArticleRevision,
+    RevisionStatus,
+)
 from engirdle_pc.modules.production.application.ports import JobStore
 from engirdle_pc.modules.production.domain.errors import InvalidJobState
 from engirdle_pc.modules.production.domain.models import (
@@ -30,7 +34,7 @@ class ProductionService:
         voice = self._speech.voice_profile
         config = PipelineConfig(
             pipeline_version="0.1.0",
-            segmenter="engirdle-segmenter@1",
+            segmenter=SEGMENTER_VERSION,
             translation_adapter=self._translation.name,
             translation_provider=self._translation.provider,
             translation_endpoint=self._translation.endpoint,

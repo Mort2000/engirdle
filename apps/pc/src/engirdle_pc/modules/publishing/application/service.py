@@ -50,7 +50,6 @@ class PublishingService:
         return self._repository.list_current()
 
     def _switch(self, artifact: PackageArtifact, *, finalize_job: bool) -> None:
-        self._files.stage_package(artifact)
         published_at = isoformat_utc(self._clock.now())
         revision = self._content.get(artifact.article_id, artifact.revision)
         package = PublishedPackage(
@@ -66,13 +65,23 @@ class PublishingService:
         )
         previous_version = self._repository.catalog_version()
         previous = self._repository.current_for_article(artifact.article_id)
+        # A rebuild always mints a fresh opaque name, so the staged file is ours
+        # alone; a republish of the same package reuses the name and must not be
+        # deleted on failure (it is still the live published file).
+        staged_only_by_us = (
+            previous is None or previous.opaque_name != artifact.opaque_name
+        )
         try:
-            catalog_version = self._repository.publish(package)
-            self._prepare_catalog(catalog_version)
+            self._files.stage_package(artifact)
             if finalize_job:
                 self._packaging.mark_published(artifact.package_id)
                 self._content.mark_published(artifact.article_id, artifact.revision)
                 self._production.mark_succeeded(artifact.job_id)
+            # The outward catalog switch is the final step: it only flips once
+            # the build has been accepted by every owning module, so a failure
+            # here leaves the old release current and the new file unstaged.
+            catalog_version = self._repository.publish(package)
+            self._prepare_catalog(catalog_version)
             self._files.commit_catalog()
         except Exception:
             self._files.discard_prepared_catalog()
@@ -81,6 +90,8 @@ class PublishingService:
                 previous,
                 previous_version,
             )
+            if staged_only_by_us:
+                self._files.unstage_package(artifact.opaque_name)
             raise
 
     def regenerate_catalog(self) -> Catalog:

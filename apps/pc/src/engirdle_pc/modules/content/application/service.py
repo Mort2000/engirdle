@@ -41,8 +41,15 @@ class ContentService:
     def create(self, command: NewArticle) -> ArticleRevision:
         revision = self._build_revision(self._identifiers.new(), 1, command)
         created_at = isoformat_utc(self._clock.now())
-        self._repository.insert(revision, created_at)
+        # Write the source snapshot before committing the revision row so a
+        # database failure never leaves a revision whose raw/normalized files
+        # are missing (PC-ING-002). An orphan directory is benign and cleanable.
         self._source_snapshots.save(revision)
+        try:
+            self._repository.insert(revision, created_at)
+        except BaseException:
+            self._source_snapshots.discard(revision.article_id, revision.revision)
+            raise
         return revision
 
     def create_revision(self, article_id: str, command: NewArticle) -> ArticleRevision:
@@ -50,8 +57,12 @@ class ContentService:
         if previous.status in {RevisionStatus.DRAFT, RevisionStatus.STRUCTURED}:
             raise ImmutableRevision("finish the current editable revision before creating another")
         revision = self._build_revision(article_id, previous.revision + 1, command)
-        self._repository.insert_revision(revision, isoformat_utc(self._clock.now()))
         self._source_snapshots.save(revision)
+        try:
+            self._repository.insert_revision(revision, isoformat_utc(self._clock.now()))
+        except BaseException:
+            self._source_snapshots.discard(revision.article_id, revision.revision)
+            raise
         return revision
 
     @staticmethod
@@ -95,8 +106,14 @@ class ContentService:
             structure_sha256=structure_sha256(materialized),
             status=RevisionStatus.STRUCTURED,
         )
-        self._repository.replace_structure(updated)
+        # Persist the new structure snapshot first; if the database write then
+        # fails, restore the previous snapshot so disk and database stay aligned.
         self._source_snapshots.save(updated)
+        try:
+            self._repository.replace_structure(updated)
+        except BaseException:
+            self._source_snapshots.save(current)
+            raise
         return updated
 
     def approve(self, article_id: str, revision: int) -> ArticleRevision:

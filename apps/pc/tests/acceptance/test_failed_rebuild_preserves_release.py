@@ -157,3 +157,55 @@ def test_release_finalization_failure_never_switches_catalog(tmp_path: Path) -> 
     assert admin.get(f"/api/jobs/{rebuild['job_id']}").json()["status"] == "failed"
     assert publisher.get("/catalog.json").json()["packages"][0]["url"] == old_url
     assert publisher.get(old_url).status_code == 200
+
+
+def test_publish_commit_failure_keeps_job_succeeded_and_old_release(
+    tmp_path: Path,
+) -> None:
+    """Marks succeed, then the outward catalog commit fails.
+
+    The job must stay SUCCEEDED (the build was good; the guard stops the outer
+    ``fail()`` from regressing a terminal job), the old release must stay
+    current, and the newly staged package file must be unstaged.
+    """
+    container = Container.build(Settings(workspace=tmp_path / "workspace"))
+    admin = TestClient(create_admin_app(container))
+    publisher = TestClient(create_publisher_app(container.publisher_queries))
+    article = admin.post(
+        "/api/articles", json={"title": "CommitFail", "body": "Old stays current."}
+    ).json()
+    first_job = admin.post(
+        f"/api/articles/{article['article_id']}/revisions/1/approve"
+    ).json()["job_id"]
+    container.worker.run_once()
+    admin.post(f"/api/jobs/{first_job}/publish")
+    old_catalog = publisher.get("/catalog.json").json()
+    old_url = old_catalog["packages"][0]["url"]
+    old_hash = old_catalog["packages"][0]["sha256"]
+
+    rebuild = admin.post(
+        f"/api/articles/{article['article_id']}/revisions/1/rebuild"
+    ).json()
+    container.worker.run_once()
+
+    packages_dir = tmp_path / "workspace" / "public" / "packages"
+    assert len(list(packages_dir.glob("*.readpack"))) == 1
+
+    with patch.object(
+        container.publishing._files,
+        "commit_catalog",
+        side_effect=OSError("injected commit failure"),
+    ), pytest.raises(OSError, match="injected commit failure"):
+        admin.post(f"/api/jobs/{rebuild['job_id']}/publish")
+
+    # The marks had already committed, so the job must NOT regress to failed.
+    assert (
+        admin.get(f"/api/jobs/{rebuild['job_id']}").json()["status"] == "succeeded"
+    )
+    # The outward catalog and old package are untouched...
+    catalog = publisher.get("/catalog.json").json()
+    assert catalog["packages"][0]["sha256"] == old_hash
+    assert catalog["packages"][0]["url"] == old_url
+    assert publisher.get(old_url).status_code == 200
+    # ...and the orphan staged package was cleaned up.
+    assert len(list(packages_dir.glob("*.readpack"))) == 1

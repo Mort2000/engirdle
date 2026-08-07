@@ -16,8 +16,10 @@ from engirdle_pc.modules.content.domain.errors import (
     ImmutableRevision,
     InvalidContent,
 )
+from engirdle_pc.modules.content.domain.structure import SEGMENTER_VERSION
 
 __all__ = [
+    "SEGMENTER_VERSION",
     "ArticleRevision",
     "Block",
     "BlockKind",

@@ -10,7 +10,7 @@ from engirdle_pc.modules.content.domain.entities import (
     Sentence,
     SourceAttribution,
 )
-from engirdle_pc.modules.content.domain.errors import ContentNotFound
+from engirdle_pc.modules.content.domain.errors import ContentNotFound, ImmutableRevision
 from engirdle_pc.shared.infrastructure.database.connection import Database
 
 
@@ -92,14 +92,26 @@ class ContentRepository:
 
     def mark_published(self, article_id: str, revision: int, published_at: str) -> None:
         with self._database.connect() as connection:
-            connection.execute(
+            updated = connection.execute(
                 """
                 UPDATE article_revisions
                 SET status = ?, published_at = COALESCE(published_at, ?)
                 WHERE article_id = ? AND revision = ?
+                    AND status IN (?, ?)
                 """,
-                (RevisionStatus.PUBLISHED.value, published_at, article_id, revision),
-            )
+                (
+                    RevisionStatus.PUBLISHED.value,
+                    published_at,
+                    article_id,
+                    revision,
+                    RevisionStatus.APPROVED.value,
+                    RevisionStatus.PUBLISHED.value,
+                ),
+            ).rowcount
+            if updated != 1:
+                raise ImmutableRevision(
+                    "only an approved or already-published revision can be published"
+                )
 
     def get(self, article_id: str, revision: int) -> ArticleRevision:
         with self._database.connect() as connection:
