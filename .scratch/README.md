@@ -13,6 +13,7 @@
 | [purpose.md](./purpose.md) | 为什么做、为谁做、坚持什么边界 | 产品方向基线 |
 | [mvp/mvp_prd.md](./mvp/mvp_prd.md) | MVP 必须交付什么、怎样算完成 | 需求与验收基线 |
 | [mvp/mvp_design.md](./mvp/mvp_design.md) | MVP 如何实现、组件怎样协作、协议如何定义 | 技术设计基线 |
+| [mvp/mvp_module_architecture.md](./mvp/mvp_module_architecture.md) | 前后端模块怎样划分、源码与测试目录怎样组织 | 工程架构基线候选 |
 | [mvp/mvp_feasibility.md](./mvp/mvp_feasibility.md) | 方案是否合理可行、风险是什么、先验证什么 | 评审与决策依据 |
 | [roadmap.md](./roadmap.md) | MVP 之后可能向哪里演进 | 非承诺性路线图 |
 
@@ -22,14 +23,15 @@
 |---|---|
 | 背景、定位、长期原则、结论中的核心主张 | `purpose.md` |
 | 原始需求、MVP 范围、明确排除项 | `mvp/mvp_prd.md` |
-| 架构、数据模型、流水线、包、PC/移动端设计、技术栈 | `mvp/mvp_design.md` |
+| 系统架构、数据模型、流水线、包、PC/移动端设计、技术栈 | `mvp/mvp_design.md` |
+| 前后端业务模块、依赖规则、源码/测试/契约目录 | `mvp/mvp_module_architecture.md` |
 | 原风险与缓解措施，加上本次合理性审查和验证门槛 | `mvp/mvp_feasibility.md` |
 | MVP 后演进方向 | `roadmap.md` |
 
 ## 推荐阅读路径
 
 - 了解项目：`purpose.md` → `mvp/mvp_prd.md`。
-- 开始实现：`mvp/mvp_prd.md` → `mvp/mvp_design.md` → `mvp/mvp_feasibility.md` 中的验证门槛。
+- 开始实现：`mvp/mvp_prd.md` → `mvp/mvp_design.md` → `mvp/mvp_module_architecture.md` → `mvp/mvp_feasibility.md` 中的验证门槛。
 - 评审范围：`mvp/mvp_feasibility.md` → `mvp/mvp_prd.md` 的明确排除项。
 - 讨论后续功能：`roadmap.md`，不要直接把候选功能视为 MVP 承诺。
 
@@ -41,12 +43,14 @@ skinparam shadowing false
 rectangle "purpose\n目标与原则" as Purpose
 rectangle "mvp_prd\n需求与验收" as PRD
 rectangle "mvp_design\n架构与协议" as Design
+rectangle "mvp_module_architecture\n模块与目录" as ModuleArchitecture
 rectangle "mvp_feasibility\n风险与验证" as Feasibility
 rectangle "roadmap\n后续候选" as Roadmap
 
 Purpose --> PRD : 约束范围
 PRD --> Design : 驱动实现
-Design --> Feasibility : 接受评审
+Design --> ModuleArchitecture : 细化工程组织
+ModuleArchitecture --> Feasibility : 接受评审
 Feasibility --> PRD : 校正范围
 Feasibility --> Design : 设置验证门槛
 Purpose --> Roadmap : 保持方向一致
@@ -58,8 +62,9 @@ Purpose --> Roadmap : 保持方向一致
 1. “为什么做”的冲突以 `purpose.md` 为准。
 2. “是否必须交付”的冲突以 `mvp/mvp_prd.md` 为准。
 3. “当前准备怎样实现”的冲突以 `mvp/mvp_design.md` 为准。
-4. `mvp/mvp_feasibility.md` 中未关闭的门槛优先于未经验证的技术假设。
-5. `roadmap.md` 不构成需求承诺。
+4. 模块边界和源码目录以 `mvp/mvp_module_architecture.md` 为准，但不得改变 `mvp/mvp_design.md` 的技术语义。
+5. `mvp/mvp_feasibility.md` 中未关闭的门槛优先于未经验证的技术假设。
+6. `roadmap.md` 不构成需求承诺。
 
 ## 维护约定
 

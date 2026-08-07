@@ -4,6 +4,7 @@
 > 更新时间：2026-08-07  
 > 产品方向：[purpose.md](../purpose.md)  
 > 需求基线：[mvp_prd.md](./mvp_prd.md)  
+> 工程架构：[mvp_module_architecture.md](./mvp_module_architecture.md)<br>
 > 风险与验证：[mvp_feasibility.md](./mvp_feasibility.md)
 
 ## 1. 设计目标与约束
