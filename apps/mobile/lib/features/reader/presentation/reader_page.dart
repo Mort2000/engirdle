@@ -1,0 +1,579 @@
+import 'dart:async';
+
+import 'package:flutter/material.dart';
+
+import '../../../app/dependencies.dart';
+import '../../../app/format.dart';
+import '../../../app/router.dart';
+import '../../../app/scope.dart';
+import '../../../app/theme.dart';
+import '../../../shared_kernel/content_identity.dart';
+import '../../dictionary/presentation/dictionary_sheet.dart';
+import '../../library/domain/installed_article.dart';
+import '../../playback/domain/playback_models.dart';
+import '../../playback/presentation/playback_bar.dart';
+import 'sentence_view.dart';
+import 'sheets.dart';
+
+/// Screens 06/07/08/09/14 — the structured reader.
+///
+/// Rendering follows the packaged block/sentence structure (never resegmented
+/// on device). Inline UI is icon-free: tap = sentence menu (or cancel-first),
+/// long-press = word menu; translations and dictionary results always go to
+/// bottom drawers.
+class ReaderPage extends StatefulWidget {
+  const ReaderPage({required this.articleId, super.key});
+
+  final String articleId;
+
+  @override
+  State<ReaderPage> createState() => _ReaderPageState();
+}
+
+class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
+  InstalledContent? _content;
+  ReadingMode _mode = ReadingMode.enOnly;
+  StreamSubscription<PlaybackEvent>? _playbackEvents;
+
+  /// Cached in didChangeDependencies: ancestor lookup via [AppScope.of] is
+  /// unsafe from dispose() (deactivate has already run by then).
+  late AppDependencies _deps;
+
+  /// sentenceId → 「第 X 段第 Y 句」 display label.
+  Map<String, String> _labels = const {};
+
+  /// Cross-sentence selection tracking (constraints §7.3, UX-A4): the
+  /// sentence owning the live selection plus the key used to clear it. Only
+  /// non-collapsed reports may update these — a tap on sentence B collapses
+  /// B's own (empty) selection, so trusting collapsed callbacks would erase
+  /// A's record while A's highlight stays on screen.
+  String? _selectionSentenceId;
+  GlobalKey<SentenceViewState>? _selectionViewKey;
+
+  /// sentenceId → key of its SentenceView; sentence count is bounded by the
+  /// article, so a per-sentence GlobalKey is acceptable.
+  final Map<String, GlobalKey<SentenceViewState>> _viewKeys = {};
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final deps = AppScope.of(context);
+    _deps = deps;
+    if (_content != null) return;
+    final content = deps.library.getContent(widget.articleId);
+    if (content == null) {
+      // This method runs inside the first build phase; popping here would
+      // setState the Navigator mid-frame, so defer to after the frame.
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) Navigator.of(context).pop();
+      });
+      return;
+    }
+    _content = content;
+    _mode = deps.library.readingMode(widget.articleId);
+    _labels = _computeLabels(content);
+    for (final sentence in content.sentences) {
+      _viewKeys[sentence.sentenceId] = GlobalKey<SentenceViewState>();
+    }
+    deps.playback.attachArticle(content.audioFilePath, [
+      for (final sentence in content.sentences)
+        if (sentence.hasAudio)
+          SentenceAudioRange(
+            sentenceId: sentence.sentenceId,
+            startMs: sentence.audioStartMs!,
+            endMs: sentence.audioEndMs!,
+            label: _labels[sentence.sentenceId] ?? '',
+          ),
+    ]);
+    _playbackEvents = deps.playback.events.listen((event) {
+      if (event is ContinuousSessionReplaced && mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('「从此开始朗读」已取代上一连续播放会话。')));
+      }
+    });
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    _playbackEvents?.cancel();
+    // No background playback in MVP: leaving the reader stops the session.
+    // Uses the cached dependencies — AppScope.of(context) would throw here.
+    unawaited(_deps.playback.stop());
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state != AppLifecycleState.resumed) {
+      AppScope.of(context).playback.pause();
+    }
+  }
+
+  static Map<String, String> _computeLabels(InstalledContent content) {
+    final labels = <String, String>{};
+    for (var b = 0; b < content.blocks.length; b++) {
+      final block = content.blocks[b];
+      for (var s = 0; s < block.sentences.length; s++) {
+        labels[block.sentences[s].sentenceId] = '第 ${b + 1} 段第 ${s + 1} 句';
+      }
+    }
+    return labels;
+  }
+
+  String _labelOf(InstalledSentence sentence) =>
+      _labels[sentence.sentenceId] ?? '';
+
+  // ---- Gestures (constraints §7.3, UX-A4) ----
+
+  void _onSentenceTap(InstalledSentence sentence) {
+    // Cancel-first: with any open state the tap cancels instead of opening a
+    // menu (sheets are modal and absorb taps themselves). The selection owner
+    // clears its own visible highlight via the GlobalKey; a page-level flag
+    // cannot do that and would leave the highlight behind.
+    if (_selectionSentenceId != null) {
+      _selectionViewKey?.currentState?.clearSelection();
+      _selectionSentenceId = null;
+      _selectionViewKey = null;
+      return;
+    }
+    final deps = AppScope.of(context);
+    showModalBottomSheet<void>(
+      context: context,
+      builder: (sheetContext) => SentenceMenuSheet(
+        label: _labelOf(sentence),
+        translationEnabled: _mode != ReadingMode.zhOnly,
+        onTranslate: () {
+          Navigator.of(sheetContext).pop();
+          _showTranslation(sentence);
+        },
+        onPlaySentence: () {
+          Navigator.of(sheetContext).pop();
+          deps.playback.playSentence(sentence.sentenceId);
+        },
+        onPlayContinuous: () {
+          Navigator.of(sheetContext).pop();
+          deps.playback.playContinuousFrom(sentence.sentenceId);
+        },
+      ),
+    );
+  }
+
+  void _showTranslation(InstalledSentence sentence) {
+    final deps = AppScope.of(context);
+    showModalBottomSheet<void>(
+      context: context,
+      builder: (sheetContext) => SentenceTranslationSheet(
+        label: _labelOf(sentence),
+        sentence: sentence,
+        onPlaySentence: () {
+          Navigator.of(sheetContext).pop();
+          deps.playback.playSentence(sentence.sentenceId);
+        },
+        onPlayContinuous: () {
+          Navigator.of(sheetContext).pop();
+          deps.playback.playContinuousFrom(sentence.sentenceId);
+        },
+      ),
+    );
+  }
+
+  /// Tracks the selection owner for cancel-first taps. Collapsed reports are
+  /// ignored on purpose: they fire at unreliable times (e.g. tapping sentence
+  /// B collapses B's empty selection) and must not erase A's record.
+  void _onSelectionChanged(InstalledSentence sentence, bool hasSelection) {
+    if (!hasSelection) return;
+    // One visible selection at a time: a new selection on another sentence
+    // clears the previous owner's highlight instead of leaving it stale.
+    if (_selectionSentenceId != null &&
+        _selectionSentenceId != sentence.sentenceId) {
+      _selectionViewKey?.currentState?.clearSelection();
+    }
+    _selectionSentenceId = sentence.sentenceId;
+    _selectionViewKey = _viewKeys[sentence.sentenceId];
+  }
+
+  void _onLookup(
+    InstalledSentence sentence,
+    String selection,
+    bool preferChinese,
+  ) {
+    final deps = AppScope.of(context);
+    final result = deps.dictionary.lookup(selection);
+    final resource = deps.dictionary.currentResource();
+    if (result == null || resource == null) {
+      // Screen 10B state B: missing dictionary never affects reading.
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('未安装词典资源。阅读、翻译与播放不受影响，仅查词不可用；可在 设置 › 词典资源 安装后使用。'),
+        ),
+      );
+      return;
+    }
+    final content = _content!;
+    showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      builder: (sheetContext) => Padding(
+        padding: EdgeInsets.only(
+          bottom: MediaQuery.of(sheetContext).viewInsets.bottom,
+        ),
+        child: FractionallySizedBox(
+          heightFactor: 0.8,
+          child: DictionarySheet(
+            selection: selection,
+            preferChinese: preferChinese,
+            result: result,
+            resource: resource,
+            article: content.article,
+            ref: SentenceRef(
+              articleId: content.article.articleId,
+              revision: content.article.revision,
+              sentenceId: sentence.sentenceId,
+            ),
+            sentenceText: sentence.text,
+            sentenceTranslationZh: sentence.translationZh,
+            dictionary: deps.dictionary,
+            vocabulary: deps.vocabulary,
+          ),
+        ),
+      ),
+    );
+  }
+
+  void _setMode(ReadingMode mode) {
+    setState(() => _mode = mode);
+    // Mode is per-article persisted; content data and playback untouched.
+    AppScope.of(context).library.setReadingMode(widget.articleId, mode);
+  }
+
+  // ---- Build ----
+
+  @override
+  Widget build(BuildContext context) {
+    final content = _content;
+    if (content == null) {
+      return const Scaffold(body: Center(child: CircularProgressIndicator()));
+    }
+    final deps = AppScope.of(context);
+    final prefs = deps.preferences.notifier.value;
+    final palette = PaletteScope.of(context);
+    final theme = Theme.of(context);
+
+    final serif = prefs.fontFamily.name == 'serif';
+    final textStyle = TextStyle(
+      fontFamily: serif ? 'serif' : null,
+      fontSize: prefs.fontSize.logicalPixels,
+      height: prefs.lineHeight.factor,
+      color: palette.ink,
+    );
+    final zhStyle = TextStyle(
+      fontSize: prefs.fontSize.logicalPixels - 2,
+      height: 1.7,
+      color: palette.inkVariant,
+    );
+
+    return Scaffold(
+      backgroundColor: palette.paper,
+      appBar: AppBar(
+        backgroundColor: palette.paper,
+        title: Text(
+          _mode == ReadingMode.zhOnly
+              ? _zhTitleFallback(content.article.title)
+              : content.article.title,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+        ),
+        actions: [
+          _ModeChip(mode: _mode, onChanged: _setMode),
+          PopupMenuButton<String>(
+            onSelected: (value) {
+              switch (value) {
+                case 'typography':
+                  Navigator.of(context).pushNamed(AppRoutes.typography);
+                case 'attribution':
+                  Navigator.of(context).pushNamed(
+                    AppRoutes.attribution,
+                    arguments: widget.articleId,
+                  );
+              }
+            },
+            itemBuilder: (_) => const [
+              PopupMenuItem(value: 'typography', child: Text('排版与主题')),
+              PopupMenuItem(value: 'attribution', child: Text('归属信息')),
+            ],
+          ),
+        ],
+      ),
+      body: Column(
+        children: [
+          Expanded(
+            child: ValueListenableBuilder<PlaybackViewState>(
+              valueListenable: deps.playback.state,
+              builder: (context, playbackState, _) {
+                return ListView(
+                  padding: EdgeInsets.fromLTRB(
+                    prefs.margin.logicalPixels,
+                    8,
+                    prefs.margin.logicalPixels,
+                    24,
+                  ),
+                  children: [
+                    _Header(
+                      content: content,
+                      mode: _mode,
+                      theme: theme,
+                      zhTitle: _zhTitleFallback(content.article.title),
+                    ),
+                    for (var b = 0; b < content.blocks.length; b++)
+                      _BlockView(
+                        block: content.blocks[b],
+                        mode: _mode,
+                        textStyle: textStyle,
+                        zhStyle: zhStyle,
+                        currentSentenceId: playbackState.currentSentenceId,
+                        viewKeys: _viewKeys,
+                        onSentenceTap: _onSentenceTap,
+                        onLookup: _onLookup,
+                        onSelectionChanged: _onSelectionChanged,
+                        onZhLongPress: () =>
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(content: Text('请切换到仅英文或英中对照模式选词')),
+                            ),
+                      ),
+                  ],
+                );
+              },
+            ),
+          ),
+          PlaybackBar(controller: deps.playback),
+        ],
+      ),
+    );
+  }
+
+  /// zh-only shows the translated title when we don't have one we fall back
+  /// to the original (title translation is not part of readpack v1).
+  String _zhTitleFallback(String title) => title;
+}
+
+class _Header extends StatelessWidget {
+  const _Header({
+    required this.content,
+    required this.mode,
+    required this.theme,
+    required this.zhTitle,
+  });
+
+  final InstalledContent content;
+  final ReadingMode mode;
+  final ThemeData theme;
+  final String zhTitle;
+
+  @override
+  Widget build(BuildContext context) {
+    final article = content.article;
+    final wordCount = formatThousands(content.approximateWordCount);
+    final meta = switch (mode) {
+      ReadingMode.enOnly =>
+        '${article.author ?? '未知作者'} · 约 $wordCount 词 · 句级语音 ${_duration(article.durationMs)}',
+      ReadingMode.bilingual =>
+        '${article.author ?? '未知作者'} · 约 $wordCount 词 · 句级语音 ${_duration(article.durationMs)}',
+      ReadingMode.zhOnly =>
+        '${article.author ?? '未知作者'} · 第 ${article.revision} 版 · 句级语音为英文原文',
+    };
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          mode == ReadingMode.zhOnly ? zhTitle : article.title,
+          style: TextStyle(
+            fontFamily: 'serif',
+            fontSize: 19,
+            fontWeight: FontWeight.w700,
+            color: PaletteScope.of(context).ink,
+          ),
+        ),
+        const SizedBox(height: 2),
+        Padding(
+          padding: const EdgeInsets.only(bottom: 12),
+          child: Text(meta, style: theme.textTheme.bodySmall),
+        ),
+      ],
+    );
+  }
+
+  static String _duration(int ms) {
+    final totalSeconds = ms ~/ 1000;
+    return '${totalSeconds ~/ 60}:${(totalSeconds % 60).toString().padLeft(2, '0')}';
+  }
+}
+
+class _BlockView extends StatelessWidget {
+  const _BlockView({
+    required this.block,
+    required this.mode,
+    required this.textStyle,
+    required this.zhStyle,
+    required this.currentSentenceId,
+    required this.viewKeys,
+    required this.onSentenceTap,
+    required this.onLookup,
+    required this.onSelectionChanged,
+    required this.onZhLongPress,
+  });
+
+  final InstalledBlock block;
+  final ReadingMode mode;
+  final TextStyle textStyle;
+  final TextStyle zhStyle;
+  final String? currentSentenceId;
+  final Map<String, GlobalKey<SentenceViewState>> viewKeys;
+  final void Function(InstalledSentence) onSentenceTap;
+  final void Function(InstalledSentence, String, bool) onLookup;
+  final void Function(InstalledSentence, bool) onSelectionChanged;
+  final VoidCallback onZhLongPress;
+
+  @override
+  Widget build(BuildContext context) {
+    final palette = PaletteScope.of(context);
+    final children = <Widget>[];
+    for (var s = 0; s < block.sentences.length; s++) {
+      final sentence = block.sentences[s];
+      final playing = sentence.sentenceId == currentSentenceId;
+      switch (mode) {
+        case ReadingMode.enOnly:
+          children.add(
+            SentenceView(
+              key: viewKeys[sentence.sentenceId],
+              sentence: sentence,
+              text: sentence.text,
+              style: textStyle,
+              playing: playing,
+              selectable: true,
+              onTap: () => onSentenceTap(sentence),
+              onLookup: (selection, preferChinese) =>
+                  onLookup(sentence, selection, preferChinese),
+              onSelectionChanged: (hasSelection) =>
+                  onSelectionChanged(sentence, hasSelection),
+            ),
+          );
+        case ReadingMode.bilingual:
+          children
+            ..add(
+              SentenceView(
+                key: viewKeys[sentence.sentenceId],
+                sentence: sentence,
+                text: sentence.text,
+                style: textStyle,
+                playing: playing,
+                selectable: true,
+                onTap: () => onSentenceTap(sentence),
+                onLookup: (selection, preferChinese) =>
+                    onLookup(sentence, selection, preferChinese),
+                onSelectionChanged: (hasSelection) =>
+                    onSelectionChanged(sentence, hasSelection),
+              ),
+            )
+            ..add(
+              Container(
+                width: double.infinity,
+                margin: const EdgeInsets.only(top: 4, bottom: 8),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 10,
+                  vertical: 6,
+                ),
+                decoration: BoxDecoration(
+                  color: palette.paper2,
+                  borderRadius: BorderRadius.circular(9),
+                ),
+                child: Text(sentence.translationZh ?? '', style: zhStyle),
+              ),
+            );
+        case ReadingMode.zhOnly:
+          children.add(
+            SentenceView(
+              key: viewKeys[sentence.sentenceId],
+              sentence: sentence,
+              text: sentence.translationZh ?? '',
+              // Serif stays in zh-only too (design reader typography): the
+              // base textStyle already carries the user's font preference.
+              style: textStyle,
+              playing: playing,
+              selectable: false,
+              onTap: () => onSentenceTap(sentence),
+              onLookup: (_, _) {},
+              onSelectionChanged: (_) {},
+              onLongPressHint: onZhLongPress,
+            ),
+          );
+      }
+    }
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 11),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: children,
+      ),
+    );
+  }
+}
+
+class _ModeChip extends StatelessWidget {
+  const _ModeChip({required this.mode, required this.onChanged});
+
+  final ReadingMode mode;
+  final void Function(ReadingMode) onChanged;
+
+  static const _labels = {
+    ReadingMode.enOnly: '仅英文',
+    ReadingMode.bilingual: '英中对照',
+    ReadingMode.zhOnly: '仅中文',
+  };
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return PopupMenuButton<ReadingMode>(
+      onSelected: onChanged,
+      itemBuilder: (_) => [
+        for (final entry in _labels.entries)
+          PopupMenuItem(value: entry.key, child: Text(entry.value)),
+      ],
+      child: Container(
+        margin: const EdgeInsets.symmetric(vertical: 12),
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+        decoration: BoxDecoration(
+          color: theme.colorScheme.primaryContainer,
+          borderRadius: BorderRadius.circular(6),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(
+              Icons.translate,
+              size: 11,
+              color: theme.colorScheme.onPrimaryContainer,
+            ),
+            const SizedBox(width: 4),
+            Text(
+              '${_labels[mode]} ▾',
+              style: TextStyle(
+                fontSize: 10.5,
+                fontWeight: FontWeight.w600,
+                color: theme.colorScheme.onPrimaryContainer,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}

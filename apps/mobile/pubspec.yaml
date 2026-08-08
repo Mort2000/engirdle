@@ -1,0 +1,29 @@
+name: engirdle_mobile
+description: Engirdle Android client — offline listening and reading for readpack articles.
+publish_to: "none"
+version: 0.1.0+1
+
+environment:
+  sdk: ^3.10.0
+
+dependencies:
+  flutter:
+    sdk: flutter
+  # Application database (raw SQLite; no codegen layer in MVP).
+  sqlite3: ^3.5.1
+  sqlite3_flutter_libs: ^0.6.0
+  # App-private data directories.
+  path_provider: ^2.1.6
+  path: ^1.9.0
+  # Single player session for sentence clips and continuous playback.
+  just_audio: ^0.10.6
+  # SHA-256 streaming verification.
+  crypto: ^3.0.7
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^6.0.0
+
+flutter:
+  uses-material-design: true

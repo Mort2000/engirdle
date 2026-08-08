@@ -14,3 +14,16 @@
 
 # Engirdle runtime data belongs outside the source tree.
 **/workspace/
+
+# Local Flutter SDK used for development verification, never committed.
+/.scratch/flutter/
+/.scratch/flutter_*.tar.xz
+
+# Flutter/Dart build outputs
+apps/mobile/.dart_tool/
+apps/mobile/.flutter-plugins*
+apps/mobile/.packages
+apps/mobile/build/
+apps/mobile/android/.gradle/
+apps/mobile/android/local.properties
+apps/mobile/android/app/src/main/java/io/flutter/plugins/GeneratedPluginRegistrant.java
