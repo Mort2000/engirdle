@@ -77,4 +77,4 @@ flutter run                  # 连接 Android 设备/模拟器
 
 - 真实词典资源格式与安装流（依赖 PC 端 G4 词典构建器）；
 - 选词手势的真机交互微调；
-- Android 真机/模拟器 APK 构建验证（当前环境无 Android SDK）。
+- Android 真机/模拟器运行验证（debug APK 构建已在本机验证通过，尚未上机运行）。

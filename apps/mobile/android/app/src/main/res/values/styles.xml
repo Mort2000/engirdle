@@ -1,10 +1,11 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <!-- Theme applied to the Android window while the Flutter engine warms up. -->
-    <style name="LaunchTheme" parent="@android:style/Theme.Light.NoActionBar">
+    <!-- SDK 36 移除了 Theme.Light.NoActionBar，改用仍公开的 Material 变体。 -->
+    <style name="LaunchTheme" parent="@android:style/Theme.Material.Light.NoActionBar">
         <item name="android:windowBackground">@drawable/launch_background</item>
     </style>
-    <style name="NormalTheme" parent="@android:style/Theme.Light.NoActionBar">
+    <style name="NormalTheme" parent="@android:style/Theme.Material.Light.NoActionBar">
         <item name="android:windowBackground">?android:colorBackground</item>
     </style>
 </resources>
