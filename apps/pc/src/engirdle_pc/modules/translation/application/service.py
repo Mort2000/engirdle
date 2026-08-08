@@ -37,6 +37,9 @@ class TranslationService:
     def begin(self, revision: ArticleRevision) -> str:
         return self._adapter.begin(revision)
 
+    def verify_access(self) -> None:
+        self._adapter.verify_access()
+
     def translate_block(
         self,
         job_id: str,

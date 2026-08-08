@@ -14,7 +14,11 @@ from engirdle_pc.modules.production.domain.models import (
     ProductionStage,
 )
 from engirdle_pc.modules.speech.public import SpeechService
-from engirdle_pc.modules.translation.public import TranslationService
+from engirdle_pc.modules.translation.public import (
+    REASONING_EFFORT,
+    THINKING_MODE,
+    TranslationService,
+)
 
 
 class ProductionService:
@@ -40,8 +44,8 @@ class ProductionService:
             translation_endpoint=self._translation.endpoint,
             translation_model=self._translation.model,
             translation_prompt="full-article-sequential-blocks@v1",
-            translation_thinking="enabled",
-            translation_reasoning_effort="max",
+            translation_thinking=THINKING_MODE,
+            translation_reasoning_effort=REASONING_EFFORT,
             speech_adapter=self._speech.name,
             custom_voice_model=self._speech.custom_voice_model,
             base_model=self._speech.base_model,

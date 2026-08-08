@@ -13,9 +13,11 @@ from engirdle_pc.entrypoints.admin_web.app import create_admin_app
 from engirdle_pc.entrypoints.publisher.app import create_publisher_app
 
 
-def test_user_can_produce_review_and_publish_an_article(tmp_path: Path) -> None:
+def test_user_can_produce_review_and_publish_an_article(
+    tmp_path: Path, fake_translator
+) -> None:
     settings = Settings(workspace=tmp_path / "workspace")
-    container = Container.build(settings)
+    container = Container.build(settings, translation_adapter=fake_translator)
     admin = TestClient(create_admin_app(container))
 
     created = admin.post(

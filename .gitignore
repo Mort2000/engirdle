@@ -12,6 +12,10 @@
 **/dist/
 **/build/
 
+# Local secrets — never committed (e.g. DEEPSEEK_API_KEY for manual testing).
+.env
+**/.env
+
 # Engirdle runtime data belongs outside the source tree.
 **/workspace/
 

@@ -11,9 +11,9 @@ from engirdle_pc.entrypoints.publisher.app import create_publisher_app
 from engirdle_pc.modules.content.public import ArticleRevision, Block
 from engirdle_pc.modules.publishing.infrastructure.validator import CatalogValidator
 from engirdle_pc.modules.publishing.public import InvalidCatalog
-from engirdle_pc.modules.translation.infrastructure.stub_adapter import StubTranslationAdapter
 from engirdle_pc.modules.translation.public import TranslationBatch
 from engirdle_pc.shared.infrastructure.runtime import UuidIdentifierGenerator
+from tests.translation_fake import FakeTranslationAdapter
 
 
 class FailSecondBuildOnceTranslator:
@@ -23,7 +23,7 @@ class FailSecondBuildOnceTranslator:
     model = "deepseek-v4-flash-stub"
 
     def __init__(self) -> None:
-        self._delegate = StubTranslationAdapter(UuidIdentifierGenerator())
+        self._delegate = FakeTranslationAdapter(UuidIdentifierGenerator())
         self._build_number = 0
         self._failed = False
 
@@ -93,10 +93,12 @@ def test_failed_rebuild_keeps_previous_package_until_retry_succeeds(
 
 def test_catalog_write_failure_does_not_make_previous_package_unavailable(
     tmp_path: Path,
+    fake_translator,
 ) -> None:
     settings = Settings(workspace=tmp_path / "workspace")
     container = Container.build(
         settings,
+        translation_adapter=fake_translator,
         catalog_validator=FailSecondCatalogWriteValidator(
             CatalogValidator(settings.contracts_dir)
         ),
@@ -126,8 +128,12 @@ def test_catalog_write_failure_does_not_make_previous_package_unavailable(
     assert publisher.get("/catalog.json").json()["packages"][0]["url"] == old_url
 
 
-def test_release_finalization_failure_never_switches_catalog(tmp_path: Path) -> None:
-    container = Container.build(Settings(workspace=tmp_path / "workspace"))
+def test_release_finalization_failure_never_switches_catalog(
+    tmp_path: Path, fake_translator
+) -> None:
+    container = Container.build(
+        Settings(workspace=tmp_path / "workspace"), translation_adapter=fake_translator
+    )
     admin = TestClient(create_admin_app(container))
     publisher = TestClient(create_publisher_app(container.publisher_queries))
     article = admin.post(
@@ -161,6 +167,7 @@ def test_release_finalization_failure_never_switches_catalog(tmp_path: Path) -> 
 
 def test_publish_commit_failure_keeps_job_succeeded_and_old_release(
     tmp_path: Path,
+    fake_translator,
 ) -> None:
     """Marks succeed, then the outward catalog commit fails.
 
@@ -168,7 +175,9 @@ def test_publish_commit_failure_keeps_job_succeeded_and_old_release(
     ``fail()`` from regressing a terminal job), the old release must stay
     current, and the newly staged package file must be unstaged.
     """
-    container = Container.build(Settings(workspace=tmp_path / "workspace"))
+    container = Container.build(
+        Settings(workspace=tmp_path / "workspace"), translation_adapter=fake_translator
+    )
     admin = TestClient(create_admin_app(container))
     publisher = TestClient(create_publisher_app(container.publisher_queries))
     article = admin.post(

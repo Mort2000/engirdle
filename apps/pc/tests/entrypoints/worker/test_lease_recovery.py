@@ -5,9 +5,9 @@ import pytest
 from engirdle_pc.bootstrap.config import Settings
 from engirdle_pc.bootstrap.container import Container
 from engirdle_pc.modules.content.public import ArticleRevision, Block, NewArticle
-from engirdle_pc.modules.translation.infrastructure.stub_adapter import StubTranslationAdapter
 from engirdle_pc.modules.translation.public import TranslationBatch
 from engirdle_pc.shared.infrastructure.runtime import UuidIdentifierGenerator
+from tests.translation_fake import FakeTranslationAdapter
 
 
 class CrashOnceTranslator:
@@ -17,7 +17,7 @@ class CrashOnceTranslator:
     model = "deepseek-v4-flash-stub"
 
     def __init__(self) -> None:
-        self._delegate = StubTranslationAdapter(UuidIdentifierGenerator())
+        self._delegate = FakeTranslationAdapter(UuidIdentifierGenerator())
         self._crashed = False
 
     def begin(self, revision: ArticleRevision) -> str:
@@ -65,13 +65,17 @@ def test_worker_recovers_an_expired_running_lease_and_retries_safely(
     assert recovered.attempts == 2
 
 
-def test_recover_stale_also_reclaims_jobs_with_null_heartbeat(tmp_path: Path) -> None:
+def test_recover_stale_also_reclaims_jobs_with_null_heartbeat(
+    tmp_path: Path, fake_translator
+) -> None:
     """A RUNNING row with a NULL heartbeat must still be reclaimed.
 
     SQLite evaluates ``NULL < threshold`` as NULL (not true), so a plain
     ``heartbeat_at < ?`` predicate skips these rows entirely.
     """
-    container = Container.build(Settings(workspace=tmp_path / "workspace"))
+    container = Container.build(
+        Settings(workspace=tmp_path / "workspace"), translation_adapter=fake_translator
+    )
     revision = container.content.create(
         NewArticle(
             title="Null heartbeat",

@@ -31,6 +31,14 @@ class Settings(BaseSettings):
     ffmpeg_path: Path | None = None
     sentence_pause_ms: int = 200
     block_pause_ms: int = 500
+    # DeepSeek translation provider (non-secret deployment config; the API key
+    # itself is injected separately from the environment, never stored here).
+    # Thinking mode / reasoning effort are fixed quality baselines, not tunable
+    # here, so they cannot drift from the immutable task-config snapshot.
+    deepseek_endpoint: str = "https://api.deepseek.com"
+    deepseek_model: str = "deepseek-v4-flash"
+    deepseek_request_timeout_seconds: float = 120.0
+    deepseek_max_retries: int = 3
 
     @field_validator("management_host")
     @classmethod

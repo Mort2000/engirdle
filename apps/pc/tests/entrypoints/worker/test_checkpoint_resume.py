@@ -11,9 +11,9 @@ from engirdle_pc.modules.speech.public import (
     SentenceSpeech,
     VoiceProfileRef,
 )
-from engirdle_pc.modules.translation.infrastructure.stub_adapter import StubTranslationAdapter
 from engirdle_pc.modules.translation.public import TranslationBatch
 from engirdle_pc.shared.infrastructure.runtime import UuidIdentifierGenerator
+from tests.translation_fake import FakeTranslationAdapter
 
 
 class FailSecondBlockOnceTranslator:
@@ -23,7 +23,7 @@ class FailSecondBlockOnceTranslator:
     model = "deepseek-v4-flash-stub"
 
     def __init__(self) -> None:
-        self._delegate = StubTranslationAdapter(UuidIdentifierGenerator())
+        self._delegate = FakeTranslationAdapter(UuidIdentifierGenerator())
         self.begin_calls = 0
         self.translated_blocks: list[str] = []
         self._failed = False
@@ -102,10 +102,13 @@ def test_retry_resumes_after_last_accepted_translation_block(tmp_path: Path) -> 
     assert translator.translated_blocks.count(revision.blocks[1].block_id) == 2
 
 
-def test_retry_reuses_valid_sentence_pcm_from_checkpoint(tmp_path: Path) -> None:
+def test_retry_reuses_valid_sentence_pcm_from_checkpoint(
+    tmp_path: Path, fake_translator
+) -> None:
     synthesizer = FailSecondSentenceOnceSpeechAdapter()
     container = Container.build(
         Settings(workspace=tmp_path / "workspace"),
+        translation_adapter=fake_translator,
         speech_adapter=synthesizer,
     )
     revision = container.content.create(

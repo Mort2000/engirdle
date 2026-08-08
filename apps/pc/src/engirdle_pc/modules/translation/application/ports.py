@@ -56,3 +56,6 @@ class TranslationAdapter(Protocol):
         self, revision: ArticleRevision, block: Block, checkpoint_id: str
     ) -> TranslationBatch:
         """Translate one block without changing its sentence ID set."""
+
+    def verify_access(self) -> None:
+        """Confirm the provider is reachable and the credentials are valid."""

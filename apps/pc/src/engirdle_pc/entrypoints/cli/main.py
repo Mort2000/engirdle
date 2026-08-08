@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import logging
+import sys
 import time
 
 import uvicorn
@@ -40,6 +41,30 @@ def main() -> None:
         return
 
     from engirdle_pc.bootstrap.container import Container
+    from engirdle_pc.modules.translation.public import (
+        DeepSeekConfigurationError,
+        TranslationError,
+        load_deepseek_api_key,
+    )
+
+    if arguments.command == "worker-once":
+        api_key = load_deepseek_api_key()
+        if not api_key:
+            logging.error("DEEPSEEK_API_KEY is not set; the worker cannot translate")
+            sys.exit(1)
+        try:
+            container = Container.build(settings, deepseek_api_key=api_key)
+            container.translations.verify_access()
+        except (DeepSeekConfigurationError, TranslationError) as error:
+            logging.error(
+                "DeepSeek unavailable, exiting",
+                extra={"error": error.__class__.__name__},
+            )
+            sys.exit(1)
+        container.worker.recover_stale_jobs()
+        processed = container.worker.run_once()
+        print("processed" if processed else "idle")
+        return
 
     container = Container.build(settings)
     if arguments.command == "admin":
@@ -50,10 +75,6 @@ def main() -> None:
             host=settings.management_host,
             port=settings.management_port,
         )
-    elif arguments.command == "worker-once":
-        container.worker.recover_stale_jobs()
-        processed = container.worker.run_once()
-        print("processed" if processed else "idle")
     else:
         container.publishing.regenerate_catalog()
         print(f"workspace OK: {settings.workspace}")

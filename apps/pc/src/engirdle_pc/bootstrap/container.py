@@ -51,11 +51,11 @@ from engirdle_pc.modules.speech.public import (
     SpeechAdapter,
     SpeechService,
 )
+from engirdle_pc.modules.translation.infrastructure.deepseek_adapter import (
+    build_deepseek_adapter,
+)
 from engirdle_pc.modules.translation.infrastructure.sqlalchemy_repository import (
     SqlAlchemyTranslationRepository,
-)
-from engirdle_pc.modules.translation.infrastructure.stub_adapter import (
-    StubTranslationAdapter,
 )
 from engirdle_pc.modules.translation.public import (
     TranslationAdapter,
@@ -89,6 +89,7 @@ class Container:
         settings: Settings,
         *,
         translation_adapter: TranslationAdapter | None = None,
+        deepseek_api_key: str | None = None,
         speech_adapter: SpeechAdapter | None = None,
         catalog_validator: CatalogValidation | None = None,
         publisher_process_launcher: PublisherProcessLauncher | None = None,
@@ -114,7 +115,9 @@ class Container:
         artifacts = SqlAlchemyArtifactRepository(database)
         publishing_repository = SqlAlchemyPublishingRepository(database)
 
-        translator = translation_adapter or StubTranslationAdapter(identifiers)
+        translator = translation_adapter or build_deepseek_adapter(
+            settings, deepseek_api_key, identifiers
+        )
         synthesizer = speech_adapter or StubSpeechAdapter()
         translations = TranslationService(translator, translation_repository)
         speech = SpeechService(synthesizer, speech_repository)
