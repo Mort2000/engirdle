@@ -11,6 +11,7 @@ from fastapi.templating import Jinja2Templates
 from engirdle_pc.bootstrap.container import Container
 from engirdle_pc.entrypoints.admin_web.app import EditStructureRequest
 from engirdle_pc.entrypoints.admin_web.view_models import (
+    anchor_batch_view,
     article_view,
     artifact_view,
     audio_review_view,
@@ -18,6 +19,7 @@ from engirdle_pc.entrypoints.admin_web.view_models import (
     published_view,
     publisher_view,
     translation_views,
+    voice_profile_view,
 )
 from engirdle_pc.modules.content.public import (
     ArticleRevision,
@@ -56,6 +58,10 @@ def create_pages_router(container: Container) -> APIRouter:
                 "artifacts": tuple(artifact_view(artifact) for artifact in artifacts),
                 "catalog_available": container.publisher_queries.catalog_path.is_file(),
                 "publisher": publisher_view(publisher_status),
+                "verification_mode": (
+                    container.translations.name == "stub"
+                    or container.speech.name == "stub"
+                ),
             },
         )
 
@@ -256,7 +262,85 @@ def create_pages_router(container: Container) -> APIRouter:
         container.release.release(job_id)
         return RedirectResponse(f"/jobs/{job_id}", status_code=303)
 
+    @router.get("/voices")
+    def voices_overview(request: Request) -> object:
+        return _TEMPLATES.TemplateResponse(
+            request=request,
+            name="voices.html",
+            context={
+                "profiles": tuple(
+                    voice_profile_view(profile)
+                    for profile in container.voices.list_profiles()
+                ),
+                "batches": tuple(
+                    anchor_batch_view(batch)
+                    for batch in container.voices.list_batches()
+                ),
+            },
+        )
+
+    @router.get("/voices/new")
+    def new_voice_batch(request: Request) -> object:
+        return _TEMPLATES.TemplateResponse(
+            request=request,
+            name="voice_new.html",
+            context={
+                "speakers": container.voices.english_speakers(),
+                "default_anchor_text": DEFAULT_ANCHOR_TEXT,
+                "default_candidate_count": container.settings.speech_anchor_candidates,
+            },
+        )
+
+    @router.post("/voices/batches")
+    def create_voice_batch(
+        speaker: Annotated[str, Form()],
+        anchor_text: Annotated[str, Form()],
+        instruct: Annotated[str, Form()] = "",
+        seed: Annotated[int, Form()] = 0,
+        count: Annotated[int, Form()] = 3,
+    ) -> RedirectResponse:
+        batch = container.voices.create_anchor_batch(
+            speaker=speaker,
+            anchor_text=anchor_text,
+            instruct=instruct,
+            seed=seed,
+            count=count,
+        )
+        return RedirectResponse(f"/voices/batches/{batch.batch_id}", status_code=303)
+
+    @router.get("/voices/batches/{batch_id}")
+    def audition_voice_batch(request: Request, batch_id: str) -> object:
+        return _TEMPLATES.TemplateResponse(
+            request=request,
+            name="voice_batch.html",
+            context={"batch": anchor_batch_view(container.voices.get_batch(batch_id))},
+        )
+
+    @router.post("/voices/batches/{batch_id}/confirm/{candidate_index}")
+    def confirm_voice_candidate(
+        batch_id: str,
+        candidate_index: int,
+        voice_profile_id: Annotated[str, Form()] = "",
+    ) -> RedirectResponse:
+        container.voices.confirm_candidate(
+            batch_id,
+            candidate_index,
+            voice_profile_id=voice_profile_id or None,
+        )
+        return RedirectResponse("/voices", status_code=303)
+
+    @router.post("/voices/profiles/{voice_profile_id}/{revision}/activate")
+    def activate_voice_profile(voice_profile_id: str, revision: int) -> RedirectResponse:
+        container.voices.activate(voice_profile_id, revision)
+        return RedirectResponse("/voices", status_code=303)
+
     return router
+
+
+DEFAULT_ANCHOR_TEXT = (
+    "Every article deserves a clear voice. When the narration flows naturally, "
+    "listening becomes effortless."
+)
 
 
 def _structure_json(revision: ArticleRevision) -> str:

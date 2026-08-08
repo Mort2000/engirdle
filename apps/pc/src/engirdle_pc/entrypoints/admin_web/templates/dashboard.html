@@ -6,7 +6,7 @@
   <p>在本机确认文本结构、审阅译文与声音，然后发布为不可变 readpack。</p></div>
   <a class="button" href="/articles/new">＋ 录入新文章</a>
 </section>
-<aside class="notice"><strong>验证模式：</strong>翻译与 TTS 当前为验证桩。生成结果会显式标注，不会调用 DeepSeek 或加载 Qwen3-TTS。</aside>
+{% if verification_mode %}<aside class="notice"><strong>验证模式：</strong>翻译与 TTS 当前为验证桩。生成结果会显式标注，不会调用 DeepSeek 或加载 Qwen3-TTS。</aside>{% endif %}
 <section class="grid two">
   <div class="panel"><div class="panel-title"><h2>文章库</h2><span>{{ articles|length }} 篇</span></div>
     {% if articles %}<div class="list">{% for article in articles %}<a class="list-row" href="/articles/{{ article.article_id }}/revisions/{{ article.revision }}"><span><strong>{{ article.title }}</strong><small>修订 {{ article.revision }} · {{ article.status.value }}</small></span><span>→</span></a>{% endfor %}</div>

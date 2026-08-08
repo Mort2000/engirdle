@@ -7,9 +7,17 @@ from engirdle_pc.bootstrap.container import Container
 from engirdle_pc.entrypoints.admin_web.app import create_admin_app
 
 
-def test_management_pages_support_article_entry_and_structure_review(tmp_path: Path) -> None:
+def test_management_pages_support_article_entry_and_structure_review(
+    tmp_path: Path, fake_translator, fake_speech
+) -> None:
     client = TestClient(
-        create_admin_app(Container.build(Settings(workspace=tmp_path / "workspace")))
+        create_admin_app(
+            Container.build(
+                Settings(workspace=tmp_path / "workspace"),
+                translation_adapter=fake_translator,
+                speech_adapter=fake_speech,
+            )
+        )
     )
 
     dashboard = client.get("/")

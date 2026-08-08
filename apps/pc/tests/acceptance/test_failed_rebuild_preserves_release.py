@@ -13,6 +13,7 @@ from engirdle_pc.modules.publishing.infrastructure.validator import CatalogValid
 from engirdle_pc.modules.publishing.public import InvalidCatalog
 from engirdle_pc.modules.translation.public import TranslationBatch
 from engirdle_pc.shared.infrastructure.runtime import UuidIdentifierGenerator
+from tests.speech_fake import StubSpeechAdapter
 from tests.translation_fake import FakeTranslationAdapter
 
 
@@ -58,6 +59,7 @@ def test_failed_rebuild_keeps_previous_package_until_retry_succeeds(
     container = Container.build(
         Settings(workspace=tmp_path / "workspace"),
         translation_adapter=FailSecondBuildOnceTranslator(),
+        speech_adapter=StubSpeechAdapter(),
     )
     admin = TestClient(create_admin_app(container))
     publisher = TestClient(create_publisher_app(container.publisher_queries))
@@ -94,11 +96,13 @@ def test_failed_rebuild_keeps_previous_package_until_retry_succeeds(
 def test_catalog_write_failure_does_not_make_previous_package_unavailable(
     tmp_path: Path,
     fake_translator,
+    fake_speech,
 ) -> None:
     settings = Settings(workspace=tmp_path / "workspace")
     container = Container.build(
         settings,
         translation_adapter=fake_translator,
+        speech_adapter=fake_speech,
         catalog_validator=FailSecondCatalogWriteValidator(
             CatalogValidator(settings.contracts_dir)
         ),
@@ -129,10 +133,12 @@ def test_catalog_write_failure_does_not_make_previous_package_unavailable(
 
 
 def test_release_finalization_failure_never_switches_catalog(
-    tmp_path: Path, fake_translator
+    tmp_path: Path, fake_translator, fake_speech
 ) -> None:
     container = Container.build(
-        Settings(workspace=tmp_path / "workspace"), translation_adapter=fake_translator
+        Settings(workspace=tmp_path / "workspace"),
+        translation_adapter=fake_translator,
+        speech_adapter=fake_speech,
     )
     admin = TestClient(create_admin_app(container))
     publisher = TestClient(create_publisher_app(container.publisher_queries))
@@ -168,6 +174,7 @@ def test_release_finalization_failure_never_switches_catalog(
 def test_publish_commit_failure_keeps_job_succeeded_and_old_release(
     tmp_path: Path,
     fake_translator,
+    fake_speech,
 ) -> None:
     """Marks succeed, then the outward catalog commit fails.
 
@@ -176,7 +183,9 @@ def test_publish_commit_failure_keeps_job_succeeded_and_old_release(
     current, and the newly staged package file must be unstaged.
     """
     container = Container.build(
-        Settings(workspace=tmp_path / "workspace"), translation_adapter=fake_translator
+        Settings(workspace=tmp_path / "workspace"),
+        translation_adapter=fake_translator,
+        speech_adapter=fake_speech,
     )
     admin = TestClient(create_admin_app(container))
     publisher = TestClient(create_publisher_app(container.publisher_queries))

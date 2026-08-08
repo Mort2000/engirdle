@@ -25,6 +25,16 @@ from engirdle_pc.modules.production.public import (
     InvalidJobState,
     JobNotFound,
 )
+from engirdle_pc.modules.speech.public import (
+    AnchorBatch,
+    InvalidAnchorRequest,
+    SpeechConfigurationError,
+    SpeechGenerationError,
+    VoiceCandidateNotFound,
+    VoiceIntegrityError,
+    VoiceProfile,
+    VoiceProfileNotConfigured,
+)
 
 
 class RequestModel(BaseModel):
@@ -59,6 +69,18 @@ class EditTranslationRequest(RequestModel):
     text_zh: str = Field(min_length=1, max_length=40_000)
 
 
+class CreateAnchorBatchRequest(RequestModel):
+    speaker: str = Field(min_length=1, max_length=64)
+    anchor_text: str = Field(min_length=1, max_length=2_000)
+    instruct: str = Field(default="", max_length=1_000)
+    seed: int = Field(default=0, ge=0)
+    count: int = Field(default=3, ge=1, le=10)
+
+
+class ConfirmVoiceProfileRequest(RequestModel):
+    voice_profile_id: str | None = Field(default=None, min_length=1, max_length=128)
+
+
 def create_admin_app(container: Container) -> FastAPI:
     @asynccontextmanager
     async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
@@ -84,10 +106,37 @@ def create_admin_app(container: Container) -> FastAPI:
 
     @app.exception_handler(ImmutableRevision)
     @app.exception_handler(InvalidJobState)
+    @app.exception_handler(VoiceProfileNotConfigured)
     async def conflict_handler(_request: object, error: Exception) -> object:
         from fastapi.responses import JSONResponse
 
         return JSONResponse(status_code=409, content={"detail": str(error)})
+
+    @app.exception_handler(VoiceCandidateNotFound)
+    async def voice_not_found_handler(
+        _request: object, error: VoiceCandidateNotFound
+    ) -> object:
+        from fastapi.responses import JSONResponse
+
+        return JSONResponse(status_code=404, content={"detail": str(error)})
+
+    @app.exception_handler(InvalidAnchorRequest)
+    async def invalid_anchor_handler(
+        _request: object, error: InvalidAnchorRequest
+    ) -> object:
+        from fastapi.responses import JSONResponse
+
+        return JSONResponse(status_code=422, content={"detail": str(error)})
+
+    @app.exception_handler(SpeechConfigurationError)
+    @app.exception_handler(SpeechGenerationError)
+    @app.exception_handler(VoiceIntegrityError)
+    async def speech_runtime_handler(_request: object, error: Exception) -> object:
+        from fastapi.responses import JSONResponse
+
+        # Server-side speech failures (GPU, checkpoints, integrity): surface
+        # the actionable message instead of a bare 500.
+        return JSONResponse(status_code=500, content={"detail": str(error)})
 
     @app.get("/api/health")
     def health() -> dict[str, str]:
@@ -308,6 +357,90 @@ def create_admin_app(container: Container) -> FastAPI:
             "sha256": artifact.sha256,
         }
 
+    @app.get("/api/voices/speakers")
+    def list_voice_speakers() -> list[dict[str, str]]:
+        return [
+            {"name": speaker.name, "description": speaker.description}
+            for speaker in container.voices.english_speakers()
+        ]
+
+    @app.get("/api/voices/profiles")
+    def list_voice_profiles() -> list[dict[str, object]]:
+        return [_voice_profile_payload(profile) for profile in container.voices.list_profiles()]
+
+    @app.post("/api/voices/profiles/{voice_profile_id}/{revision}/activate")
+    def activate_voice_profile(voice_profile_id: str, revision: int) -> dict[str, object]:
+        return _voice_profile_payload(
+            container.voices.activate(voice_profile_id, revision)
+        )
+
+    @app.get("/api/voices/profiles/{voice_profile_id}/{revision}/audio")
+    def get_voice_profile_audio(voice_profile_id: str, revision: int) -> object:
+        from fastapi.responses import FileResponse
+
+        profiles = container.voices.list_profiles()
+        profile = next(
+            (
+                item
+                for item in profiles
+                if item.voice_profile_id == voice_profile_id and item.revision == revision
+            ),
+            None,
+        )
+        if profile is None or not profile.anchor_wav_path.is_file():
+            raise HTTPException(status_code=404, detail="anchor audio not found")
+        return FileResponse(profile.anchor_wav_path, media_type="audio/wav")
+
+    @app.get("/api/voices/batches")
+    def list_anchor_batches() -> list[dict[str, object]]:
+        return [_anchor_batch_payload(batch) for batch in container.voices.list_batches()]
+
+    @app.post("/api/voices/batches", status_code=status.HTTP_201_CREATED)
+    def create_anchor_batch(request: CreateAnchorBatchRequest) -> dict[str, object]:
+        batch = container.voices.create_anchor_batch(
+            speaker=request.speaker,
+            anchor_text=request.anchor_text,
+            instruct=request.instruct,
+            seed=request.seed,
+            count=request.count,
+        )
+        return _anchor_batch_payload(batch)
+
+    @app.get("/api/voices/batches/{batch_id}")
+    def get_anchor_batch(batch_id: str) -> dict[str, object]:
+        return _anchor_batch_payload(container.voices.get_batch(batch_id))
+
+    @app.get("/api/voices/batches/{batch_id}/audio/{candidate_index}")
+    def get_anchor_candidate_audio(batch_id: str, candidate_index: int) -> object:
+        from fastapi.responses import FileResponse
+
+        batch = container.voices.get_batch(batch_id)
+        candidate = next(
+            (
+                item
+                for item in batch.candidates
+                if item.candidate_index == candidate_index
+            ),
+            None,
+        )
+        if candidate is None or not candidate.wav_path.is_file():
+            raise HTTPException(status_code=404, detail="candidate audio not found")
+        return FileResponse(candidate.wav_path, media_type="audio/wav")
+
+    @app.post(
+        "/api/voices/batches/{batch_id}/confirm/{candidate_index}",
+        status_code=status.HTTP_201_CREATED,
+    )
+    def confirm_anchor_candidate(
+        batch_id: str, candidate_index: int, request: ConfirmVoiceProfileRequest
+    ) -> dict[str, object]:
+        profile = container.voices.confirm_candidate(
+            batch_id,
+            candidate_index,
+            voice_profile_id=request.voice_profile_id,
+        )
+        return _voice_profile_payload(profile)
+
     from engirdle_pc.entrypoints.admin_web.routes.pages import create_pages_router
 
     app.include_router(create_pages_router(container))
@@ -354,6 +487,49 @@ def _sentence_ids(revision: ArticleRevision) -> tuple[str, ...]:
         for block in revision.blocks
         for sentence in block.sentences
     )
+
+
+def _voice_profile_payload(profile: VoiceProfile) -> dict[str, object]:
+    return {
+        "voice_profile_id": profile.voice_profile_id,
+        "revision": profile.revision,
+        "speaker": profile.speaker,
+        "instruct": profile.instruct,
+        "anchor_text": profile.anchor_text,
+        "anchor_sha256": profile.anchor_sha256,
+        "sample_rate_hz": profile.sample_rate_hz,
+        "duration_ms": profile.duration_ms,
+        "seed": profile.seed,
+        "generation_params": profile.generation_params_json,
+        "custom_voice_model": profile.custom_voice_model,
+        "model_fingerprint": profile.model_fingerprint,
+        "source_batch_id": profile.source_batch_id,
+        "is_active": profile.is_active,
+        "confirmed_at": profile.confirmed_at,
+    }
+
+
+def _anchor_batch_payload(batch: AnchorBatch) -> dict[str, object]:
+    return {
+        "batch_id": batch.batch_id,
+        "speaker": batch.speaker,
+        "instruct": batch.instruct,
+        "anchor_text": batch.anchor_text,
+        "seed": batch.seed,
+        "custom_voice_model": batch.custom_voice_model,
+        "model_fingerprint": batch.model_fingerprint,
+        "created_at": batch.created_at,
+        "candidates": [
+            {
+                "candidate_index": candidate.candidate_index,
+                "seed": candidate.seed,
+                "sha256": candidate.sha256,
+                "duration_ms": candidate.duration_ms,
+                "sample_rate_hz": candidate.sample_rate_hz,
+            }
+            for candidate in batch.candidates
+        ],
+    }
 
 
 def _publisher_status_payload(container: Container) -> dict[str, object]:

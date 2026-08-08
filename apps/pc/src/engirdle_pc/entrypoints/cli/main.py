@@ -41,6 +41,7 @@ def main() -> None:
         return
 
     from engirdle_pc.bootstrap.container import Container
+    from engirdle_pc.modules.speech.public import SpeechConfigurationError
     from engirdle_pc.modules.translation.public import (
         DeepSeekConfigurationError,
         TranslationError,
@@ -55,9 +56,16 @@ def main() -> None:
         try:
             container = Container.build(settings, deepseek_api_key=api_key)
             container.translations.verify_access()
+            container.speech.verify_setup()
         except (DeepSeekConfigurationError, TranslationError) as error:
             logging.error(
                 "DeepSeek unavailable, exiting",
+                extra={"error": error.__class__.__name__},
+            )
+            sys.exit(1)
+        except SpeechConfigurationError as error:
+            logging.error(
+                "Qwen3-TTS unavailable, exiting",
                 extra={"error": error.__class__.__name__},
             )
             sys.exit(1)
@@ -70,6 +78,14 @@ def main() -> None:
     if arguments.command == "admin":
         from engirdle_pc.entrypoints.admin_web.app import create_admin_app
 
+        try:
+            container.speech.verify_setup()
+        except SpeechConfigurationError as error:
+            logging.error(
+                "Qwen3-TTS unavailable, exiting",
+                extra={"error": error.__class__.__name__},
+            )
+            sys.exit(1)
         uvicorn.run(
             create_admin_app(container),
             host=settings.management_host,

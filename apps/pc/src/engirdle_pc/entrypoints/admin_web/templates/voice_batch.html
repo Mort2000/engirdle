@@ -1,0 +1,12 @@
+{% extends "base.html" %}
+{% block title %}试听锚点候选 · Engirdle{% endblock %}
+{% block content %}
+<section class="page-heading"><p class="eyebrow">VOICE · AUDITION</p><h1>试听并确认锚点</h1><p>{{ batch.speaker }} · {{ batch.created_at }}</p><p class="hint">朗读文本：{{ batch.anchor_text }}{% if batch.instruct %}<br>instruct：{{ batch.instruct }}{% endif %}</p></section>
+<section class="panel"><div class="panel-title"><h2>候选</h2><span>{{ batch.candidates|length }} 个</span></div>
+  <div class="list">{% for candidate in batch.candidates %}
+    <div class="list-row"><span><strong>候选 {{ candidate.candidate_index + 1 }}</strong><small>seed {{ candidate.seed }} · {{ candidate.duration_ms }} ms · <code>{{ candidate.sha256[:12] }}…</code></small><audio controls preload="metadata" src="{{ candidate.audio_url }}"></audio></span><span><form action="/voices/batches/{{ batch.batch_id }}/confirm/{{ candidate.candidate_index }}" method="post"><input name="voice_profile_id" placeholder="追加到既有配置 ID（可留空）" size="22"><button type="submit">确认此候选</button></form></span></div>
+  {% endfor %}</div>
+  <aside class="notice"><strong>冻结规则：</strong>确认会把候选 WAV 复制为不可变锚点并记录哈希；“追加到既有配置 ID”会为该配置创建新修订，留空则创建全新配置。确认后自动设为当前激活配置。</aside>
+  <div class="actions"><a href="/voices">返回声音配置</a></div>
+</section>
+{% endblock %}

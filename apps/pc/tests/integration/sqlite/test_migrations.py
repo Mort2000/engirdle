@@ -19,6 +19,9 @@ EXPECTED_TABLES = {
     "package_artifacts",
     "published_articles",
     "system_metadata",
+    "voice_anchor_batches",
+    "voice_anchor_candidates",
+    "voice_profiles",
 }
 
 
@@ -53,7 +56,7 @@ def test_database_applies_migrations_idempotently(tmp_path: Path) -> None:
                 "SELECT version_num FROM alembic_version"
             ).fetchall()
         ]
-        assert versions == ["0001_baseline"]
+        assert versions == ["0002_voice_profiles"]
 
         # Preserve the original schema contract: the published_articles and
         # package_artifacts column sets must be unchanged after the Alembic

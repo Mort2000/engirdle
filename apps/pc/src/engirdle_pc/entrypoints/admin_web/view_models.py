@@ -8,6 +8,7 @@ from engirdle_pc.modules.content.public import ArticleRevision
 from engirdle_pc.modules.packaging.public import PackageArtifact
 from engirdle_pc.modules.production.public import BuildJob
 from engirdle_pc.modules.publishing.public import PublishedPackage, PublisherStatus
+from engirdle_pc.modules.speech.public import AnchorBatch, VoiceProfile
 from engirdle_pc.modules.translation.public import ReviewedTranslation
 
 
@@ -113,6 +114,83 @@ class PublisherView:
     binding_url: str
     started_at: str | None
     pid: int | None
+
+
+@dataclass(frozen=True)
+class VoiceProfileView:
+    voice_profile_id: str
+    revision: int
+    speaker: str
+    instruct: str
+    anchor_text: str
+    anchor_sha256: str
+    duration_ms: int
+    seed: int
+    custom_voice_model: str
+    is_active: bool
+    confirmed_at: str
+    audio_url: str
+
+
+@dataclass(frozen=True)
+class AnchorCandidateView:
+    candidate_index: int
+    seed: int
+    duration_ms: int
+    sha256: str
+    audio_url: str
+
+
+@dataclass(frozen=True)
+class AnchorBatchView:
+    batch_id: str
+    speaker: str
+    instruct: str
+    anchor_text: str
+    created_at: str
+    candidates: tuple[AnchorCandidateView, ...]
+
+
+def voice_profile_view(profile: VoiceProfile) -> VoiceProfileView:
+    return VoiceProfileView(
+        voice_profile_id=profile.voice_profile_id,
+        revision=profile.revision,
+        speaker=profile.speaker,
+        instruct=profile.instruct,
+        anchor_text=profile.anchor_text,
+        anchor_sha256=profile.anchor_sha256,
+        duration_ms=profile.duration_ms,
+        seed=profile.seed,
+        custom_voice_model=profile.custom_voice_model,
+        is_active=profile.is_active,
+        confirmed_at=profile.confirmed_at,
+        audio_url=(
+            f"/api/voices/profiles/{profile.voice_profile_id}/{profile.revision}/audio"
+        ),
+    )
+
+
+def anchor_batch_view(batch: AnchorBatch) -> AnchorBatchView:
+    return AnchorBatchView(
+        batch_id=batch.batch_id,
+        speaker=batch.speaker,
+        instruct=batch.instruct,
+        anchor_text=batch.anchor_text,
+        created_at=batch.created_at,
+        candidates=tuple(
+            AnchorCandidateView(
+                candidate_index=candidate.candidate_index,
+                seed=candidate.seed,
+                duration_ms=candidate.duration_ms,
+                sha256=candidate.sha256,
+                audio_url=(
+                    f"/api/voices/batches/{batch.batch_id}"
+                    f"/audio/{candidate.candidate_index}"
+                ),
+            )
+            for candidate in batch.candidates
+        ),
+    )
 
 
 def article_view(article: ArticleRevision) -> ArticleView:

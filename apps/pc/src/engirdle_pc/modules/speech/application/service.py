@@ -39,6 +39,9 @@ class SpeechService:
     def voice_profile(self) -> VoiceProfileRef:
         return self._adapter.voice_profile
 
+    def verify_setup(self) -> None:
+        self._adapter.verify_setup()
+
     def synthesize(
         self, job_id: str, sentence_id: str, text: str, target_dir: Path
     ) -> SentenceSpeech:

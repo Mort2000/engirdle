@@ -19,6 +19,9 @@
 # Engirdle runtime data belongs outside the source tree.
 **/workspace/
 
+# App-generated scratch output (e.g. manual TTS smoke audio), never committed.
+/apps/pc/.scratch/
+
 # Local Flutter SDK used for development verification, never committed.
 /.scratch/flutter/
 /.scratch/flutter_*.tar.xz

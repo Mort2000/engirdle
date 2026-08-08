@@ -7,9 +7,16 @@ from engirdle_pc.bootstrap.container import Container
 from engirdle_pc.entrypoints.admin_web.app import create_admin_app
 
 
-def test_user_can_replace_structure_until_revision_is_approved(tmp_path: Path) -> None:
+def test_user_can_replace_structure_until_revision_is_approved(
+    tmp_path: Path, fake_speech
+) -> None:
     client = TestClient(
-        create_admin_app(Container.build(Settings(workspace=tmp_path / "workspace")))
+        create_admin_app(
+            Container.build(
+                Settings(workspace=tmp_path / "workspace"),
+                speech_adapter=fake_speech,
+            )
+        )
     )
     created = client.post(
         "/api/articles",

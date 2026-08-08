@@ -14,10 +14,12 @@ from engirdle_pc.entrypoints.publisher.app import create_publisher_app
 
 
 def test_user_can_produce_review_and_publish_an_article(
-    tmp_path: Path, fake_translator
+    tmp_path: Path, fake_translator, fake_speech
 ) -> None:
     settings = Settings(workspace=tmp_path / "workspace")
-    container = Container.build(settings, translation_adapter=fake_translator)
+    container = Container.build(settings, translation_adapter=fake_translator,
+        speech_adapter=fake_speech,
+    )
     admin = TestClient(create_admin_app(container))
 
     created = admin.post(

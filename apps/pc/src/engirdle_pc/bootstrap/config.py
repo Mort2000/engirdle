@@ -39,6 +39,15 @@ class Settings(BaseSettings):
     deepseek_model: str = "deepseek-v4-flash"
     deepseek_request_timeout_seconds: float = 120.0
     deepseek_max_retries: int = 3
+    # Qwen3-TTS local speech runtime (non-secret deployment config). Checkpoints
+    # live under the app-managed model root, never inside the repository.
+    speech_model_root: Path | None = None
+    speech_device: str = "cuda:0"
+    speech_dtype: str = "bfloat16"
+    speech_attn_implementation: str = "sdpa"
+    speech_seed: int = 0
+    speech_max_new_tokens: int = 2048
+    speech_anchor_candidates: int = 3
 
     @field_validator("management_host")
     @classmethod
@@ -54,3 +63,15 @@ class Settings(BaseSettings):
     @property
     def public_dir(self) -> Path:
         return self.workspace / "public"
+
+    @property
+    def resolved_speech_model_root(self) -> Path:
+        return self.speech_model_root or (self.workspace / "models")
+
+    @property
+    def custom_voice_model_dir(self) -> Path:
+        return self.resolved_speech_model_root / "Qwen3-TTS-12Hz-1.7B-CustomVoice"
+
+    @property
+    def base_model_dir(self) -> Path:
+        return self.resolved_speech_model_root / "Qwen3-TTS-12Hz-1.7B-Base"

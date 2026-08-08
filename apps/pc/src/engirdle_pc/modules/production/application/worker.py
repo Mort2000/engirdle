@@ -99,6 +99,9 @@ class ProductionWorker:
                     ):
                         speech_items.append(cached)
                         continue
+                    # Re-check before every uncached sentence: activating a new
+                    # voice profile mid-build must fail the job, not mix voices.
+                    self._verify_adapter_snapshot(job)
                     speech = self._speech.synthesize(
                         job.job_id,
                         sentence.sentence_id,
@@ -131,3 +134,14 @@ class ProductionWorker:
             raise AdapterContractError("translation adapter differs from the job snapshot")
         if job.config.speech_adapter != self._speech.name:
             raise AdapterContractError("speech adapter differs from the job snapshot")
+        if job.config.speech_generation != self._speech.generation_config_id:
+            raise AdapterContractError(
+                "speech generation parameters differ from the job snapshot"
+            )
+        # Design §4.5.2: every sentence of one job must use the voice profile
+        # revision frozen at queue time — never whatever profile is active now.
+        voice = self._speech.voice_profile
+        if job.config.voice_profile != f"{voice.voice_profile_id}@{voice.revision}":
+            raise AdapterContractError("voice profile differs from the job snapshot")
+        if job.config.anchor_sha256 != voice.anchor_sha256:
+            raise AdapterContractError("voice anchor differs from the job snapshot")

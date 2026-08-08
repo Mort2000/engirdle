@@ -6,13 +6,13 @@ from engirdle_pc.bootstrap.config import Settings
 from engirdle_pc.bootstrap.container import Container
 from engirdle_pc.modules.content.public import ArticleRevision, Block, NewArticle
 from engirdle_pc.modules.production.public import JobStatus, ProductionCheckpoint
-from engirdle_pc.modules.speech.infrastructure.stub_adapter import StubSpeechAdapter
 from engirdle_pc.modules.speech.public import (
     SentenceSpeech,
     VoiceProfileRef,
 )
 from engirdle_pc.modules.translation.public import TranslationBatch
 from engirdle_pc.shared.infrastructure.runtime import UuidIdentifierGenerator
+from tests.speech_fake import StubSpeechAdapter
 from tests.translation_fake import FakeTranslationAdapter
 
 
@@ -57,6 +57,9 @@ class FailSecondSentenceOnceSpeechAdapter:
     def voice_profile(self) -> VoiceProfileRef:
         return self._delegate.voice_profile
 
+    def verify_setup(self) -> None:
+        self._delegate.verify_setup()
+
     def synthesize(
         self, sentence_id: str, text: str, target_dir: Path
     ) -> SentenceSpeech:
@@ -72,6 +75,7 @@ def test_retry_resumes_after_last_accepted_translation_block(tmp_path: Path) -> 
     container = Container.build(
         Settings(workspace=tmp_path / "workspace"),
         translation_adapter=translator,
+        speech_adapter=StubSpeechAdapter(),
     )
     revision = container.content.create(
         NewArticle(
@@ -139,3 +143,44 @@ def test_retry_reuses_valid_sentence_pcm_from_checkpoint(
     assert synthesizer.synthesized_sentences.count(sentence_ids[0]) == 1
     assert synthesizer.synthesized_sentences.count(sentence_ids[1]) == 2
     assert synthesizer.synthesized_sentences.count(sentence_ids[2]) == 1
+
+
+def test_voice_profile_change_after_queue_fails_the_job(
+    tmp_path: Path, fake_translator
+) -> None:
+    # Design §4.5.2: a job must never mix voice profile revisions — activating
+    # another profile after queueing fails the job instead of producing audio
+    # whose manifest snapshot no longer matches reality.
+    synthesizer = StubSpeechAdapter()
+    container = Container.build(
+        Settings(workspace=tmp_path / "workspace"),
+        translation_adapter=fake_translator,
+        speech_adapter=synthesizer,
+    )
+    revision = container.content.create(
+        NewArticle(
+            title="Voice swap",
+            body="One sentence only.",
+            author=None,
+            source_name=None,
+            source_url=None,
+            license_name="unknown",
+        )
+    )
+    job = container.production.queue(
+        container.content.approve(revision.article_id, revision.revision)
+    )
+
+    synthesizer.set_voice_profile(
+        VoiceProfileRef(
+            voice_profile_id="other-profile",
+            revision=3,
+            anchor_sha256="f" * 64,
+        )
+    )
+
+    assert container.worker.run_once() is True
+    failed = container.production.get(job.job_id)
+    assert failed.status is JobStatus.FAILED
+    assert failed.error_code == "AdapterContractError"
+    assert "voice profile" in (failed.error_message or "")

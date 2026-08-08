@@ -11,9 +11,12 @@ from engirdle_pc.entrypoints.publisher.app import create_publisher_app
 def test_confirmed_local_delete_removes_catalog_entry_and_moves_files_to_trash(
     tmp_path: Path,
     fake_translator,
+    fake_speech,
 ) -> None:
     settings = Settings(workspace=tmp_path / "workspace")
-    container = Container.build(settings, translation_adapter=fake_translator)
+    container = Container.build(settings, translation_adapter=fake_translator,
+        speech_adapter=fake_speech,
+    )
     admin = TestClient(create_admin_app(container))
     publisher = TestClient(create_publisher_app(container.publisher_queries))
     article = admin.post(

@@ -7,6 +7,7 @@ from engirdle_pc.bootstrap.container import Container
 from engirdle_pc.modules.content.public import ArticleRevision, Block, NewArticle
 from engirdle_pc.modules.translation.public import TranslationBatch
 from engirdle_pc.shared.infrastructure.runtime import UuidIdentifierGenerator
+from tests.speech_fake import StubSpeechAdapter
 from tests.translation_fake import FakeTranslationAdapter
 
 
@@ -38,6 +39,7 @@ def test_worker_recovers_an_expired_running_lease_and_retries_safely(
     container = Container.build(
         Settings(workspace=tmp_path / "workspace"),
         translation_adapter=CrashOnceTranslator(),
+        speech_adapter=StubSpeechAdapter(),
     )
     revision = container.content.create(
         NewArticle(
@@ -74,7 +76,9 @@ def test_recover_stale_also_reclaims_jobs_with_null_heartbeat(
     ``heartbeat_at < ?`` predicate skips these rows entirely.
     """
     container = Container.build(
-        Settings(workspace=tmp_path / "workspace"), translation_adapter=fake_translator
+        Settings(workspace=tmp_path / "workspace"),
+        translation_adapter=fake_translator,
+        speech_adapter=StubSpeechAdapter(),
     )
     revision = container.content.create(
         NewArticle(

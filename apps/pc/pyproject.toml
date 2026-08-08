@@ -24,6 +24,19 @@ dev = [
   "pytest>=8.4,<9",
   "ruff>=0.12,<1",
 ]
+# Real Qwen3-TTS runtime for the production speech adapters. Tests and plain
+# builds never import it; only the admin/worker entrypoints require it.
+tts = [
+  # onnxruntime 1.24+ publishes no cp310 wheels; cap it so uv can resolve a
+  # Python 3.10-compatible build (qwen-tts leaves the version unpinned).
+  "onnxruntime>=1.22,<1.24",
+  # Without lower bounds uv backtracks librosa's numba/llvmlite chain to
+  # ancient sdists that cannot build; these ranges still support Python 3.10.
+  "llvmlite>=0.44,<0.45",
+  "numba>=0.61,<0.62",
+  "qwen-tts>=0.1.1,<0.2",
+  "soundfile>=0.13,<1",
+]
 
 [project.scripts]
 engirdle-pc = "engirdle_pc.entrypoints.cli.main:main"
@@ -53,6 +66,10 @@ plugins = ["pydantic.mypy"]
 # Alembic env.py and version scripts use dynamic module-level state (revision,
 # down_revision, the `op` proxy) that does not type-check under strict mode.
 exclude = "engirdle_pc/shared/infrastructure/database/alembic/"
+
+[[tool.mypy.overrides]]
+module = ["qwen_tts.*", "torch.*", "soundfile.*", "numpy.*"]
+ignore_missing_imports = true
 
 [tool.ruff]
 target-version = "py310"

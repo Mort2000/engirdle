@@ -8,10 +8,11 @@ from engirdle_pc.entrypoints.admin_web.app import create_admin_app
 
 
 def test_editing_frozen_content_creates_a_new_article_revision(
-    tmp_path: Path, fake_translator
+    tmp_path: Path, fake_translator, fake_speech
 ) -> None:
     container = Container.build(
-        Settings(workspace=tmp_path / "workspace"), translation_adapter=fake_translator
+        Settings(workspace=tmp_path / "workspace"), translation_adapter=fake_translator,
+        speech_adapter=fake_speech,
     )
     client = TestClient(create_admin_app(container))
     first = client.post(
@@ -36,10 +37,11 @@ def test_editing_frozen_content_creates_a_new_article_revision(
 
 
 def test_user_can_rebuild_a_published_revision_as_a_new_artifact(
-    tmp_path: Path, fake_translator
+    tmp_path: Path, fake_translator, fake_speech
 ) -> None:
     container = Container.build(
-        Settings(workspace=tmp_path / "workspace"), translation_adapter=fake_translator
+        Settings(workspace=tmp_path / "workspace"), translation_adapter=fake_translator,
+        speech_adapter=fake_speech,
     )
     client = TestClient(create_admin_app(container))
     article = client.post(

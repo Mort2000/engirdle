@@ -6,6 +6,7 @@ import time
 
 from engirdle_pc.bootstrap.config import Settings
 from engirdle_pc.bootstrap.container import Container
+from engirdle_pc.modules.speech.public import SpeechConfigurationError
 from engirdle_pc.modules.translation.public import (
     DeepSeekConfigurationError,
     TranslationError,
@@ -34,6 +35,14 @@ def main() -> None:
     except TranslationError as error:
         LOGGER.error(
             "DeepSeek access check failed, exiting",
+            extra={"error": error.__class__.__name__},
+        )
+        sys.exit(1)
+    try:
+        container.speech.verify_setup()
+    except SpeechConfigurationError as error:
+        LOGGER.error(
+            "Qwen3-TTS is misconfigured, exiting",
             extra={"error": error.__class__.__name__},
         )
         sys.exit(1)

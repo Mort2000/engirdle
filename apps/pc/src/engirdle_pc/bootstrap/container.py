@@ -43,13 +43,22 @@ from engirdle_pc.modules.publishing.public import (
     PublishingService,
     ReleaseService,
 )
+from engirdle_pc.modules.speech.infrastructure.qwen3_adapter import (
+    build_qwen3_speech_adapter,
+)
+from engirdle_pc.modules.speech.infrastructure.qwen3_backend import LocalQwen3Backend
+from engirdle_pc.modules.speech.infrastructure.qwen3_custom_voice import (
+    Qwen3AnchorEngine,
+)
 from engirdle_pc.modules.speech.infrastructure.sqlalchemy_repository import (
     SqlAlchemySpeechRepository,
+    SqlAlchemyVoiceProfileRepository,
 )
-from engirdle_pc.modules.speech.infrastructure.stub_adapter import StubSpeechAdapter
 from engirdle_pc.modules.speech.public import (
+    AnchorEngine,
     SpeechAdapter,
     SpeechService,
+    VoiceProfileService,
 )
 from engirdle_pc.modules.translation.infrastructure.deepseek_adapter import (
     build_deepseek_adapter,
@@ -75,6 +84,8 @@ class Container:
     content: ContentService
     production: ProductionService
     translations: TranslationService
+    speech: SpeechService
+    voices: VoiceProfileService
     audio: AudioService
     worker: ProductionWorker
     release: ReleaseService
@@ -91,6 +102,7 @@ class Container:
         translation_adapter: TranslationAdapter | None = None,
         deepseek_api_key: str | None = None,
         speech_adapter: SpeechAdapter | None = None,
+        anchor_engine: AnchorEngine | None = None,
         catalog_validator: CatalogValidation | None = None,
         publisher_process_launcher: PublisherProcessLauncher | None = None,
     ) -> Container:
@@ -111,6 +123,7 @@ class Container:
         jobs = SqlAlchemyJobRepository(database, clock, identifiers)
         translation_repository = SqlAlchemyTranslationRepository(database)
         speech_repository = SqlAlchemySpeechRepository(database)
+        voice_profiles = SqlAlchemyVoiceProfileRepository(database)
         audio_repository = SqlAlchemyAudioRepository(database)
         artifacts = SqlAlchemyArtifactRepository(database)
         publishing_repository = SqlAlchemyPublishingRepository(database)
@@ -118,9 +131,29 @@ class Container:
         translator = translation_adapter or build_deepseek_adapter(
             settings, deepseek_api_key, identifiers
         )
-        synthesizer = speech_adapter or StubSpeechAdapter()
+        # One shared backend instance enforces design §4.5.1 (CustomVoice and
+        # Base are never resident together) across both speech paths in this
+        # process; constructing it is cheap — model loading stays lazy.
+        speech_backend = LocalQwen3Backend(
+            custom_voice_dir=settings.custom_voice_model_dir,
+            base_dir=settings.base_model_dir,
+            device=settings.speech_device,
+            dtype=settings.speech_dtype,
+            attn_implementation=settings.speech_attn_implementation,
+        )
+        synthesizer = speech_adapter or build_qwen3_speech_adapter(
+            settings, voice_profiles, backend=speech_backend
+        )
         translations = TranslationService(translator, translation_repository)
         speech = SpeechService(synthesizer, speech_repository)
+        engine = anchor_engine or Qwen3AnchorEngine(
+            speech_backend,
+            custom_voice_dir=settings.custom_voice_model_dir,
+            max_new_tokens=settings.speech_max_new_tokens,
+        )
+        voices = VoiceProfileService(
+            engine, voice_profiles, workspace.voices_dir, clock, identifiers
+        )
         encoder = FfmpegAudioEncoder(settings.ffmpeg_path)
         audio = AudioService(
             audio_repository,
@@ -185,6 +218,8 @@ class Container:
             content=content,
             production=production,
             translations=translations,
+            speech=speech,
+            voices=voices,
             audio=audio,
             worker=worker,
             release=release,
