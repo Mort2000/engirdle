@@ -5,16 +5,24 @@ from dataclasses import dataclass
 from engirdle_pc.bootstrap.config import Settings
 from engirdle_pc.modules.audio.infrastructure.ffmpeg_encoder import FfmpegAudioEncoder
 from engirdle_pc.modules.audio.infrastructure.local_renderer import LocalAudioRenderer
-from engirdle_pc.modules.audio.infrastructure.sqlite_repository import AudioRepository
+from engirdle_pc.modules.audio.infrastructure.sqlalchemy_repository import (
+    SqlAlchemyAudioRepository,
+)
 from engirdle_pc.modules.audio.public import AudioService
 from engirdle_pc.modules.content.application.service import ContentService
 from engirdle_pc.modules.content.infrastructure.source_store import FileSourceSnapshotStore
-from engirdle_pc.modules.content.infrastructure.sqlite_repository import ContentRepository
-from engirdle_pc.modules.packaging.infrastructure.sqlite_repository import ArtifactRepository
+from engirdle_pc.modules.content.infrastructure.sqlalchemy_repository import (
+    SqlAlchemyContentRepository,
+)
+from engirdle_pc.modules.packaging.infrastructure.sqlalchemy_repository import (
+    SqlAlchemyArtifactRepository,
+)
 from engirdle_pc.modules.packaging.infrastructure.validator import ReadpackValidator
 from engirdle_pc.modules.packaging.infrastructure.zip_writer import ZipPackageWriter
 from engirdle_pc.modules.packaging.public import PackagingService
-from engirdle_pc.modules.production.infrastructure.sqlite_repository import JobRepository
+from engirdle_pc.modules.production.infrastructure.sqlalchemy_repository import (
+    SqlAlchemyJobRepository,
+)
 from engirdle_pc.modules.production.public import ProductionService, ProductionWorker
 from engirdle_pc.modules.publishing.infrastructure.file_store import (
     LocalPublicationFileStore,
@@ -24,8 +32,8 @@ from engirdle_pc.modules.publishing.infrastructure.process_controller import (
     PublisherProcessLauncher,
 )
 from engirdle_pc.modules.publishing.infrastructure.query_service import PublisherQueries
-from engirdle_pc.modules.publishing.infrastructure.sqlite_repository import (
-    PublishingRepository,
+from engirdle_pc.modules.publishing.infrastructure.sqlalchemy_repository import (
+    SqlAlchemyPublishingRepository,
 )
 from engirdle_pc.modules.publishing.infrastructure.validator import CatalogValidator
 from engirdle_pc.modules.publishing.public import (
@@ -35,14 +43,16 @@ from engirdle_pc.modules.publishing.public import (
     PublishingService,
     ReleaseService,
 )
-from engirdle_pc.modules.speech.infrastructure.sqlite_repository import SpeechRepository
+from engirdle_pc.modules.speech.infrastructure.sqlalchemy_repository import (
+    SqlAlchemySpeechRepository,
+)
 from engirdle_pc.modules.speech.infrastructure.stub_adapter import StubSpeechAdapter
 from engirdle_pc.modules.speech.public import (
     SpeechAdapter,
     SpeechService,
 )
-from engirdle_pc.modules.translation.infrastructure.sqlite_repository import (
-    TranslationRepository,
+from engirdle_pc.modules.translation.infrastructure.sqlalchemy_repository import (
+    SqlAlchemyTranslationRepository,
 )
 from engirdle_pc.modules.translation.infrastructure.stub_adapter import (
     StubTranslationAdapter,
@@ -90,19 +100,19 @@ class Container:
         clock = SystemClock()
         identifiers = UuidIdentifierGenerator()
 
-        content_repository = ContentRepository(database)
+        content_repository = SqlAlchemyContentRepository(database)
         content = ContentService(
             content_repository,
             FileSourceSnapshotStore(workspace),
             clock,
             identifiers,
         )
-        jobs = JobRepository(database, clock, identifiers)
-        translation_repository = TranslationRepository(database)
-        speech_repository = SpeechRepository(database)
-        audio_repository = AudioRepository(database)
-        artifacts = ArtifactRepository(database)
-        publishing_repository = PublishingRepository(database)
+        jobs = SqlAlchemyJobRepository(database, clock, identifiers)
+        translation_repository = SqlAlchemyTranslationRepository(database)
+        speech_repository = SqlAlchemySpeechRepository(database)
+        audio_repository = SqlAlchemyAudioRepository(database)
+        artifacts = SqlAlchemyArtifactRepository(database)
+        publishing_repository = SqlAlchemyPublishingRepository(database)
 
         translator = translation_adapter or StubTranslationAdapter(identifiers)
         synthesizer = speech_adapter or StubSpeechAdapter()

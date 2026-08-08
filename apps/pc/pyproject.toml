@@ -5,12 +5,14 @@ description = "Local-first PC content production application for Engirdle"
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
+  "alembic>=1.13,<2",
   "fastapi>=0.116,<1",
   "imageio-ffmpeg>=0.6,<1",
   "jinja2>=3.1,<4",
   "jsonschema[format]>=4.25,<5",
   "pydantic-settings>=2.10,<3",
   "python-multipart>=0.0.20,<1",
+  "sqlalchemy>=2.0,<3",
   "uvicorn>=0.35,<1",
 ]
 
@@ -47,6 +49,9 @@ strict = true
 packages = ["engirdle_pc"]
 mypy_path = "src"
 plugins = ["pydantic.mypy"]
+# Alembic env.py and version scripts use dynamic module-level state (revision,
+# down_revision, the `op` proxy) that does not type-check under strict mode.
+exclude = "engirdle_pc/shared/infrastructure/database/alembic/"
 
 [tool.ruff]
 target-version = "py310"

@@ -1,44 +1,84 @@
+from __future__ import annotations
+
+import sqlite3
 from pathlib import Path
 
 from engirdle_pc.shared.infrastructure.database.connection import Database
 
+EXPECTED_TABLES = {
+    "alembic_version",
+    "articles",
+    "article_revisions",
+    "content_blocks",
+    "content_sentences",
+    "build_jobs",
+    "translations",
+    "sentence_audio",
+    "audio_timeline",
+    "audio_outputs",
+    "package_artifacts",
+    "published_articles",
+    "system_metadata",
+}
 
-def test_database_applies_ordered_migrations_idempotently(tmp_path: Path) -> None:
+
+def _tables(connection: sqlite3.Connection) -> set[str]:
+    return {
+        row["name"]
+        for row in connection.execute(
+            "SELECT name FROM sqlite_master WHERE type='table'"
+        ).fetchall()
+    }
+
+
+def _columns(connection: sqlite3.Connection, table: str) -> set[str]:
+    return {
+        row["name"]
+        for row in connection.execute(f"PRAGMA table_info({table})").fetchall()
+    }
+
+
+def test_database_applies_migrations_idempotently(tmp_path: Path) -> None:
     database = Database(tmp_path / "app.db")
 
     database.initialize()
-    database.initialize()
+    database.initialize()  # second run must be a no-op (``alembic upgrade head``)
 
     with database.connect() as connection:
-        migrations = tuple(
-            row["migration_name"]
+        assert _tables(connection) == EXPECTED_TABLES
+
+        versions = [
+            row["version_num"]
             for row in connection.execute(
-                "SELECT migration_name FROM schema_migrations ORDER BY migration_name"
+                "SELECT version_num FROM alembic_version"
             ).fetchall()
-        )
-        publishing_columns = {
-            row["name"]
-            for row in connection.execute(
-                "PRAGMA table_info(published_articles)"
-            ).fetchall()
+        ]
+        assert versions == ["0001_baseline"]
+
+        # Preserve the original schema contract: the published_articles and
+        # package_artifacts column sets must be unchanged after the Alembic
+        # takeover. This is the safety net for the hand-transcribed baseline.
+        assert _columns(connection, "published_articles") == {
+            "article_id",
+            "package_id",
+            "revision",
+            "artifact_revision",
+            "title",
+            "opaque_name",
+            "size",
+            "sha256",
+            "published_at",
         }
-    assert migrations == (
-        "0001_content_initial.sql",
-        "0002_production_initial.sql",
-        "0003_translation_initial.sql",
-        "0004_speech_initial.sql",
-        "0005_audio_initial.sql",
-        "0006_packaging_initial.sql",
-        "0007_publishing_initial.sql",
-    )
-    assert publishing_columns == {
-        "article_id",
-        "package_id",
-        "revision",
-        "artifact_revision",
-        "title",
-        "opaque_name",
-        "size",
-        "sha256",
-        "published_at",
-    }
+        assert _columns(connection, "package_artifacts") == {
+            "package_id",
+            "article_id",
+            "revision",
+            "artifact_revision",
+            "job_id",
+            "opaque_name",
+            "path",
+            "size",
+            "sha256",
+            "state",
+            "created_at",
+        }
