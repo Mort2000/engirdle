@@ -1,11 +1,12 @@
 # Engirdle MVP 技术设计
 
-> 文档状态：技术设计基线候选  
-> 更新时间：2026-08-07  
-> 产品方向：[purpose.md](../purpose.md)  
-> 需求基线：[mvp_prd.md](./mvp_prd.md)  
+> 文档状态：技术设计基线候选<br>
+> 更新时间：2026-08-08<br>
+> 产品方向：[purpose.md](../purpose.md)<br>
+> 需求基线：[mvp_prd.md](./mvp_prd.md)<br>
 > 工程架构：[mvp_module_architecture.md](./mvp_module_architecture.md)<br>
-> 风险与验证：[mvp_feasibility.md](./mvp_feasibility.md)
+> 风险与验证：[mvp_feasibility.md](./mvp_feasibility.md)<br>
+> 移动后台播放详设：[mobile_background_audio_design.md](./mobile_background_audio_design.md)
 
 ## 1. 设计目标与约束
 
@@ -15,6 +16,7 @@
 - PC 承担不稳定和高计算量工作，移动端只消费确定性制品；
 - PC 与移动端通过版本化 `.readpack` 解耦，不共享数据库；
 - 发布制品不可变，失败不覆盖上一成功版本；
+- Android 活跃音频会话不依赖阅读页面或 Activity 生命周期，息屏和后台控制统一进入单一播放状态机；
 - 单机和单用户规模优先采用简单、可恢复的本地基础设施；
 - 模型、分句器、词典和移动依赖都通过版本化契约隔离。
 
@@ -49,7 +51,7 @@ package "Android 应用" {
   [目录与下载] as Download
   [包导入器] as Importer
   [阅读器] as Reader
-  [音频播放器] as Player
+  [音频播放器与媒体会话] as Player
   [词典查询] as Dictionary
   [生词本] as Vocabulary
   database "应用数据库\nSQLite" as AppDB
@@ -58,6 +60,7 @@ package "Android 应用" {
 }
 
 cloud "DeepSeek 官方 API\ndeepseek-v4-flash" as DeepSeek
+rectangle "Android 系统媒体界面\n通知 / 锁屏 / 耳机" as MediaControls
 
 用户 --> AdminUI
 AdminUI --> AdminAPI
@@ -81,6 +84,7 @@ Importer --> ArticleFiles
 Reader --> AppDB
 Reader --> Player
 Player --> ArticleFiles
+MediaControls --> Player
 Reader --> Dictionary
 Dictionary --> DictDB
 Dictionary --> Vocabulary
@@ -110,7 +114,7 @@ Vocabulary --> AppDB
 | 目录与下载 | 服务配置、目录获取、临时下载、大小与外层哈希校验 |
 | 包导入器 | 安全解压、schema/引用校验、事务写库与原子目录切换 |
 | 阅读器 | 结构化句子渲染、三种译文模式、排版与选词入口 |
-| 播放器 | 单一会话、句级区间与连续播放状态管理 |
+| 播放器与媒体会话 | 单一会话、句级区间、连续播放、音频焦点、息屏/后台前台 Service 与系统媒体控制状态管理 |
 | 词典查询 | 短语、规范化形式、lemma 和候选义项查询 |
 | 生词本 | 保存用户选定义项和不可变上下文快照 |
 | 应用数据库 | 保存文章索引、设置、生词和导入状态，不保存大音频 BLOB |
@@ -684,14 +688,19 @@ stop
 
 Flutter 的跨 span 选择、菜单定制和 Android 版本差异必须先做原型。若一句一个选择区域是满足稳定选择的必要条件，MVP 接受不能跨句选择。
 
-### 8.4 播放状态
+### 8.4 播放状态与后台会话
+
+本节给出总体约束；完整模块接口、平台声明、制品租约和验收矩阵见 [mobile_background_audio_design.md](./mobile_background_audio_design.md)。
 
 ```plantuml
 @startuml
 skinparam shadowing false
 [*] --> Idle
-Idle --> SentencePlaying : 播放单句
-Idle --> ArticlePlaying : 从句子连续播放
+Idle --> Preparing : start(request)
+Preparing --> SentencePlaying : 单句 source/seek 就绪
+Preparing --> ArticlePlaying : 连续 source/seek 就绪
+Preparing --> Preparing : 新请求取代旧 token
+Preparing --> Idle : 停止/错误
 SentencePlaying --> Paused : 暂停
 ArticlePlaying --> Paused : 暂停
 Paused --> SentencePlaying : 继续单句
@@ -705,12 +714,22 @@ ArticlePlaying --> ArticlePlaying : 更换连续起点
 @enduml
 ```
 
-一个播放器实例和一个控制器拥有状态。新播放命令先取消旧裁剪和待处理回调，再 seek 并设置新模式：
+`playback` 作为深模块只暴露 `start(request)`、`pause`、`resume`、`stop`、状态流和一次性事件流。`request` 携带完整 `ArticleRef`、句子 ID 和播放模式，不携带文件路径、句界或插件对象。现有 `PlaybackController` 直接深化为协调器角色，与一个播放器实例共同拥有唯一状态；不再增加第二个有状态协调类。阅读器、应用内控制条、通知栏、锁屏和耳机媒体键全部通过适配器调用这同一个实例。
+
+新播放命令先取得精确文章制品租约，再取代旧裁剪和待处理回调，seek 并设置新模式：
 
 - 单句模式设置 `[audio_start_ms, audio_end_ms)` 裁剪；
 - 连续模式清除结束裁剪，从目标句开始播放到文件末尾；
 - 段落播放解析为该块首句；
-- 结束事件必须校验当前会话 token，防止旧异步事件停止新会话。
+- 加载、位置、暂停、恢复、结束、错误和打断事件写状态前都必须校验当前 session token；
+- Activity 前台/后台和屏幕亮/灭不是播放状态转换条件；离开阅读页只取消 UI 订阅，不 pause/stop；
+- 暂时音频打断仅在 token 未变化且用户没有介入时恢复；永久/未知打断保持暂停；输出设备断开后暂停且不自动恢复；
+- 系统媒体适配器只公布 MVP 支持的播放/暂停/停止，不公布上一/下一、seek、倍速、循环或队列；
+- 正在 Playing 或 Paused 的精确制品保持租约。文章升级可切换当前指针但延后清理活动旧文件；删除活动文章先停播并等待租约释放。
+
+Android 使用 media playback 前台 Service 和 MediaSession 承载活跃播放。播放完成、用户停止或不可恢复错误必须结束前台状态、清除媒体通知并释放音频焦点与制品租约。MVP 不持久化播放进度，不在进程死亡、强制停止或设备重启后自动恢复。
+
+实现采用 `audio_service` 提供的 Android Service 与自定义 `AudioHandler`，Media3 `MediaSessionService` 仅作为平台职责参考，不并行注册第二套原生 Service。`just_audio` 保留按全局 speech 配置激活 audio session 的职责，但关闭自身的 interruption handling；打断、输出断开和恢复意图统一由协调器按 token 判定。后台暂停后的通知/耳机恢复必须通过 API 31、35、36 真机门槛。
 
 ### 8.5 词典查询
 
@@ -764,7 +783,9 @@ MVP 不引入 PostgreSQL、Redis、Celery、Kafka、向量数据库、对象存�
 
 - Flutter：跨平台 UI 基础，但本次只验收 Android；
 - Drift + SQLite：应用数据和迁移；
-- `just_audio` 类播放器：本地 M4A 的 seek、clip 和状态事件；
+- `just_audio`：本地 M4A 的 seek、clip 和播放器事件；
+- `audio_service`：Android 前台媒体 Service、MediaSession、通知、锁屏与媒体键适配器；
+- `audio_session`：按有声读物语义配置音频焦点、打断和输出路由；
 - HTTP 与 ZIP 库：只有通过阶段 0 安全与平台验证后才锁定具体实现和版本。
 
 依赖选择必须锁定版本并检查维护状态、许可证、平台支持和已知漏洞。设计不把第三方库 API 直接暴露到领域层。
@@ -799,6 +820,7 @@ MVP 不引入 PostgreSQL、Redis、Celery、Kafka、向量数据库、对象存�
 - DeepSeek 的请求 ID、模型、最终 `content` 和用量可以保存在任务记录中；`reasoning_content` 不持久化、不输出到管理界面或日志。
 - Qwen3-TTS 模型根目录属于本机部署配置，不写入 readpack；manifest 只记录可迁移的模型身份、修订与哈希。
 - 移动端错误按连接、下载、包格式、资源超限、数据库和播放器分类，便于给出可操作提示。
+- 移动播放日志记录 session token、完整文章身份、模式、状态转换来源、打断类型和失败分类；不记录正文、译文、绝对文件路径或系统媒体元数据全文。
 - 内容库提供一致性检查命令：发现缺失制品、孤儿文件、错误哈希和悬空发布记录，但默认不自动删除。
 
 ## 11. 测试策略
@@ -832,6 +854,9 @@ MVP 不引入 PostgreSQL、Redis、Celery、Kafka、向量数据库、对象存�
 - 飞行模式功能；
 - 长文章滚动、主题和文本缩放；
 - 目标设备上的选词菜单、M4A 随机 seek 和句级停止；
+- 目标设备上的息屏、切换应用、移除 Activity 后连续播放，通知/锁屏/耳机控制和重新打开应用后的状态接回；
+- 音频焦点暂失/永久丢失、来电、拔耳机、蓝牙断开、完成/错误/强制停止后的暂停恢复和媒体通知清理；
+- 活动旧制品在文章升级期间保持可播、会话结束后清理，以及活动文章删除时先停播；
 - 局域网权限拒绝、HTTP 策略、超时和 PC 下线。
 
 ### 11.4 人工质量检查
@@ -845,7 +870,7 @@ MVP 不引入 PostgreSQL、Redis、Celery、Kafka、向量数据库、对象存�
 
 ## 12. 实施顺序
 
-1. 阶段 0：用固定 JSON 和测试音频验证包协议、Android 导入、选词与音频区间；登记硬件，验证 Qwen3-TTS 两检查点串行加载，并审计词典候选。
+1. 阶段 0：用固定 JSON 和测试音频验证包协议、Android 导入、选词、音频区间与息屏/后台媒体会话；登记硬件，验证 Qwen3-TTS 两检查点串行加载，并审计词典候选。
 2. 阶段 1：完成手工文章 → 固定译文/音频 → readpack → 局域网 → Android 离线阅读的纵向链路。
 3. 阶段 2：接入 DeepSeek 完整原文/逐段翻译会话，建立 CustomVoice 声音配置，并由 Base 逐句生成、拼接 PCM；完成本机人工修正与试听界面。
 4. 阶段 3：构建版本化词典资源、选择菜单和带上下文生词本。
@@ -866,7 +891,7 @@ MVP 不引入 PostgreSQL、Redis、Celery、Kafka、向量数据库、对象存�
 | MOB-NET-*、MOB-CAT-*、MOB-DL-* | 6.3、7、8.2 | 权限拒绝、断网、超时、大小与外层哈希 |
 | MOB-IMP-* | 6.4–6.6、8.1、8.2 | 恶意包矩阵、故障注入、升级与启动恢复 |
 | MOB-LIB-*、MOB-READ-* | 3、8.1、8.3 | 长文、三种模式、主题和文章删除 |
-| MOB-AUD-* | 4.6、8.4 | 目标设备随机 seek、状态竞争和边界盲听 |
+| MOB-AUD-* | 4.6、8.4、[移动后台播放详设](./mobile_background_audio_design.md) | 目标设备随机 seek、边界盲听、息屏/媒体控制/打断矩阵、状态竞争和制品租约 |
 | MOB-DIC-*、MOB-VOC-* | 3.1、8.1、8.3、8.5 | 选词原型、查询样本、词典更新和生词快照 |
 | NFR-OFF-*、NFR-REL-* | 4.2、5.2、8.2、11 | 飞行模式、进程/导入故障注入 |
 | NFR-SEC-*、NFR-COMP-* | 6、7、10、11.1、11.3 | 恶意包、API Key 与日志秘密检查、协议兼容和 LAN 隔离 |

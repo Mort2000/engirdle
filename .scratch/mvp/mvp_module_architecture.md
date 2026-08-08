@@ -1,10 +1,11 @@
 # Engirdle MVP 前后端模块与目录架构
 
 > 文档状态：架构设计基线候选<br>
-> 更新时间：2026-08-07<br>
+> 更新时间：2026-08-08<br>
 > 需求基线：[mvp_prd.md](./mvp_prd.md)<br>
 > 技术基线：[mvp_design.md](./mvp_design.md)<br>
-> 风险与验证：[mvp_feasibility.md](./mvp_feasibility.md)
+> 风险与验证：[mvp_feasibility.md](./mvp_feasibility.md)<br>
+> 移动后台播放：[mobile_background_audio_design.md](./mobile_background_audio_design.md)
 
 ## 1. 文档目标
 
@@ -473,13 +474,13 @@ lib/
 | `importer` | 临时下载、外层哈希、ZIP 预检、流式解压、schema/引用校验、可恢复导入日志、原子切换 | 下载进度、导入步骤、失败与重试 | 阅读渲染、自动删除生词 |
 | `library` | 已安装文章索引、当前制品指针、文章内容查询和安全删除 | 书架、文章详情、删除确认 | 联网目录获取、播放器状态 |
 | `reader` | 块/句渲染、三种译文模式、句译展开、单句选择入口 | 阅读器与排版 | 移动端重新分句、直接控制播放器插件 |
-| `playback` | 单播放器会话、句级 clip、连续播放、session token 和状态转换 | 句旁播放按钮、底部控制条 | 读取 ZIP、维护多个播放器实例 |
+| `playback` | 单播放器会话、句级 clip、连续播放、session token、音频焦点、系统媒体控制、后台前台 Service 与活动制品租约 | 句旁播放入口、应用内控制条、通知/锁屏状态投影 | 读取 ZIP、维护多个播放器实例、持久化跨重启进度 |
 | `dictionary` | 独立词典资源版本、短语/规范形式/lemma 查询和候选排序 | 查词面板、词典资源状态 | 自动上下文消歧、修改生词数据 |
 | `vocabulary` | 保存选定义项和不可变上下文快照、列表与删除 | 保存生词、生词本 | 依赖文章文件持续存在、安排复习 |
 | `preferences` | 阅读模式、字体、字号、行高、边距和预设主题 | 排版设置 | 修改文章内容或包内元数据 |
 | `attribution` | 展示文章、包、模型、声音和词典归属 | 归属与资源页面 | 推断或补写未知许可信息 |
 
-`importer` 可以调用 `library` 的“安装新制品/切换当前指针”公开用例，但不能直接修改 `library` 私有 Drift DAO。`reader` 通过 `library` 查询结构化内容，通过 `playback` facade 发出播放意图，通过 `dictionary` 和 `vocabulary` 的公开用例完成查词与保存；它不直接依赖这些 feature 的 infrastructure。
+`importer` 可以调用 `library` 的“安装新制品/切换当前指针”公开用例，但不能直接修改 `library` 私有 Drift DAO。`reader` 通过 `library` 查询结构化内容，通过 `playback` 外部接口发出包含完整 `ArticleRef` 的播放意图，通过 `dictionary` 和 `vocabulary` 的公开用例完成查词与保存；它不直接依赖这些 feature 的 infrastructure。`playback` 通过 `PlaybackSourcePort` 从 `library` 获取带租约的精确制品，不能接收 presentation 传入的裸文件路径。
 
 ### 6.3 移动端依赖关系
 
@@ -500,6 +501,7 @@ skinparam shadowing false
 [attribution] as Attribution
 [contracts] as Contracts
 [platform adapters] as Platform
+[Android system media] as SystemMedia
 
 Catalog --> Connection : 已验证服务配置
 Importer --> Catalog : 选定目录项
@@ -511,6 +513,7 @@ Reader --> Dictionary : 查询用例
 Reader --> Vocabulary : 保存用例
 Reader --> Preferences : 阅读设置
 Playback --> Library : 音频位置与句界查询
+SystemMedia --> Playback : 通知/锁屏/媒体键命令
 Attribution --> Library
 Attribution --> Dictionary
 
@@ -533,20 +536,25 @@ Preferences ..> Platform
 features/playback/
 ├── domain/
 │   ├── playback_mode.dart
+│   ├── playback_request.dart
 │   ├── playback_session.dart
-│   └── playback_state.dart
+│   ├── playback_source.dart
+│   └── playback_snapshot.dart
 ├── application/
 │   ├── playback_controller.dart
-│   ├── playback_port.dart
-│   └── playback_view_state.dart
+│   ├── playback_driver.dart
+│   └── playback_source_port.dart
 ├── infrastructure/
-│   └── just_audio_player_adapter.dart
+│   ├── audio_service_handler_adapter.dart
+│   ├── audio_session_adapter.dart
+│   ├── just_audio_player_adapter.dart
+│   └── library_playback_source_adapter.dart
 └── presentation/
-    ├── playback_bar.dart
+    ├── global_playback_bar.dart
     └── sentence_play_button.dart
 ```
 
-播放器插件类型只出现在 infrastructure。`playback_controller` 持有单一会话状态和 session token；Widget 订阅不可变的 view state，不直接调用 `seek`、`setClip` 或监听插件事件。
+播放器、`audio_service` 和 `audio_session` 类型只出现在 infrastructure。现有 `playback_controller` 直接深化为深模块的唯一协调器，不再新增第二个有状态协调类；它持有单一会话状态、session token、打断恢复意图和 source lease。Widget 与系统媒体适配器订阅同一不可变 snapshot，不直接调用 `seek`、`setClip` 或监听插件事件。系统 handler 只做协议翻译，不拥有第二套播放状态机。
 
 ### 6.5 移动数据所有权
 
@@ -558,7 +566,7 @@ features/playback/
 | `vocabulary` | 生词、选定义项、文章/修订/句子引用和上下文快照 |
 | `preferences` | 全局及文章级阅读设置 |
 | `dictionary` | 词典 manifest；独立词典 SQLite 只读文件不并入 `app.db` 迁移 |
-| `playback` | 不持久化插件状态；MVP 不保存播放进度 |
+| `playback` | 不持久化插件状态或播放进度；进程内持有活动 `ArticleRef`、状态和制品租约，停止/完成/错误时释放 |
 
 Drift 数据库定义和迁移入口集中在 `platform/database`，各 feature 通过所属 DAO/repository 访问自己的表。导入事务需要同时写多组文章表时，由 `library` 暴露一个原子安装用例；`importer` 负责流程与恢复日志，不拥有文章内容表。
 
@@ -700,9 +708,10 @@ apps/mobile/integration_test/
 ```
 
 - feature 单元测试覆盖 URL 策略、版本比较、导入状态机、播放 session token、词典查询顺序和生词快照；
+- 播放测试还要覆盖 UI/系统命令汇流、打断恢复、输出断开、driver 错误、媒体状态投影和旧制品租约；
 - Widget 测试覆盖三种译文模式、错误态、删除确认和排版设置；
 - 根契约 fixtures 不复制出另一套可手工修改的样本；测试通过仓库相对测试配置或构建步骤读取它们；
-- 音频 seek、Android 权限和选词菜单必须在代表设备上运行集成/人工测试，不能只以 Dart 单元测试替代。
+- 音频 seek、Android 权限、息屏/后台 Service、通知/锁屏/媒体键、音频路由和选词菜单必须在代表设备上运行集成/人工测试，不能只以 Dart 单元测试替代。
 
 ### 9.3 跨端验收
 
@@ -748,7 +757,7 @@ apps/mobile/integration_test/
 
 1. **工程骨架**：建立 `apps/pc`、`apps/mobile`、`contracts` 和基础质量检查；PC 与 Flutter 均可在没有 `.tts` 时安装、测试和构建。
 2. **G1 协议切片**：先完成 `contracts`、PC `packaging/publishing` 的固定制品能力，以及移动 `connection/catalog/importer/library/reader` 的最小闭环。
-3. **G2 移动高风险交互**：完成 `playback`、`dictionary` 查询接口原型、阅读选词和代表设备验证；暂不构建完整词典数据。
+3. **G2 移动高风险交互**：完成 `playback` 深模块、后台媒体适配器、制品租约、`dictionary` 查询接口原型、阅读选词和代表设备验证；暂不构建完整词典数据。
 4. **G3 生产流水线**：依次完成 PC `content`、`production`、`translation`、`speech`、`audio` 和对应管理页面，以固定端口 fake 保持每一步可测试。
 5. **G4 词典与生词**：在授权和资源格式冻结后完成 `tools/dictionary_builder`、移动 `dictionary/vocabulary/attribution`。
 6. **G5 发布演练**：补齐跨端失败注入、恶意包、长文、许可归属、无 `.tts` 构建和全链路验收。
@@ -763,6 +772,7 @@ apps/mobile/integration_test/
 - 发布端只读且与管理路由物理分离；
 - PC 和移动端只通过版本化 catalog/readpack 契约通信；
 - 模型、词典、HTTP、ZIP、数据库和播放器都在适配器边界后；
+- 阅读器、通知、锁屏和耳机命令只能进入同一个播放协调器，Activity 生命周期不拥有活跃播放会话；
 - 已发布制品、文章修订、声音配置修订和移动正式文章目录不可原地修改；
 - 大文件留在受控文件系统，SQLite 只保存元数据、索引和状态；
 - `.tts`、本机 workspace、模型目录和用户内容都不属于源码树。
@@ -775,7 +785,7 @@ apps/mobile/integration_test/
 - 单 Worker 改为并行 Worker，或 SQLite 改为服务型数据库；
 - 发布面从受信任 LAN 扩展到公网、鉴权或多用户；
 - readpack 主版本、必需文件、ID 规则或签名模型变化；
-- 移动端引入后台播放、跨设备同步或 iOS 正式验收；
+- 移动播放引入跨进程/重启恢复、跨设备同步或 iOS 正式验收；
 - 更换 MVP 固定翻译/TTS 模型或改变完整上下文质量策略；
 - 词典从独立资源变成文章包必需依赖。
 
@@ -786,6 +796,7 @@ apps/mobile/integration_test/
 - 任一 PC 业务模块可在不启动 FastAPI、Worker 或真实模型的情况下运行领域/应用单元测试；
 - 发布应用的导入图中不存在管理 routes、模型调用和文章写入用例；
 - Flutter feature 的 presentation 不导入 Drift table、HTTP/ZIP 或具体播放器类型；
+- Flutter UI 与系统媒体适配器观察同一个 playback snapshot，息屏/后台实机验收无双会话或僵尸通知；
 - PC 和 Flutter 对根 `contracts` 中相同的合法/非法样本给出一致结论；
 - 删除或临时移走 `.tts` 后，源码导入、安装、测试和构建不受影响；
 - 仓库构建产物不包含运行数据库、用户文章、生成音频、模型权重、API Key 或正式词典资源。

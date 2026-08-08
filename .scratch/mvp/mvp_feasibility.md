@@ -1,9 +1,9 @@
 # Engirdle MVP 合理性与可行性评估
 
-> 评估结论：有条件可行  
-> 评估日期：2026-08-07  
-> 产品方向：[产品目的](../purpose.md)  
-> 评估对象：[MVP PRD](./mvp_prd.md) · [MVP 设计](./mvp_design.md)  
+> 评估结论：有条件可行<br>
+> 评估日期：2026-08-08<br>
+> 产品方向：[产品目的](../purpose.md)<br>
+> 评估对象：[MVP PRD](./mvp_prd.md) · [MVP 设计](./mvp_design.md) · [移动后台播放设计](./mobile_background_audio_design.md)<br>
 > 注意：许可证分析仅用于工程决策，不构成法律意见
 
 ## 1. 结论摘要
@@ -16,7 +16,7 @@
 
 1. 登记实际 PC 硬件，验证 Qwen3-TTS CustomVoice/Base 串行加载与 Base 逐句生成；
 2. 用 DeepSeek API 验证“完整原文首轮 + 完整历史顺序逐段翻译”的质量、故障恢复和用量；
-3. 在目标 Android 设备验证 M4A 句级区间播放；
+3. 在目标 Android 设备验证 M4A 句级区间、息屏/后台前台 Service、系统媒体控制和音频打断；
 4. 验证 Flutter 单句内选词和自定义菜单；
 5. 确定词典数据源、体积、归属和再分发方式；
 6. 用黄金包锁定 readpack v1 schema 和导入安全规则；
@@ -76,6 +76,7 @@
 | 文本结构化/DeepSeek 翻译 | 中高 | 官方 API 支持长上下文、多轮 Chat Completions 和 JSON 输出 | 依赖网络/API Key；必须完整重放历史并严格拒绝错误 ID |
 | Qwen3-TTS 生产 | 中 | 本地已有 1.7B CustomVoice/Base 检查点与参考实验 | 性能依赖实际硬件；锚点质量、clone 一致性和部署目录需验证 |
 | 音频句级定位 | 中 | 单文件裁剪有现成播放器能力 | 必须验证 AAC 编码、seek 和设备解码差异 |
+| Android 息屏/后台播放 | 中高 | 平台有标准 media playback 前台 Service/MediaSession，Flutter 有维护中的适配器 | 必须在目标 SDK 和真机验证生命周期、焦点、路由、通知及厂商电池策略 |
 | Android 阅读器 | 中高 | 结构化文本、SQLite 和本地文件能力成熟 | 长文章布局和多个交互手势需原型 |
 | Flutter 选词菜单 | 中 | 框架支持自定义选择菜单 | 句子粒度、多版本 Android 和中文/英文边界需实测 |
 | 安全导入与升级 | 中高 | ZIP 防护、事务和不可变目录模式成熟 | 文件系统与 SQLite 的恢复协议要做故障注入 |
@@ -91,6 +92,8 @@
 
 - Flutter 官方文档提供 `contextMenuBuilder` 一类可组合的文本选择菜单能力，因此“选择文本后增加查词入口”在框架能力上成立；具体句子布局仍需原型。[Flutter 文本选择菜单说明](https://docs.flutter.dev/release/breaking-changes/context-menus)
 - `just_audio` 当前 API 提供本地音频裁剪，项目文档也建议在需要定位时使用带准确 seek table 的 M4A；这支持当前候选设计，但不能替代 Android 实机听感测试。[ClippingAudioSource API](https://pub.dev/documentation/just_audio/latest/just_audio/ClippingAudioSource-class.html) · [just_audio 格式与 seek 说明](https://pub.dev/packages/just_audio)
+- Android 官方建议把后台播放的播放器和媒体会话放入独立 media playback Service；目标 API 34+ 需要声明前台 Service 及 media playback 类型权限。`audio_service` 可以把现有音频代码封装为统一 `AudioHandler`，并把同一状态提供给 Flutter UI 与系统媒体客户端，因此技术路径成立，但 manifest、生命周期和真机行为仍需验证。[Android 后台播放](https://developer.android.com/media/media3/session/background-playback) · [Android 前台 Service 类型](https://developer.android.com/develop/background-work/services/fgs/service-types) · [audio_service](https://pub.dev/packages/audio_service)
+- Android 13 的媒体会话通知属于通知运行时权限豁免；Android 15+ 对音频焦点增加“顶层应用或前台 Service”条件。MVP 由可见阅读器启动，并用 media playback 前台 Service 承载活跃会话，不从开机或任意后台逻辑冷启动播放。[通知权限豁免](https://developer.android.com/develop/ui/views/notifications/notification-permission) · [音频焦点](https://developer.android.com/media/optimize/audio-focus)
 - Android 9 起明文流量默认受限，当前 Android 文档还要求关注局域网访问权限演进，因此简单保存 `http://IP:port` 不能视为零配置能力。[Android 明文通信说明](https://developer.android.com/privacy-and-security/risks/cleartext-communications) · [Android 局域网权限说明](https://developer.android.com/privacy-and-security/local-network-permission)
 - Apple 平台也要求本地网络用途说明，并对本地地址的 ATS 行为有专门配置；这进一步支持“不把 iOS 自动算入 Android MVP”的范围决策。[Apple 本地网络隐私](https://developer.apple.com/documentation/technotes/tn3179-understanding-local-network-privacy) · [NSAllowsLocalNetworking](https://developer.apple.com/documentation/bundleresources/information-property-list/nsapptransportsecurity/nsallowslocalnetworking)
 - DeepSeek 官方文档列出的模型 ID 是 `deepseek-v4-flash`，当前提供 1M 上下文与 JSON 输出；这支持“不为普通文章做滑窗”的 MVP 假设，但实现仍须对服务端超限明确失败。[DeepSeek 模型说明](https://api-docs.deepseek.com/quick_start/pricing/) · [Chat Completion API](https://api-docs.deepseek.com/api/create-chat-completion)
@@ -107,6 +110,7 @@
 | R-TTS-01 | 两个 Qwen3-TTS 1.7B 检查点在实际 PC 上过慢、依赖冲突或显存不足 | 中 | 高 | 串行加载 CustomVoice/Base，记录 dtype、attention、实时因子和峰值资源 | 精确版本可重复安装；CustomVoice 制作锚点和 Base 代表文章生成均完成 |
 | R-TTS-02 | CustomVoice 锚点风格满意，但 Base 克隆后句间音色、韵律或内容不稳定 | 中 | 高 | 固定英文锚点 transcript、保存参数/seed、复用同一完整 clone prompt并盲听长文 | 代表文章无阻断性漏词/截断，句间一致性达到个人使用可接受水平 |
 | R-AUD-01 | AAC 编码或平台 seek 导致句首/句末偏移 | 中 | 高 | 生成边界测试音频，在目标设备随机播放短句、长句和相邻句 | 人工验收无明显截断或相邻语音泄漏；否则冻结协议前调整布局 |
+| R-BGAUD-01 | Activity、前台媒体 Service、系统控制、音频焦点与文件清理产生多状态源，或 Android 12+ 后台暂停后无法恢复 | 中 | 高 | 单一 `PlaybackController` 协调器、系统适配器、session token、制品租约，以及 API 31/35/36 暂停恢复和生命周期/Doze/路由真机矩阵 | 息屏与切换应用长播、后台暂停恢复通过；通知/UI 一致；升级删除无活动文件竞态；完成/错误无僵尸通知 |
 | R-SEL-01 | Flutter 多句富文本与系统选择菜单冲突 | 中 | 中高 | 实现一屏长文原型，覆盖单词、短语、标点和滚动后选择 | 目标 Android 版本可稳定在单句内选择并打开查词 |
 | R-DICT-01 | 词典体积、查询质量或授权无法接受 | 高 | 高 | 为每个字段建立来源台账，构建精简样本并检查常见词/短语 | 最终数据源、版本、归属和分发规则书面锁定 |
 | R-TRN-01 | DeepSeek 合并、漏掉或错误匹配句子 | 中 | 中高 | 完整文章上下文、严格 schema/ID 集合校验、失败段落重试和人工审阅 | 测试集无静默错配，任何不一致均阻止发布 |
@@ -138,8 +142,8 @@
 ### G2：移动高风险交互
 
 输入：长文章和有清晰边界提示音的测试音频。  
-产出：Flutter 选词菜单原型、单句/连续播放原型、目标设备结果记录。  
-通过条件：单句内选词稳定；随机句播放无明显截断或串句；状态切换无双播放器竞态。
+产出：Flutter 选词菜单原型、单句/连续播放与后台媒体原型、目标设备结果记录。<br>
+通过条件：单句内选词稳定；随机句播放无明显截断或串句；息屏、切换应用和移除 Activity 后活跃播放符合 PRD；通知/锁屏/耳机/打断状态一致；文章更新或删除无活动制品竞态。
 
 ### G3：生产端模型基准
 
@@ -171,6 +175,7 @@
 - `.tts` 整体忽略并排除于构建；实际模型放入应用管理的本地运行目录。
 - 管理 UI 仅本机开放，局域网服务默认关闭且只读。
 - 词典独立安装，生词保存上下文和释义快照。
+- Android 后台播放采用单一协调器 + 系统媒体适配器；不以 Activity 生命周期控制活跃音频，不做跨进程/重启续播。
 
 ### 7.2 现在不应确定
 
@@ -184,6 +189,6 @@
 
 ## 8. 最终判断
 
-在 Android 首发、受信任局域网、单用户和分阶段交付的约束下，方案在产品和工程上都合理，技术可行性为中高。DeepSeek 的长上下文能力和本地 Qwen3-TTS 参考资产使指定流程具备实现基础；主要不确定性集中在 API 会话质量/用量、Base 对人工锚点的复现、实际硬件表现、压缩音频边界、Flutter 选择交互以及词典数据治理。
+在 Android 首发、受信任局域网、单用户和分阶段交付的约束下，方案在产品和工程上都合理，技术可行性为中高。DeepSeek 的长上下文能力和本地 Qwen3-TTS 参考资产使指定流程具备实现基础；主要不确定性集中在 API 会话质量/用量、Base 对人工锚点的复现、实际硬件表现、压缩音频边界、Android 后台媒体生命周期、Flutter 选择交互以及词典数据治理。
 
 建议将 G0–G3 视为是否继续完整 MVP 的决策点。若四项通过，跨端架构、DeepSeek 会话和 Qwen3-TTS 生产链路的返工风险已显著下降；若任一失败，应在包 v1 和移动数据模型冻结前调整部署参数或范围，但不得静默违反已确定的质量策略。词典授权 G4 则是任何超出纯个人本地使用范围之前的硬性门槛。
