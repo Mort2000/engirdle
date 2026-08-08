@@ -34,6 +34,7 @@ class LibraryService {
       _dirs
           .articleDir(articleId, article.revision, article.artifactRevision)
           .path,
+      'audio',
       'article.m4a',
     ));
     return InstalledContent(

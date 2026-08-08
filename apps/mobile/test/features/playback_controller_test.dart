@@ -64,6 +64,23 @@ void main() {
       expect(controller.state.value.status, PlaybackStatus.idle);
     });
 
+    // Regression: the real JustAudioEngine resolves each command future at
+    // issue time and reports completion as a separate event. If a change ever
+    // couples them again, the bar would stay "playing" after a clip ends.
+    test('each sentence played to its natural end returns to idle', () async {
+      await controller.playSentence('s1');
+      expect(controller.state.value.status, PlaybackStatus.playing);
+      engine.emitCompletion();
+      await pumpEventQueue();
+      expect(controller.state.value.status, PlaybackStatus.idle);
+
+      await controller.playSentence('s2');
+      expect(controller.state.value.status, PlaybackStatus.playing);
+      engine.emitCompletion();
+      await pumpEventQueue();
+      expect(controller.state.value.status, PlaybackStatus.idle);
+    });
+
     test('a stale clip completion cannot idle an in-flight command', () async {
       await controller.playSentence('s1'); // settles
       engine.autoComplete = false;
@@ -148,6 +165,12 @@ class FakePlaybackEngine implements PlaybackEngine {
     required Duration start,
     required Duration end,
   }) {
+    // Mirrors the real engine contract (see JustAudioEngine): this future
+    // resolves once the play request is *issued*, NOT when playback reaches
+    // the end — natural completion is a separate event via [emitCompletion].
+    // Do NOT couple them here (e.g. resolve only on completion); that would
+    // stop modeling the real adapter and silently reintroduce the
+    // "control bar never returns to idle" bug.
     final error = playClipError;
     if (error != null) return Future.error(error);
     if (autoComplete) return Future.value();
@@ -158,6 +181,7 @@ class FakePlaybackEngine implements PlaybackEngine {
 
   @override
   Future<void> playFrom({required String filePath, required Duration start}) {
+    // Same issue-time contract as [playClip]; completion is separate.
     if (autoComplete) return Future.value();
     final completer = Completer<void>();
     pendingPlayFroms.add(completer);

@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/foundation.dart';
 
+import '../../../platform/logging/app_logger.dart';
 import '../domain/playback_models.dart';
 import 'playback_engine.dart';
 
@@ -12,18 +13,24 @@ import 'playback_engine.dart';
 /// token so stale async events can never stop a newer session.
 ///
 /// Token protocol: `_token` identifies the latest command, `_settledToken`
-/// the latest command whose engine call has already returned. The engine
-/// futures complete once playback *starts* (just_audio's play() resolves
-/// when the platform acknowledges the play request, not at clip end), so a
-/// completion event arriving while `_settledToken != _token` can only belong
-/// to the superseded clip and must be ignored.
+/// the latest command whose engine call has already returned. The engine's
+/// play futures resolve once the play request has been *issued* — the
+/// `PlaybackEngine` contract guarantees this (just_audio's own `play()` future
+/// actually resolves at playback end, so `JustAudioEngine` does not await it),
+/// so a completion event arriving while `_settledToken != _token` can only
+/// belong to the superseded clip and must be ignored.
 class PlaybackController {
-  PlaybackController({required PlaybackEngine engine}) : _engine = engine {
+  PlaybackController({
+    required PlaybackEngine engine,
+    AppLogger? logger,
+  })  : _engine = engine,
+        _logger = logger ?? const AppLogger('playback') {
     _positionSub = _engine.positionStream.listen(_onPosition);
     _completionSub = _engine.completionStream.listen((_) => _onCompleted());
   }
 
   final PlaybackEngine _engine;
+  final AppLogger _logger;
 
   final ValueNotifier<PlaybackViewState> state = ValueNotifier(
     const PlaybackViewState.idle(),
@@ -79,11 +86,12 @@ class PlaybackController {
         end: range.end,
       );
       if (token == _token) _settledToken = token;
-    } catch (_) {
+    } on Object catch (error) {
       // Callers fire-and-forget (sheet callbacks are not awaited), so the
       // error must not escape; a superseded command's failure is expected
       // noise from the replaced session and is dropped silently.
       if (token == _token) {
+        _logger.error('playback.play_sentence_failed', {'error': '$error'});
         state.value = const PlaybackViewState.idle();
         unawaited(_engine.stop());
       }
@@ -110,10 +118,11 @@ class PlaybackController {
     try {
       await _engine.playFrom(filePath: filePath, start: range.start);
       if (token == _token) _settledToken = token;
-    } catch (_) {
+    } on Object catch (error) {
       // Same contract as playSentence: never rethrow, only the live command
       // resets the session on failure.
       if (token == _token) {
+        _logger.error('playback.play_continuous_failed', {'error': '$error'});
         state.value = const PlaybackViewState.idle();
         unawaited(_engine.stop());
       }

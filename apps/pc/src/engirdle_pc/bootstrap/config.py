@@ -24,7 +24,7 @@ class Settings(BaseSettings):
 
     workspace: Path = Field(default=Path.home() / ".local" / "share" / "engirdle")
     contracts_dir: Path = Field(default_factory=_default_contracts_dir)
-    management_host: str = "127.0.0.1"
+    management_host: str = "0.0.0.0"
     management_port: int = 8765
     publisher_host: str = "0.0.0.0"
     publisher_port: int = 8766
@@ -48,13 +48,6 @@ class Settings(BaseSettings):
     speech_seed: int = 0
     speech_max_new_tokens: int = 2048
     speech_anchor_candidates: int = 3
-
-    @field_validator("management_host")
-    @classmethod
-    def management_must_be_loopback(cls, value: str) -> str:
-        if value not in {"127.0.0.1", "::1", "localhost"}:
-            raise ValueError("management_host must be a loopback address")
-        return value
 
     @property
     def database_path(self) -> Path:

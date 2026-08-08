@@ -108,6 +108,10 @@ void main() {
     expect(content.blocks, isNotEmpty);
     expect(content.sentences, isNotEmpty);
 
+    // The audio path handed to playback must resolve to the real file
+    // (readpack layout puts it under audio/, not the artifact root).
+    expect(File(content.audioFilePath).existsSync(), isTrue);
+
     // The immutable artifact directory holds exactly the four v1 files.
     final artifactDir = library.artifactDirectory(ref);
     final artifactFiles = <String>[];
