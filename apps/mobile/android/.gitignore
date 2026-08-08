@@ -1,0 +1,12 @@
+# Gradle wrapper（gradlew/gradlew.bat/gradle-wrapper.jar）已提交以保证开箱即构建，不再忽略。
+/.gradle
+/captures/
+/local.properties
+GeneratedPluginRegistrant.java
+.cxx/
+
+# Remember to never publicly share your keystore.
+# See https://flutter.dev/to/reference-keystore
+key.properties
+**/*.keystore
+**/*.jks

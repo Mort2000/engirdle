@@ -53,16 +53,17 @@ lib/
 
 ## 运行
 
-需要 Flutter 3.44+（Dart 3.12+）与 Android SDK/设备。本仓库不提交 Flutter SDK 与构建产物。
+需要 Flutter 3.44+（Dart 3.12+）、Android SDK 与 JDK（Android Studio 自带 JBR 即可，如 `JAVA_HOME=~/.local/android-studio/jbr`）。本仓库不提交 Flutter SDK 与构建产物；Gradle wrapper 已提交，开箱即构建。
 
 ```bash
 flutter pub get
 flutter analyze
 flutter test                 # 单元 + 契约 fixtures + widget 冒烟
 flutter run                  # 连接 Android 设备/模拟器
+flutter build apk --debug    # 或直接 cd android && ./gradlew assembleDebug
 ```
 
-`android/` 未提交 Gradle wrapper；首次构建前在 `apps/mobile` 执行一次 `flutter create . --platforms android` 补齐 wrapper 即可（不会覆盖已提交的 `android/app` 内容）。
+注意：`android/gradle.properties` 将 Gradle/Kotlin 守护进程内存限制在小内存机器可用的预算内（默认 `-Xmx8G` 会在 8 GB 内存的 WSL 上引发 swap 风暴）。
 
 ## 测试
 
