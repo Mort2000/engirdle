@@ -15,14 +15,14 @@ class PlaybackBar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return ValueListenableBuilder<PlaybackViewState>(
+    return ValueListenableBuilder<PlaybackSnapshot>(
       valueListenable: controller.state,
       builder: (context, state, _) {
-        if (state.status == PlaybackStatus.idle) {
+        if (state.phase == PlaybackPhase.idle) {
           return const SizedBox.shrink();
         }
         final theme = Theme.of(context);
-        final playing = state.status == PlaybackStatus.playing;
+        final playing = state.phase == PlaybackPhase.playing;
         final (title, subtitle) = _labels(state);
         return Container(
           decoration: BoxDecoration(
@@ -71,12 +71,12 @@ class PlaybackBar extends StatelessWidget {
     );
   }
 
-  (String, String) _labels(PlaybackViewState state) {
+  (String, String) _labels(PlaybackSnapshot state) {
     switch (state.mode) {
       case PlaybackMode.sentence:
         return (
           '单句播放 · ${state.currentLabel ?? ''}',
-          '${_clock(state.position)} / ${_clock(state.clipLength)} · 句末自动停止',
+          '${_clock(state.position)} / ${_clock(state.playableDuration)} · 句末自动停止',
         );
       case PlaybackMode.continuous:
         return (

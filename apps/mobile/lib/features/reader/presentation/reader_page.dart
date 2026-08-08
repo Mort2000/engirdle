@@ -2,7 +2,6 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 
-import '../../../app/dependencies.dart';
 import '../../../app/format.dart';
 import '../../../app/router.dart';
 import '../../../app/scope.dart';
@@ -11,7 +10,6 @@ import '../../../shared_kernel/content_identity.dart';
 import '../../dictionary/presentation/dictionary_sheet.dart';
 import '../../library/domain/installed_article.dart';
 import '../../playback/domain/playback_models.dart';
-import '../../playback/presentation/playback_bar.dart';
 import 'sentence_view.dart';
 import 'sheets.dart';
 
@@ -30,14 +28,10 @@ class ReaderPage extends StatefulWidget {
   State<ReaderPage> createState() => _ReaderPageState();
 }
 
-class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
+class _ReaderPageState extends State<ReaderPage> {
   InstalledContent? _content;
   ReadingMode _mode = ReadingMode.enOnly;
   StreamSubscription<PlaybackEvent>? _playbackEvents;
-
-  /// Cached in didChangeDependencies: ancestor lookup via [AppScope.of] is
-  /// unsafe from dispose() (deactivate has already run by then).
-  late AppDependencies _deps;
 
   /// sentenceId → 「第 X 段第 Y 句」 display label.
   Map<String, String> _labels = const {};
@@ -55,16 +49,9 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
   final Map<String, GlobalKey<SentenceViewState>> _viewKeys = {};
 
   @override
-  void initState() {
-    super.initState();
-    WidgetsBinding.instance.addObserver(this);
-  }
-
-  @override
   void didChangeDependencies() {
     super.didChangeDependencies();
     final deps = AppScope.of(context);
-    _deps = deps;
     if (_content != null) return;
     final content = deps.library.getContent(widget.articleId);
     if (content == null) {
@@ -77,59 +64,45 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
     }
     _content = content;
     _mode = deps.library.readingMode(widget.articleId);
-    _labels = _computeLabels(content);
+    _labels = content.sentenceLabels;
     for (final sentence in content.sentences) {
       _viewKeys[sentence.sentenceId] = GlobalKey<SentenceViewState>();
     }
-    deps.playback.attachArticle(content.audioFilePath, [
-      for (final sentence in content.sentences)
-        if (sentence.hasAudio)
-          SentenceAudioRange(
-            sentenceId: sentence.sentenceId,
-            startMs: sentence.audioStartMs!,
-            endMs: sentence.audioEndMs!,
-            label: _labels[sentence.sentenceId] ?? '',
-          ),
-    ]);
+    // Background playback (design §6.1): leaving the reader no longer stops
+    // the session, and app backgrounding no longer pauses it. The page only
+    // subscribes to state for highlight and to surface one-shot events.
     _playbackEvents = deps.playback.events.listen((event) {
-      if (event is ContinuousSessionReplaced && mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(const SnackBar(content: Text('「从此开始朗读」已取代上一连续播放会话。')));
-      }
+      if (!mounted) return;
+      final message = switch (event) {
+        ContinuousSessionReplaced() => '「从此开始朗读」已取代上一连续播放会话。',
+        PlaybackFailed() => '播放失败，请稍后重试。',
+      };
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text(message)));
     });
   }
 
   @override
   void dispose() {
-    WidgetsBinding.instance.removeObserver(this);
     _playbackEvents?.cancel();
-    // No background playback in MVP: leaving the reader stops the session.
-    // Uses the cached dependencies — AppScope.of(context) would throw here.
-    unawaited(_deps.playback.stop());
     super.dispose();
-  }
-
-  @override
-  void didChangeAppLifecycleState(AppLifecycleState state) {
-    if (state != AppLifecycleState.resumed) {
-      AppScope.of(context).playback.pause();
-    }
-  }
-
-  static Map<String, String> _computeLabels(InstalledContent content) {
-    final labels = <String, String>{};
-    for (var b = 0; b < content.blocks.length; b++) {
-      final block = content.blocks[b];
-      for (var s = 0; s < block.sentences.length; s++) {
-        labels[block.sentences[s].sentenceId] = '第 ${b + 1} 段第 ${s + 1} 句';
-      }
-    }
-    return labels;
   }
 
   String _labelOf(InstalledSentence sentence) =>
       _labels[sentence.sentenceId] ?? '';
+
+  /// Starts playback from [sentence] in [mode]. The request carries the full
+  /// article identity currently displayed; the coordinator resolves the exact
+  /// artifact and pins it (design §4.2/§6.3). No lifecycle stop on leave.
+  void _startPlayback(InstalledSentence sentence, PlaybackMode mode) {
+    final content = _content;
+    if (content == null) return;
+    AppScope.of(context).playback.start(PlaybackRequest(
+      articleRef: content.article.ref,
+      sentenceId: sentence.sentenceId,
+      mode: mode,
+    ));
+  }
 
   // ---- Gestures (constraints §7.3, UX-A4) ----
 
@@ -144,7 +117,6 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
       _selectionViewKey = null;
       return;
     }
-    final deps = AppScope.of(context);
     showModalBottomSheet<void>(
       context: context,
       builder: (sheetContext) => SentenceMenuSheet(
@@ -156,18 +128,17 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
         },
         onPlaySentence: () {
           Navigator.of(sheetContext).pop();
-          deps.playback.playSentence(sentence.sentenceId);
+          _startPlayback(sentence, PlaybackMode.sentence);
         },
         onPlayContinuous: () {
           Navigator.of(sheetContext).pop();
-          deps.playback.playContinuousFrom(sentence.sentenceId);
+          _startPlayback(sentence, PlaybackMode.continuous);
         },
       ),
     );
   }
 
   void _showTranslation(InstalledSentence sentence) {
-    final deps = AppScope.of(context);
     showModalBottomSheet<void>(
       context: context,
       builder: (sheetContext) => SentenceTranslationSheet(
@@ -175,11 +146,11 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
         sentence: sentence,
         onPlaySentence: () {
           Navigator.of(sheetContext).pop();
-          deps.playback.playSentence(sentence.sentenceId);
+          _startPlayback(sentence, PlaybackMode.sentence);
         },
         onPlayContinuous: () {
           Navigator.of(sheetContext).pop();
-          deps.playback.playContinuousFrom(sentence.sentenceId);
+          _startPlayback(sentence, PlaybackMode.continuous);
         },
       ),
     );
@@ -312,10 +283,7 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
           ),
         ],
       ),
-      body: Column(
-        children: [
-          Expanded(
-            child: ValueListenableBuilder<PlaybackViewState>(
+      body: ValueListenableBuilder<PlaybackSnapshot>(
               valueListenable: deps.playback.state,
               builder: (context, playbackState, _) {
                 return ListView(
@@ -352,10 +320,6 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
                 );
               },
             ),
-          ),
-          PlaybackBar(controller: deps.playback),
-        ],
-      ),
     );
   }
 

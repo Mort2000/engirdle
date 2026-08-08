@@ -51,6 +51,20 @@ class InstalledContent {
   List<InstalledSentence> get sentences =>
       [for (final block in blocks) ...block.sentences];
 
+  /// sentenceId → 「第 X 段第 Y 句」 display label, computed from reading order
+  /// (opaque IDs are never parsed for display). Shared by the reader header and
+  /// the playback source adapter so the bar and the media notification agree.
+  Map<String, String> get sentenceLabels {
+    final labels = <String, String>{};
+    for (var b = 0; b < blocks.length; b++) {
+      final sentences = blocks[b].sentences;
+      for (var s = 0; s < sentences.length; s++) {
+        labels[sentences[s].sentenceId] = '第 ${b + 1} 段第 ${s + 1} 句';
+      }
+    }
+    return labels;
+  }
+
   /// Approximate English word count for the reader meta line.
   int get approximateWordCount {
     var count = 0;

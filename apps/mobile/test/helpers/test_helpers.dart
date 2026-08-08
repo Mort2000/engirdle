@@ -7,7 +7,8 @@ import 'package:engirdle_mobile/app/scope.dart';
 import 'package:engirdle_mobile/app/theme.dart';
 import 'package:engirdle_mobile/contracts/readpack_v1/manifest.dart';
 import 'package:engirdle_mobile/contracts/readpack_v1/readpack_validator.dart';
-import 'package:engirdle_mobile/features/playback/application/playback_engine.dart';
+import 'package:engirdle_mobile/features/playback/application/audio_focus_port.dart';
+import 'package:engirdle_mobile/features/playback/application/playback_driver.dart';
 import 'package:engirdle_mobile/platform/crypto/sha256.dart';
 import 'package:engirdle_mobile/platform/database/app_database.dart';
 import 'package:engirdle_mobile/platform/filesystem/app_directories.dart';
@@ -61,28 +62,20 @@ Future<ReadpackManifest> manifestOf(File zipFile) async {
   return ReadpackManifest.parse(jsonDecode(await out.readAsString()));
 }
 
-/// No-op playback engine for unit/widget tests (just_audio is unavailable
-/// under `flutter test`).
-class FakePlaybackEngine implements PlaybackEngine {
-  final _position = StreamController<Duration>.broadcast();
-  final _completion = StreamController<void>.broadcast();
-  int playClipCalls = 0;
-  int playFromCalls = 0;
-  int stopCalls = 0;
+/// No-op playback driver for unit/widget tests (just_audio is unavailable
+/// under `flutter test`). It never emits, so the coordinator stays idle.
+class FakePlaybackDriver implements PlaybackDriver {
+  final _events = StreamController<PlaybackDriverEvent>.broadcast();
 
   @override
   Future<void> playClip({
     required String filePath,
     required Duration start,
     required Duration end,
-  }) async {
-    playClipCalls++;
-  }
+  }) async {}
 
   @override
-  Future<void> playFrom({required String filePath, required Duration start}) async {
-    playFromCalls++;
-  }
+  Future<void> playFrom({required String filePath, required Duration start}) async {}
 
   @override
   Future<void> pause() async {}
@@ -91,31 +84,31 @@ class FakePlaybackEngine implements PlaybackEngine {
   Future<void> resume() async {}
 
   @override
-  Future<void> stop() async {
-    stopCalls++;
-  }
+  Future<void> stop() async {}
 
   @override
-  Stream<Duration> get positionStream => _position.stream;
+  Stream<PlaybackDriverEvent> get events => _events.stream;
 
   @override
-  Stream<void> get completionStream => _completion.stream;
+  Future<void> dispose() async => _events.close();
+}
 
+/// No-op focus port for widget tests (the real AudioSessionAdapter touches the
+/// platform). Emits nothing, so the coordinator never reacts to interruptions.
+class FakeAudioFocusPort implements AudioFocusPort {
   @override
-  Future<void> dispose() async {
-    await _position.close();
-    await _completion.close();
-  }
+  Stream<AudioFocusEvent> get events => const Stream<AudioFocusEvent>.empty();
 }
 
 /// Builds a full dependency graph on an in-memory database and a temp data
 /// directory. Disposal and temp cleanup are registered automatically.
-Future<AppDependencies> newTestDependencies({FakePlaybackEngine? engine}) async {
+Future<AppDependencies> newTestDependencies({PlaybackDriver? driver}) async {
   final temp = await Directory.systemTemp.createTemp('engirdle_test_');
   final deps = await AppDependencies.build(
     directories: AppDirectories(temp),
     database: AppDatabase.inMemory(),
-    engine: engine ?? FakePlaybackEngine(),
+    driver: driver ?? FakePlaybackDriver(),
+    focusPort: FakeAudioFocusPort(),
     httpClient: LanHttpClient(),
   );
   addTearDown(() async {

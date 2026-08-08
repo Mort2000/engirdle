@@ -7,6 +7,7 @@ import '../../../contracts/readpack_v1/manifest.dart';
 import '../../../platform/filesystem/app_directories.dart';
 import '../../../shared_kernel/content_identity.dart';
 import '../../../shared_kernel/failures.dart';
+import '../../playback/domain/lease_registry.dart';
 import '../domain/installed_article.dart';
 import '../infrastructure/library_dao.dart';
 
@@ -16,11 +17,18 @@ class LibraryService {
   LibraryService({
     required LibraryDao dao,
     required AppDirectories directories,
+    LeaseRegistry? playbackLeases,
   })  : _dao = dao,
-        _dirs = directories;
+        _dirs = directories,
+        _leases = playbackLeases;
 
   final LibraryDao _dao;
   final AppDirectories _dirs;
+
+  /// Last-resort guard so an upgrade cleanup or a delete cannot remove an
+  /// artifact a background playback session still holds (design §6.3). Null in
+  /// tests that don't care about playback.
+  final LeaseRegistry? _leases;
 
   List<InstalledArticle> listArticles() => _dao.listArticles();
 
@@ -82,7 +90,15 @@ class LibraryService {
 
   /// Deletes the article's DB rows and all on-disk artifacts.
   /// Vocabulary snapshots are untouched (design §3.1, screen 05).
+  ///
+  /// Refuses while a playback session holds the article's audio (design §6.3):
+  /// the caller stops the active session first, then deletes. The lease guard
+  /// is the last line of defense against a race between stop and delete.
   Future<void> deleteArticle(String articleId) async {
+    if (_leases?.isLeasedArticle(articleId) ?? false) {
+      throw const AppFailure(
+          FailureKind.player, 'article is currently playing; stop it first');
+    }
     try {
       _dao.deleteArticle(articleId);
     } catch (e) {
@@ -96,23 +112,35 @@ class LibraryService {
   }
 
   /// Removes artifact directories no longer referenced after an upgrade
-  /// (MOB-IMP-003). Never touches the current artifact or vocabulary.
+  /// (MOB-IMP-003). Never touches the current artifact, vocabulary, or an
+  /// artifact a background session still holds (design §6.3): a leased dir is
+  /// skipped and retried via [retryCleanup] once the lease drops.
   Future<void> cleanupOldArtifacts(ArticleRef current) async {
     final root = _dirs.articleRootDir(current.articleId);
     if (!await root.exists()) return;
-    final currentPath =
-        artifactDirectory(current).path;
+    final currentPath = artifactDirectory(current).path;
     await for (final revisionDir in root.list()) {
       if (revisionDir is! Directory) continue;
       await for (final artifactDir in revisionDir.list()) {
-        if (artifactDir is Directory && artifactDir.path != currentPath) {
-          await artifactDir.delete(recursive: true);
-        }
+        if (artifactDir is! Directory) continue;
+        if (artifactDir.path == currentPath) continue;
+        if (_leases?.isLeasedWithin(artifactDir.path) ?? false) continue;
+        await artifactDir.delete(recursive: true);
       }
       // Remove emptied revision directories.
       if (await revisionDir.list().isEmpty) {
         await revisionDir.delete();
       }
+    }
+  }
+
+  /// Re-runs [cleanupOldArtifacts] for [ref] after a playback lease releases.
+  /// Best-effort: failures are swallowed (the next import/lease release retries).
+  Future<void> retryCleanup(ArticleRef ref) async {
+    try {
+      await cleanupOldArtifacts(ref);
+    } catch (_) {
+      // Swallowed: cleanup is idempotent and retried on the next opportunity.
     }
   }
 }

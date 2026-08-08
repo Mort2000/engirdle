@@ -8,9 +8,13 @@ import '../features/importer/application/import_service.dart';
 import '../features/importer/infrastructure/import_log_dao.dart';
 import '../features/library/application/library_service.dart';
 import '../features/library/infrastructure/library_dao.dart';
+import '../features/playback/application/audio_focus_port.dart';
 import '../features/playback/application/playback_controller.dart';
-import '../features/playback/application/playback_engine.dart';
-import '../features/playback/infrastructure/just_audio_engine.dart';
+import '../features/playback/application/playback_driver.dart';
+import '../features/playback/domain/lease_registry.dart';
+import '../features/playback/domain/playback_source_port.dart';
+import '../features/playback/infrastructure/just_audio_driver.dart';
+import '../features/playback/infrastructure/library_playback_source_adapter.dart';
 import '../features/preferences/application/preferences_service.dart';
 import '../features/preferences/infrastructure/preferences_dao.dart';
 import '../features/vocabulary/application/vocabulary_service.dart';
@@ -51,17 +55,25 @@ class AppDependencies {
   final PreferencesService preferences;
   final AttributionService attribution;
 
-  /// Builds the full graph. [engine] and [httpClient] are injectable for
-  /// tests; [openDatabase] lets tests use in-memory databases.
+  /// Builds the full graph. [driver], [sourcePort], [focusPort] and [httpClient]
+  /// are injectable for tests; [database] lets tests use in-memory databases.
+  /// [focusPort] is required because the real one (AudioSessionAdapter) touches
+  /// the platform and must not be constructed inside `flutter test`.
   static Future<AppDependencies> build({
     required AppDirectories directories,
     AppDatabase? database,
-    PlaybackEngine? engine,
+    PlaybackDriver? driver,
+    PlaybackSourcePort? sourcePort,
+    required AudioFocusPort focusPort,
     LanHttpClient? httpClient,
   }) async {
     await directories.ensureBaseLayout();
     final db = database ?? AppDatabase.open(directories.databaseFile.path);
     final http = httpClient ?? LanHttpClient();
+
+    // Shared in-process lease registry: pins the active session's audio so
+    // upgrade cleanup and delete cannot remove a file the player still reads.
+    final leaseRegistry = LeaseRegistry();
 
     final serviceConfigDao = ServiceConfigDao(db.db);
     final libraryDao = LibraryDao(db.db);
@@ -74,7 +86,11 @@ class AppDependencies {
       dao: serviceConfigDao,
       httpClient: http,
     );
-    final library = LibraryService(dao: libraryDao, directories: directories);
+    final library = LibraryService(
+      dao: libraryDao,
+      directories: directories,
+      playbackLeases: leaseRegistry,
+    );
     final catalog = CatalogService(connection: connection, library: library);
     final importer = ImportService(
       logDao: importLogDao,
@@ -83,7 +99,15 @@ class AppDependencies {
       directories: directories,
       logger: const AppLogger('importer'),
     );
-    final playback = PlaybackController(engine: engine ?? JustAudioEngine());
+    final playback = PlaybackController(
+      driver: driver ?? JustAudioDriver(),
+      sourcePort: sourcePort ??
+          LibraryPlaybackSourceAdapter(
+            library: library,
+            registry: leaseRegistry,
+          ),
+      focusPort: focusPort,
+    );
     final dictionary = DictionaryService(manifestDao: dictionaryManifestDao);
     final vocabulary = VocabularyService(dao: vocabularyDao);
     final preferences = PreferencesService(dao: preferencesDao);
