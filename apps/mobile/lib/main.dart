@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:audio_service/audio_service.dart';
 import 'package:flutter/widgets.dart';
 import 'package:path_provider/path_provider.dart';
 
@@ -7,6 +8,7 @@ import 'app/app.dart';
 import 'app/dependencies.dart';
 import 'features/playback/application/audio_focus_port.dart';
 import 'features/playback/infrastructure/audio_session_adapter.dart';
+import 'features/playback/infrastructure/audio_service_handler_adapter.dart';
 import 'platform/filesystem/app_directories.dart';
 
 Future<void> main() async {
@@ -26,11 +28,30 @@ Future<void> main() async {
     directories: AppDirectories(supportDir),
     focusPort: focusPort,
   );
-  // Startup recovery: interrupted imports are completed or rolled back
-  // before any UI interaction (design §8.2).
   await dependencies.recoverImports();
+  // Register the foreground media Service / MediaSession and bind it to the
+  // coordinator (design §7.1). Best-effort: a failure must not block the app —
+  // playback still works without the system media service.
+  try {
+    final handler = await AudioService.init<EngirdleAudioHandler>(
+      builder: () => EngirdleAudioHandler(dependencies.playback),
+      config: _audioServiceConfig,
+    );
+    handler.bind();
+  } catch (_) {
+    // System media controls unavailable; local playback is unaffected.
+  }
   runApp(EngirdleApp(dependencies: dependencies));
 }
+
+const _audioServiceConfig = AudioServiceConfig(
+  androidNotificationChannelId: 'com.engirdle.mobile.playback',
+  androidNotificationChannelName: '朗读播放',
+  androidNotificationClickStartsActivity: true,
+  androidStopForegroundOnPause: true,
+  fastForwardInterval: Duration(seconds: 10),
+  rewindInterval: Duration(seconds: 10),
+);
 
 /// No-op focus port used only when the platform audio session cannot be
 /// configured at startup. It never emits, so the coordinator simply never
