@@ -58,6 +58,7 @@ class DictionaryService {
     CancelToken? cancelToken,
   }) async {
     final previous = currentResource();
+    final previousStatus = status.value.state;
     status.value = DictionaryStatus(
       DictionaryResourceState.installing,
       resource: previous,
@@ -75,24 +76,34 @@ class DictionaryService {
       );
       return resource;
     } on AppFailure catch (failure) {
-      final stillUsable = previous != null && File(previous.path).existsSync();
+      final stillUsable =
+          previous != null &&
+          previousStatus == DictionaryResourceState.available &&
+          File(previous.path).existsSync();
       status.value = DictionaryStatus(
         stillUsable
             ? DictionaryResourceState.available
+            : previous != null
+            ? DictionaryResourceState.corrupt
             : failure.kind == FailureKind.packageFormat
             ? DictionaryResourceState.incompatible
-            : DictionaryResourceState.corrupt,
-        resource: stillUsable ? previous : null,
+            : DictionaryResourceState.unavailable,
+        resource: previous,
         message: failure.message,
       );
       rethrow;
     } catch (error) {
-      final stillUsable = previous != null && File(previous.path).existsSync();
+      final stillUsable =
+          previous != null &&
+          previousStatus == DictionaryResourceState.available &&
+          File(previous.path).existsSync();
       status.value = DictionaryStatus(
         stillUsable
             ? DictionaryResourceState.available
+            : previous == null
+            ? DictionaryResourceState.unavailable
             : DictionaryResourceState.corrupt,
-        resource: stillUsable ? previous : null,
+        resource: previous,
         message: 'dictionary installation failed: $error',
       );
       rethrow;

@@ -131,6 +131,45 @@ void main() {
     },
   );
 
+  test('a failed first install remains unavailable', () async {
+    final temp = await Directory.systemTemp.createTemp(
+      'dictionary_first_install_failure_',
+    );
+    addTearDown(() async {
+      if (await temp.exists()) await temp.delete(recursive: true);
+    });
+    final dirs = AppDirectories(Directory(p.join(temp.path, 'app')));
+    await dirs.ensureBaseLayout();
+    final appDb = AppDatabase.inMemory();
+    addTearDown(appDb.close);
+    final service = DictionaryService(
+      manifestDao: DictionaryManifestDao(appDb.db),
+      directories: dirs,
+    );
+    addTearDown(service.dispose);
+    final package = await _buildPackage(temp, revision: 1);
+    final correct = await _descriptor(package, revision: 1);
+    final wrongHash = DictionaryPackageDescriptor(
+      dictionaryId: correct.dictionaryId,
+      revision: correct.revision,
+      formatVersion: correct.formatVersion,
+      schemaVersion: correct.schemaVersion,
+      displayName: correct.displayName,
+      sizeBytes: correct.sizeBytes,
+      sha256: '0' * 64,
+    );
+
+    await expectLater(
+      service.install(
+        LocalDictionaryPackageSource(descriptor: wrongHash, package: package),
+      ),
+      throwsA(isA<AppFailure>()),
+    );
+
+    expect(service.currentResource(), isNull);
+    expect(service.status.value.state, DictionaryResourceState.unavailable);
+  });
+
   test('an unknown package path is rejected before activation', () async {
     final temp = await Directory.systemTemp.createTemp(
       'dictionary_unknown_path_',
@@ -406,6 +445,42 @@ void main() {
     expect(service.currentResource()!.revision, 2);
     expect(service.lookup('mend'), isA<DictionaryLookupFound>());
   });
+
+  test(
+    'a corrupt installed database can be repaired from the same revision',
+    () async {
+      final temp = await Directory.systemTemp.createTemp(
+        'dictionary_same_revision_repair_',
+      );
+      addTearDown(() async {
+        if (await temp.exists()) await temp.delete(recursive: true);
+      });
+      final dirs = AppDirectories(Directory(p.join(temp.path, 'app')));
+      await dirs.ensureBaseLayout();
+      final appDb = AppDatabase.inMemory();
+      addTearDown(appDb.close);
+      final service = DictionaryService(
+        manifestDao: DictionaryManifestDao(appDb.db),
+        directories: dirs,
+      );
+      addTearDown(service.dispose);
+      final package = await _buildPackage(temp, revision: 1);
+      final descriptor = await _descriptor(package, revision: 1);
+      final installed = await service.install(
+        LocalDictionaryPackageSource(descriptor: descriptor, package: package),
+      );
+      await File(installed.path).writeAsBytes([1, 2, 3], flush: true);
+      expect(service.lookup('mend'), isA<DictionaryLookupResourceError>());
+      expect(service.status.value.state, DictionaryResourceState.corrupt);
+
+      await service.install(
+        LocalDictionaryPackageSource(descriptor: descriptor, package: package),
+      );
+
+      expect(service.status.value.state, DictionaryResourceState.available);
+      expect(service.lookup('mend'), isA<DictionaryLookupFound>());
+    },
+  );
 }
 
 Future<DictionaryPackageDescriptor> _descriptor(

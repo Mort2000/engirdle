@@ -20,7 +20,8 @@ import 'package:path/path.dart' as p;
 
 /// Repository-root contracts directory (tests run with CWD = apps/mobile).
 final contractsRoot = Directory(
-    p.normalize(p.join(Directory.current.path, '..', '..', 'contracts')));
+  p.normalize(p.join(Directory.current.path, '..', '..', 'contracts')),
+);
 
 File readpackFixture(String relative) =>
     File(p.join(contractsRoot.path, 'readpack', 'v1', 'fixtures', relative));
@@ -39,7 +40,10 @@ Future<ValidatedReadpack> extractAndValidate(File zipFile) async {
   final entries = await reader.preflight(zipFile);
   for (final entry in entries) {
     await reader.extractEntry(
-        zipFile, entry, File(p.join(temp.path, entry.path)));
+      zipFile,
+      entry,
+      File(p.join(temp.path, entry.path)),
+    );
   }
   final files = {
     for (final path in ReadpackValidator.requiredPaths)
@@ -75,7 +79,10 @@ class FakePlaybackDriver implements PlaybackDriver {
   }) async {}
 
   @override
-  Future<void> playFrom({required String filePath, required Duration start}) async {}
+  Future<void> playFrom({
+    required String filePath,
+    required Duration start,
+  }) async {}
 
   @override
   Future<void> pause() async {}
@@ -104,14 +111,17 @@ class FakeAudioFocusPort implements AudioFocusPort {
 
 /// Builds a full dependency graph on an in-memory database and a temp data
 /// directory. Disposal and temp cleanup are registered automatically.
-Future<AppDependencies> newTestDependencies({PlaybackDriver? driver}) async {
+Future<AppDependencies> newTestDependencies({
+  PlaybackDriver? driver,
+  LanHttpClient? httpClient,
+}) async {
   final temp = await Directory.systemTemp.createTemp('engirdle_test_');
   final deps = await AppDependencies.build(
     directories: AppDirectories(temp),
     database: AppDatabase.inMemory(),
     driver: driver ?? FakePlaybackDriver(),
     focusPort: FakeAudioFocusPort(),
-    httpClient: LanHttpClient(),
+    httpClient: httpClient ?? LanHttpClient(),
   );
   addTearDown(() async {
     await deps.dispose();

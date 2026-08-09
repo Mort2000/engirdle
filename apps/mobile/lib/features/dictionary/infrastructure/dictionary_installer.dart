@@ -57,6 +57,13 @@ class DictionaryInstaller {
     final staging = _directories.dictionaryStagingDir(newUuid());
     final package = File(p.join(staging.path, 'resource.dictpack'));
     var moved = false;
+    var closedBeforeActivation = false;
+    void closeBeforeActivation() {
+      if (closedBeforeActivation) return;
+      beforeActivate();
+      closedBeforeActivation = true;
+    }
+
     try {
       if (descriptor.sizeBytes > maxPackageBytes) {
         throw const AppFailure(
@@ -82,7 +89,7 @@ class DictionaryInstaller {
       final manifestJson = await manifestFile.readAsString();
       final manifest = DictionaryManifest.parse(jsonDecode(manifestJson));
       _matchDescriptor(manifest, descriptor);
-      _rejectDifferentInstalledRevision(descriptor);
+      final matchesInstalledArtifact = _validateInstalledRevision(descriptor);
       _validateLicenseSet(entries, manifest);
 
       for (final entry in entries) {
@@ -109,12 +116,21 @@ class DictionaryInstaller {
       );
       final finalDatabase = File(p.join(finalDirectory.path, 'dictionary.db'));
       if (await finalDirectory.exists()) {
-        if (!await finalDatabase.exists() ||
-            await sha256OfFile(finalDatabase) != manifest.databaseSha256) {
-          throw const AppFailure(
-            FailureKind.packageFormat,
-            'immutable dictionary revision already exists with different content',
-          );
+        final databaseMatches =
+            await finalDatabase.exists() &&
+            await sha256OfFile(finalDatabase) == manifest.databaseSha256;
+        if (!databaseMatches) {
+          if (!matchesInstalledArtifact) {
+            throw const AppFailure(
+              FailureKind.packageFormat,
+              'immutable dictionary revision already exists with different content',
+            );
+          }
+          // This exact package is already recorded, so replacing its damaged
+          // database is a repair. Android's POSIX rename atomically swaps the
+          // preflighted file into the path held by the active pointer.
+          closeBeforeActivation();
+          await database.rename(finalDatabase.path);
         }
       } else {
         await package.delete();
@@ -128,7 +144,7 @@ class DictionaryInstaller {
         packageSha256: descriptor.sha256,
         manifestJson: manifestJson,
       );
-      beforeActivate();
+      closeBeforeActivation();
       _manifestDao.activate(resource);
       await _cleanupInactive(resource);
       return resource;
@@ -299,20 +315,21 @@ class DictionaryInstaller {
     }
   }
 
-  void _rejectDifferentInstalledRevision(
-    DictionaryPackageDescriptor descriptor,
-  ) {
+  bool _validateInstalledRevision(DictionaryPackageDescriptor descriptor) {
     for (final installed in _manifestDao.installed()) {
       if (installed.dictionaryId == descriptor.dictionaryId &&
-          installed.revision == descriptor.revision &&
-          (installed.sizeBytes != descriptor.sizeBytes ||
-              installed.sha256 != descriptor.sha256)) {
-        throw const AppFailure(
-          FailureKind.packageFormat,
-          'immutable dictionary revision already has different package bytes',
-        );
+          installed.revision == descriptor.revision) {
+        if (installed.sizeBytes != descriptor.sizeBytes ||
+            installed.sha256 != descriptor.sha256) {
+          throw const AppFailure(
+            FailureKind.packageFormat,
+            'immutable dictionary revision already has different package bytes',
+          );
+        }
+        return true;
       }
     }
+    return false;
   }
 
   void _rejectDowngrade(DictionaryPackageDescriptor descriptor) {

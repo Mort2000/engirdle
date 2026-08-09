@@ -1,8 +1,11 @@
 import 'package:engirdle_mobile/app/app.dart';
 import 'package:engirdle_mobile/app/dependencies.dart';
+import 'package:engirdle_mobile/features/dictionary/domain/dictionary_models.dart';
 import 'package:engirdle_mobile/features/preferences/presentation/typography_settings_page.dart';
 import 'package:engirdle_mobile/features/dictionary/presentation/dictionary_resources_page.dart';
 import 'package:engirdle_mobile/features/vocabulary/presentation/vocab_book_page.dart';
+import 'package:engirdle_mobile/platform/http/lan_http_client.dart';
+import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'helpers/test_helpers.dart';
@@ -16,7 +19,7 @@ void main() {
   late AppDependencies deps;
 
   setUp(() async {
-    deps = await newTestDependencies();
+    deps = await newTestDependencies(httpClient: _CatalogHttpClient());
   });
 
   testWidgets('first run opens the bookshelf then routes to service setup', (
@@ -65,4 +68,72 @@ void main() {
       expect(find.text('检查可用资源'), findsOneWidget);
     },
   );
+
+  testWidgets('a corrupt dictionary can reinstall the same revision', (
+    tester,
+  ) async {
+    deps.connection.saveUrl('http://127.0.0.1:8080');
+    deps.dictionary.status.value = DictionaryStatus(
+      DictionaryResourceState.corrupt,
+      resource: _dictionaryResource,
+      message: 'dictionary query failed',
+    );
+    await tester.pumpWidget(
+      wrapTestWidget(deps, const DictionaryResourcesPage()),
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('损坏'), findsOneWidget);
+
+    await tester.tap(find.text('检查可用资源'));
+    await tester.pumpAndSettle();
+
+    final reinstall = tester.widget<FilledButton>(
+      find.widgetWithText(FilledButton, '重装'),
+    );
+    expect(reinstall.onPressed, isNotNull);
+  });
+}
+
+final _dictionaryResource = DictionaryResource(
+  dictionaryId: 'engirdle-en-zh',
+  revision: 1,
+  path: '/missing/dictionary.db',
+  sizeBytes: 1024,
+  sha256: '0' * 64,
+  databaseSizeBytes: 512,
+  databaseSha256: '1' * 64,
+  formatVersion: '1.0',
+  schemaVersion: 1,
+  displayName: 'Engirdle Offline Dictionary',
+  generatedAt: '2026-08-09T00:00:00Z',
+  builderName: 'test',
+  builderVersion: '1.0.0',
+  normalizationVersion: 'unicode-nfc-lower-v1',
+  sources: [],
+  modifications: [],
+  manifestJson: '{}',
+);
+
+class _CatalogHttpClient extends LanHttpClient {
+  @override
+  Future<Object> getJson(
+    Uri uri, {
+    int maxBytes = LanHttpClient.maxJsonBytes,
+  }) async => {
+    'catalog_version': 1,
+    'generated_at': '2026-08-09T00:00:00Z',
+    'packages': <Object>[],
+    'dictionaries': [
+      {
+        'dictionary_id': 'engirdle-en-zh',
+        'revision': 1,
+        'format_version': '1.0',
+        'schema_version': 1,
+        'display_name': 'Engirdle Offline Dictionary',
+        'size': 1024,
+        'sha256': '0' * 64,
+        'url': '/dictionaries/engirdle-en-zh-r1-test.dictpack',
+      },
+    ],
+  };
 }

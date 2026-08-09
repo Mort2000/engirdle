@@ -107,6 +107,7 @@ void main() {
       weird.close();
       manifestDao.activate(_legacyResource(weirdPath, revision: 2));
       expect(service.lookup('mend'), isA<DictionaryLookupResourceError>());
+      expect(service.status.value.state, DictionaryResourceState.corrupt);
     });
   });
 }

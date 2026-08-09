@@ -82,6 +82,25 @@ class _DictionaryResourcesPageState extends State<DictionaryResourcesPage> {
     }
   }
 
+  static bool _isSameRevisionRepair(
+    DictionaryStatus status,
+    DictionaryResource? resource,
+    CatalogDictionary candidate,
+  ) =>
+      status.state == DictionaryResourceState.corrupt &&
+      resource?.dictionaryId == candidate.dictionaryId &&
+      resource?.revision == candidate.revision;
+
+  static bool _canInstall(
+    DictionaryStatus status,
+    DictionaryResource? resource,
+    CatalogDictionary candidate,
+  ) =>
+      status.state != DictionaryResourceState.installing &&
+      (_isSameRevisionRepair(status, resource, candidate) ||
+          resource == null ||
+          candidate.revision > resource.revision);
+
   @override
   Widget build(BuildContext context) {
     final dictionary = AppScope.of(context).dictionary;
@@ -140,13 +159,16 @@ class _DictionaryResourcesPageState extends State<DictionaryResourcesPage> {
                       '${formatBytes(candidate.size)} · ${_short(candidate.sha256)}',
                     ),
                     trailing: FilledButton(
-                      onPressed:
-                          status.state == DictionaryResourceState.installing ||
-                              (resource != null &&
-                                  resource.revision >= candidate.revision)
-                          ? null
-                          : () => _install(candidate),
-                      child: Text(resource == null ? '安装' : '更新'),
+                      onPressed: _canInstall(status, resource, candidate)
+                          ? () => _install(candidate)
+                          : null,
+                      child: Text(
+                        _isSameRevisionRepair(status, resource, candidate)
+                            ? '重装'
+                            : resource == null
+                            ? '安装'
+                            : '更新',
+                      ),
                     ),
                   ),
                 ),

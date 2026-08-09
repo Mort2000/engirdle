@@ -25,6 +25,7 @@
 # Local Flutter SDK used for development verification, never committed.
 /.scratch/flutter/
 /.scratch/flutter_*.tar.xz
+/.scratch/dictsrc/
 
 # Flutter/Dart build outputs
 apps/mobile/.dart_tool/
