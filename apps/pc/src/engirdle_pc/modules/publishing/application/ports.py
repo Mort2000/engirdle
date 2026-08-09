@@ -48,6 +48,8 @@ class PublicationFileStore(Protocol):
 
     def dictionary_entries(self) -> tuple[CatalogDictionary, ...]: ...
 
+    def cleanup_legacy_dictionary_resources(self) -> None: ...
+
     def trash_article(
         self,
         article_id: str,

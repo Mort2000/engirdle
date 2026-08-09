@@ -25,3 +25,34 @@ class PublisherControl(Protocol):
     def start(self) -> PublisherStatus: ...
 
     def stop(self) -> PublisherStatus: ...
+
+
+class CatalogPreparation(Protocol):
+    def regenerate_catalog(self, *, content_changed: bool = False) -> object: ...
+
+
+class CatalogPreparingPublisherControl:
+    """Refreshes the public catalog before exposing it on the LAN."""
+
+    def __init__(
+        self,
+        catalog: CatalogPreparation,
+        delegate: PublisherControl,
+    ) -> None:
+        self._catalog = catalog
+        self._delegate = delegate
+        self._prepared = False
+
+    def status(self) -> PublisherStatus:
+        return self._delegate.status()
+
+    def start(self) -> PublisherStatus:
+        status = self._delegate.status()
+        if status.running and self._prepared:
+            return status
+        self._catalog.regenerate_catalog(content_changed=True)
+        self._prepared = True
+        return self._delegate.start()
+
+    def stop(self) -> PublisherStatus:
+        return self._delegate.stop()

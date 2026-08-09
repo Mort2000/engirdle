@@ -37,6 +37,7 @@ from engirdle_pc.modules.publishing.infrastructure.sqlalchemy_repository import 
 )
 from engirdle_pc.modules.publishing.infrastructure.validator import CatalogValidator
 from engirdle_pc.modules.publishing.public import (
+    CatalogPreparingPublisherControl,
     CatalogValidation,
     LocalLibraryService,
     PublisherControl,
@@ -198,13 +199,17 @@ class Container:
         )
         release = ReleaseService(production, packaging, publishing)
         publisher_queries = PublisherQueries(workspace)
-        publisher_process = PublisherProcessController(
+        process_controller = PublisherProcessController(
             settings.workspace,
             settings.publisher_host,
             settings.publisher_port,
             clock,
             identifiers,
             publisher_process_launcher,
+        )
+        publisher_process = CatalogPreparingPublisherControl(
+            publishing,
+            process_controller,
         )
         local_library = LocalLibraryService(
             publishing,

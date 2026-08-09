@@ -80,7 +80,7 @@ class PublishingService:
             # here leaves the old release current and the new file unstaged.
             catalog_version = self._repository.publish(package)
             self._prepare_catalog(catalog_version)
-            self._files.commit_catalog()
+            self._commit_catalog()
         except Exception:
             self._files.discard_prepared_catalog()
             self._repository.restore(
@@ -99,13 +99,17 @@ class PublishingService:
             else max(1, self._repository.catalog_version())
         )
         catalog = self._prepare_catalog(version)
-        self._files.commit_catalog()
+        self._commit_catalog()
         return catalog
 
     def unpublish(self, article_id: str) -> Catalog:
         catalog = self._prepare_catalog(self._repository.unpublish(article_id))
-        self._files.commit_catalog()
+        self._commit_catalog()
         return catalog
+
+    def _commit_catalog(self) -> None:
+        self._files.commit_catalog()
+        self._files.cleanup_legacy_dictionary_resources()
 
     def _prepare_catalog(self, catalog_version: int) -> Catalog:
         catalog = Catalog(

@@ -1,15 +1,41 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
+import re
 import shutil
 from pathlib import Path
+from zipfile import BadZipFile, ZipFile
+
+from pydantic import BaseModel, ConfigDict
 
 from engirdle_pc.modules.packaging.public import PackageArtifact
 from engirdle_pc.modules.publishing.application.contracts import Catalog, CatalogDictionary
 from engirdle_pc.modules.publishing.application.ports import CatalogValidation
 from engirdle_pc.shared.application.runtime import IdentifierGenerator
 from engirdle_pc.shared.infrastructure.workspace import Workspace
+
+LOGGER = logging.getLogger(__name__)
+
+
+class _DictionaryFormatMarker(BaseModel):
+    model_config = ConfigDict(extra="ignore", frozen=True, strict=True)
+
+    format_version: str
+    schema_version: int
+
+    @property
+    def is_legacy_v1(self) -> bool:
+        return self.schema_version == 1 and re.fullmatch(
+            r"1\.[0-9]+", self.format_version
+        ) is not None
+
+    @property
+    def is_supported_v2(self) -> bool:
+        return self.schema_version == 2 and re.fullmatch(
+            r"2\.[0-9]+", self.format_version
+        ) is not None
 
 
 class LocalPublicationFileStore:
@@ -61,8 +87,12 @@ class LocalPublicationFileStore:
         if not sidecar.is_file():
             return ()
         try:
-            entry = CatalogDictionary.model_validate_json(sidecar.read_text(encoding="utf-8"))
+            content = sidecar.read_text(encoding="utf-8")
+            entry = CatalogDictionary.model_validate_json(content)
+            marker = _DictionaryFormatMarker.model_validate_json(content)
         except (OSError, ValueError):
+            return ()
+        if not marker.is_supported_v2:
             return ()
         expected_prefix = "/dictionaries/"
         if not entry.url.startswith(expected_prefix):
@@ -71,6 +101,50 @@ class LocalPublicationFileStore:
         if "/" in name or not (self._workspace.public_dictionaries_dir / name).is_file():
             return ()
         return (entry,)
+
+    def cleanup_legacy_dictionary_resources(self) -> None:
+        sidecar = self._workspace.public_dir / "dictionary.json"
+        if self._legacy_sidecar(sidecar):
+            self._unlink_legacy_resource(sidecar)
+        dictionaries = self._workspace.public_dictionaries_dir
+        if not dictionaries.is_dir():
+            return
+        for package in dictionaries.glob("*.dictpack"):
+            if self._legacy_dictpack(package):
+                self._unlink_legacy_resource(package)
+
+    @staticmethod
+    def _legacy_sidecar(path: Path) -> bool:
+        try:
+            marker = _DictionaryFormatMarker.model_validate_json(
+                path.read_text(encoding="utf-8")
+            )
+        except (OSError, ValueError):
+            return False
+        return marker.is_legacy_v1
+
+    @staticmethod
+    def _legacy_dictpack(path: Path) -> bool:
+        try:
+            with ZipFile(path) as package:
+                marker = _DictionaryFormatMarker.model_validate_json(
+                    package.read("manifest.json")
+                )
+        except (BadZipFile, KeyError, OSError, ValueError):
+            return False
+        return marker.is_legacy_v1
+
+    @staticmethod
+    def _unlink_legacy_resource(path: Path) -> None:
+        try:
+            path.unlink(missing_ok=True)
+            LOGGER.info("Removed legacy dictionary resource", extra={"path": str(path)})
+        except OSError:
+            LOGGER.warning(
+                "Could not remove legacy dictionary resource",
+                extra={"path": str(path)},
+                exc_info=True,
+            )
 
     def trash_article(
         self,
