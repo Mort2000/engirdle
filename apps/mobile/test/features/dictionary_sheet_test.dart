@@ -16,42 +16,39 @@ void main() {
     final database = AppDatabase.inMemory();
     addTearDown(database.close);
     final vocabulary = VocabularyService(dao: VocabularyDao(database.db));
-
-    await tester.pumpWidget(
-      _wrap(
-        DictionarySheet(
-          selection: 'mend',
-          result: const DictionaryResult(
-            surface: 'mend',
-            normalized: 'mend',
-            senses: [
-              DictionarySense(
-                senseId: 'oewn-2025/mend-v-1',
-                headword: 'mend',
-                partOfSpeech: 'verb',
-                glossEn: 'to repair something',
-                translations: [
-                  DictionaryTranslation(
-                    sourceSenseId: 'omw-cmn:2.0/repair-1',
-                    rawLemma: '修理',
-                    displayLemma: '修理',
-                    sourceId: 'omw-cmn:2.0',
-                  ),
-                ],
-                sourceId: 'oewn-2025',
-                sourceName: 'Open English WordNet 2025',
+    DictionarySheet sheet() => DictionarySheet(
+      selection: 'mend',
+      result: const DictionaryResult(
+        surface: 'mend',
+        normalized: 'mend',
+        senses: [
+          DictionarySense(
+            senseId: 'oewn-2025/mend-v-1',
+            headword: 'mend',
+            partOfSpeech: 'verb',
+            glossEn: 'to repair something',
+            translations: [
+              DictionaryTranslation(
+                sourceSenseId: 'omw-cmn:2.0/repair-1',
+                rawLemma: '修理',
+                displayLemma: '修理',
+                sourceId: 'omw-cmn:2.0',
               ),
             ],
+            sourceId: 'oewn-2025',
+            sourceName: 'Open English WordNet 2025',
           ),
-          resource: _resource,
-          article: _article,
-          ref: _ref,
-          sentenceText: 'He mended the fence.',
-          vocabulary: vocabulary,
-          onTranslateLocally: () {},
-        ),
+        ],
       ),
+      resource: _resource,
+      article: _article,
+      ref: _ref,
+      sentenceText: 'He mended the fence.',
+      vocabulary: vocabulary,
+      onTranslateLocally: () {},
     );
+
+    await tester.pumpWidget(_wrap(sheet()));
 
     expect(find.text('to repair something'), findsOneWidget);
     expect(find.text('修理'), findsOneWidget);
@@ -67,64 +64,69 @@ void main() {
     expect(find.byIcon(Icons.bookmark), findsOneWidget);
     expect(vocabulary.list(), hasLength(1));
     expect(vocabulary.list().single.senseZh, '修理');
+
+    await tester.pumpWidget(_wrap(const SizedBox.shrink()));
+    await tester.pumpWidget(_wrap(sheet()));
+
+    expect(find.byIcon(Icons.bookmark), findsOneWidget);
+    expect(find.byIcon(Icons.bookmark_add_outlined), findsNothing);
+    expect(vocabulary.list(), hasLength(1));
   });
 
-  testWidgets('an English-only sense remains saveable and offers local translation', (
-    tester,
-  ) async {
-    final database = AppDatabase.inMemory();
-    addTearDown(database.close);
-    final vocabulary = VocabularyService(dao: VocabularyDao(database.db));
-    var translated = false;
+  testWidgets(
+    'an English-only sense remains saveable and offers local translation',
+    (tester) async {
+      final database = AppDatabase.inMemory();
+      addTearDown(database.close);
+      final vocabulary = VocabularyService(dao: VocabularyDao(database.db));
+      var translated = false;
 
-    await tester.pumpWidget(
-      _wrap(
-        DictionarySheet(
-          selection: 'mend',
-          result: const DictionaryResult(
-            surface: 'mend',
-            normalized: 'mend',
-            senses: [
-              DictionarySense(
-                senseId: 'oewn-2025/mend-v-2',
-                headword: 'mend',
-                partOfSpeech: 'verb',
-                glossEn: 'to make amends',
-                sourceId: 'oewn-2025',
-                sourceName: 'Open English WordNet 2025',
-              ),
-            ],
+      await tester.pumpWidget(
+        _wrap(
+          DictionarySheet(
+            selection: 'mend',
+            result: const DictionaryResult(
+              surface: 'mend',
+              normalized: 'mend',
+              senses: [
+                DictionarySense(
+                  senseId: 'oewn-2025/mend-v-2',
+                  headword: 'mend',
+                  partOfSpeech: 'verb',
+                  glossEn: 'to make amends',
+                  sourceId: 'oewn-2025',
+                  sourceName: 'Open English WordNet 2025',
+                ),
+              ],
+            ),
+            resource: _resource,
+            article: _article,
+            ref: _ref,
+            sentenceText: 'They mended their relationship.',
+            vocabulary: vocabulary,
+            onTranslateLocally: () => translated = true,
           ),
-          resource: _resource,
-          article: _article,
-          ref: _ref,
-          sentenceText: 'They mended their relationship.',
-          vocabulary: vocabulary,
-          onTranslateLocally: () => translated = true,
         ),
-      ),
-    );
+      );
 
-    expect(find.text('暂无对译'), findsNothing);
-    expect(find.text('本机翻译'), findsOneWidget);
-    expect(find.byIcon(Icons.bookmark_add_outlined), findsOneWidget);
+      expect(find.text('暂无对译'), findsNothing);
+      expect(find.text('本机翻译'), findsOneWidget);
+      expect(find.byIcon(Icons.bookmark_add_outlined), findsOneWidget);
 
-    await tester.tap(find.text('本机翻译'));
-    expect(translated, isTrue);
-    await tester.tap(find.byIcon(Icons.bookmark_add_outlined));
-    await tester.pump();
+      await tester.tap(find.text('本机翻译'));
+      expect(translated, isTrue);
+      await tester.tap(find.byIcon(Icons.bookmark_add_outlined));
+      await tester.pump();
 
-    expect(vocabulary.list().single.senseEn, 'to make amends');
-    expect(vocabulary.list().single.senseZh, isNull);
-  });
+      expect(vocabulary.list().single.senseEn, 'to make amends');
+      expect(vocabulary.list().single.senseZh, isNull);
+    },
+  );
 }
 
 Widget _wrap(Widget child) => PaletteScope(
   palette: AppPalette.paperPreset,
-  child: MaterialApp(
-    theme: buildTheme(AppPalette.paperPreset),
-    home: child,
-  ),
+  child: MaterialApp(theme: buildTheme(AppPalette.paperPreset), home: child),
 );
 
 const _ref = SentenceRef(

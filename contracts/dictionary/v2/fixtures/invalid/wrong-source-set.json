@@ -1,0 +1,94 @@
+{
+  "format_version": "2.0",
+  "dictionary_id": "engirdle-en-zh",
+  "revision": 2,
+  "schema_version": 2,
+  "display_name": "Engirdle OEWN / Chinese Open Wordnet Dictionary",
+  "generated_at": "2026-08-09T00:00:00Z",
+  "builder": {
+    "name": "engirdle-dictionary-builder",
+    "version": "0.1.0"
+  },
+  "normalization": {
+    "algorithm": "Unicode NFC followed by lowercase",
+    "version": "unicode-nfc-lower-v1"
+  },
+  "database": {
+    "path": "dictionary.db",
+    "size": 1,
+    "sha256": "0000000000000000000000000000000000000000000000000000000000000000"
+  },
+  "sources": [
+    {
+      "source_id": "oewn-2025",
+      "version": "2025",
+      "display_name": "Open English WordNet 2025",
+      "direction": "en-en",
+      "input": {
+        "url": "https://en-word.net/static/english-wordnet-2025.xml.gz",
+        "sha256": "9ca6d1dcb75f822fdd66617f7d9da48142ace38dd544d6ad5e2feca1674ad3fe"
+      },
+      "licenses": [
+        {
+          "name": "Creative Commons Attribution 4.0 International",
+          "url": "https://creativecommons.org/licenses/by/4.0/"
+        },
+        {
+          "name": "Princeton WordNet License",
+          "url": "https://wordnet.princeton.edu/license-and-commercial-use"
+        }
+      ],
+      "attributions": [
+        {
+          "name": "Open English WordNet",
+          "url": "https://github.com/globalwordnet/english-wordnet"
+        },
+        {
+          "name": "Princeton WordNet",
+          "url": "https://wordnet.princeton.edu/"
+        }
+      ],
+      "counts": {
+        "original_headwords": 1,
+        "filtered_headwords": 0,
+        "final_headwords": 1
+      },
+      "extraction_note": "Minimal contract fixture."
+    },
+    {
+      "source_id": "unapproved-source",
+      "version": "2.0",
+      "display_name": "Unapproved source",
+      "direction": "zh",
+      "input": {
+        "url": "https://example.com/unapproved.xml",
+        "sha256": "7d07af60a6ced0cedc4ca114d0b60a796d3f138df0f3be21f6322e53d004e91c"
+      },
+      "licenses": [
+        {
+          "name": "Example license",
+          "url": "https://example.com/license"
+        }
+      ],
+      "attributions": [
+        {
+          "name": "Example attribution",
+          "url": "https://example.com/"
+        }
+      ],
+      "counts": {
+        "original_headwords": 1,
+        "filtered_headwords": 0,
+        "final_headwords": 1
+      },
+      "extraction_note": "This source is intentionally unsupported."
+    }
+  ],
+  "modifications": [
+    "Align Chinese lemmas to OEWN senses by exact ILI."
+  ],
+  "license_files": [
+    "licenses/oewn-2025.txt",
+    "licenses/unapproved-source.txt"
+  ]
+}

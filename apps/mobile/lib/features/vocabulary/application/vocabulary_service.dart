@@ -20,6 +20,15 @@ class VocabularyService {
 
   int countForArticle(String articleId) => _dao.countForArticle(articleId);
 
+  Set<String> savedSenseIds({
+    required DictionaryResource resource,
+    required SentenceRef ref,
+  }) => _dao.senseIdsForContext(
+    dictionaryId: resource.dictionaryId,
+    dictionaryRevision: resource.revision,
+    ref: ref,
+  );
+
   /// Persists the chosen sense with both glosses and the frozen context
   /// snapshot (sentence, translation, dictionary version).
   VocabularyEntry saveSense({

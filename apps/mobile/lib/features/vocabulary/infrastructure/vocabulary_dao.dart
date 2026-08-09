@@ -74,6 +74,26 @@ class VocabularyDao {
     return rows.first['n'] as int;
   }
 
+  Set<String> senseIdsForContext({
+    required String dictionaryId,
+    required int dictionaryRevision,
+    required SentenceRef ref,
+  }) {
+    final rows = _db.select(
+      'SELECT DISTINCT sense_id FROM vocabulary '
+      'WHERE dictionary_id = ? AND dictionary_revision = ? '
+      'AND article_id = ? AND revision = ? AND sentence_id = ?',
+      [
+        dictionaryId,
+        dictionaryRevision,
+        ref.articleId,
+        ref.revision,
+        ref.sentenceId,
+      ],
+    );
+    return {for (final row in rows) row['sense_id'] as String};
+  }
+
   static VocabularyEntry _fromRow(Row row) => VocabularyEntry(
     vocabularyId: row['vocabulary_id'] as String,
     surface: row['surface'] as String,

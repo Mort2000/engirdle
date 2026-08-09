@@ -38,6 +38,17 @@ class DictionarySheet extends StatefulWidget {
 class _DictionarySheetState extends State<DictionarySheet> {
   final _savedSenseIds = <String>{};
 
+  @override
+  void initState() {
+    super.initState();
+    _savedSenseIds.addAll(
+      widget.vocabulary.savedSenseIds(
+        resource: widget.resource,
+        ref: widget.ref,
+      ),
+    );
+  }
+
   void _save(DictionarySense sense) {
     final entry = widget.vocabulary.saveSense(
       surface: widget.result.surface,

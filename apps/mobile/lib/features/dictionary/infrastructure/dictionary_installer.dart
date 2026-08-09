@@ -209,16 +209,20 @@ class DictionaryInstaller {
       }
     }
     var active = _manifestDao.current();
-    if (active != null && !_isSupported(active)) {
+    if (active != null && _isInstalledV1(active)) {
       await _removeIncompatible(active);
       active = _manifestDao.current();
     }
+    if (active != null && !_isSupported(active)) return;
     if (active != null) await _cleanupInactive(active);
     await _cleanupOrphanDirectories(active);
   }
 
   static bool _isSupported(DictionaryResource resource) =>
       resource.formatVersion.startsWith('2.') && resource.schemaVersion == 2;
+
+  static bool _isInstalledV1(DictionaryResource resource) =>
+      resource.formatVersion.startsWith('1.') && resource.schemaVersion == 1;
 
   Future<void> _removeIncompatible(DictionaryResource resource) async {
     final expectedDirectory = _directories.dictionaryDir(
@@ -556,10 +560,7 @@ class DictionaryInstaller {
         followLinks: false,
       )) {
         if (revisionDirectory is! Directory ||
-            p.equals(
-              p.normalize(revisionDirectory.path),
-              activeDirectory,
-            )) {
+            p.equals(p.normalize(revisionDirectory.path), activeDirectory)) {
           continue;
         }
         try {

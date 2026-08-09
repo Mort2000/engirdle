@@ -30,6 +30,9 @@ File readpackFixture(String relative) =>
 File catalogFixture(String relative) =>
     File(p.join(contractsRoot.path, 'catalog', 'v1', 'fixtures', relative));
 
+File dictionaryV2Fixture(String relative) =>
+    File(p.join(contractsRoot.path, 'dictionary', 'v2', 'fixtures', relative));
+
 /// Extracts [zipFile] with the production reader into a fresh temp directory
 /// and runs full cross-file validation.
 Future<ValidatedReadpack> extractAndValidate(File zipFile) async {

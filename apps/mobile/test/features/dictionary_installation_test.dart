@@ -104,6 +104,61 @@ void main() {
     },
   );
 
+  test('startup preserves an unsupported future dictionary revision', () async {
+    final temp = await Directory.systemTemp.createTemp(
+      'dictionary_future_preserve_',
+    );
+    addTearDown(() async {
+      if (await temp.exists()) await temp.delete(recursive: true);
+    });
+    final dirs = AppDirectories(Directory(p.join(temp.path, 'app')));
+    await dirs.ensureBaseLayout();
+    final appDb = AppDatabase.inMemory();
+    addTearDown(appDb.close);
+    final manifestDao = DictionaryManifestDao(appDb.db);
+    final futureDirectory = dirs.dictionaryDir('engirdle-en-zh', 3);
+    await futureDirectory.create(recursive: true);
+    final futureDatabase = File(p.join(futureDirectory.path, 'dictionary.db'));
+    await futureDatabase.writeAsBytes([3]);
+    manifestDao.activate(
+      DictionaryResource(
+        dictionaryId: 'engirdle-en-zh',
+        revision: 3,
+        path: futureDatabase.path,
+        sizeBytes: 1,
+        sha256: '3' * 64,
+        databaseSizeBytes: 1,
+        databaseSha256: '3' * 64,
+        formatVersion: '3.0',
+        schemaVersion: 3,
+        displayName: 'Future Dictionary',
+        generatedAt: '2026-08-09T00:00:00Z',
+        builderName: 'future',
+        builderVersion: '3.0.0',
+        normalizationVersion: 'future',
+        sources: const [],
+        modifications: const [],
+        manifestJson: jsonEncode({
+          'format_version': '3.0',
+          'schema_version': 3,
+          'display_name': 'Future Dictionary',
+        }),
+      ),
+    );
+    final service = DictionaryService(
+      manifestDao: manifestDao,
+      directories: dirs,
+    );
+    addTearDown(service.dispose);
+
+    expect(service.status.value.state, DictionaryResourceState.incompatible);
+    await service.recover();
+
+    expect(service.status.value.state, DictionaryResourceState.incompatible);
+    expect(service.currentResource()?.revision, 3);
+    expect(await futureDatabase.exists(), isTrue);
+  });
+
   test(
     'a validated package installs atomically and supports offline lookup',
     () async {
