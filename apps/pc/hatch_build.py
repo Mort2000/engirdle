@@ -29,11 +29,10 @@ class CustomBuildHook(BuildHookInterface):
         schemas = (
             ("readpack/v1/schema", "readpack/v1/schema"),
             ("catalog/v1/schema", "catalog/v1/schema"),
+            ("dictionary/v1/schema", "dictionary/v1/schema"),
         )
         for source_suffix, destination_suffix in schemas:
             source = contracts_root / source_suffix
             if not source.is_dir():
                 raise RuntimeError(f"canonical contract schema directory not found: {source}")
-            build_data["force_include"][str(source)] = (
-                f"{destination_root}/{destination_suffix}"
-            )
+            build_data["force_include"][str(source)] = f"{destination_root}/{destination_suffix}"

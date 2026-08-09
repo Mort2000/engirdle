@@ -27,8 +27,77 @@ void main() {
       expect(package.url.scheme, 'http');
       expect(package.url.host, '192.0.2.10');
       expect(package.url.port, 8766);
-      expect(package.url.path,
-          '/packages/22222222-2222-4222-8222-222222222222.readpack');
+      expect(
+        package.url.path,
+        '/packages/22222222-2222-4222-8222-222222222222.readpack',
+      );
+    });
+
+    test(
+      'optional dictionary resources resolve only on the catalog origin',
+      () {
+        final catalog = Catalog.parse({
+          'catalog_version': 2,
+          'generated_at': '2026-08-09T00:00:00Z',
+          'packages': <Object>[],
+          'dictionaries': [
+            {
+              'dictionary_id': 'engirdle-en-zh',
+              'revision': 1,
+              'format_version': '1.0',
+              'schema_version': 1,
+              'display_name': 'Engirdle English–Chinese Offline Dictionary',
+              'size': 1234,
+              'sha256': 'a' * 64,
+              'url': '/dictionaries/engirdle-en-zh-r1-a1b2.dictpack',
+            },
+          ],
+        }, origin: origin);
+
+        expect(catalog.dictionaries, hasLength(1));
+        final dictionary = catalog.dictionaries.single;
+        expect(dictionary.dictionaryId, 'engirdle-en-zh');
+        expect(dictionary.revision, 1);
+        expect(
+          dictionary.url.toString(),
+          'http://192.0.2.10:8766/dictionaries/engirdle-en-zh-r1-a1b2.dictpack',
+        );
+      },
+    );
+
+    test('cross-origin and unsafe dictionary URLs are rejected', () {
+      Object payload(String url) => {
+        'catalog_version': 2,
+        'generated_at': '2026-08-09T00:00:00Z',
+        'packages': <Object>[],
+        'dictionaries': [
+          {
+            'dictionary_id': 'engirdle-en-zh',
+            'revision': 1,
+            'format_version': '1.0',
+            'schema_version': 1,
+            'display_name': 'Dictionary',
+            'size': 1,
+            'sha256': 'a' * 64,
+            'url': url,
+          },
+        ],
+      };
+
+      expect(
+        () => Catalog.parse(
+          payload('https://example.com/dictionaries/a.dictpack'),
+          origin: origin,
+        ),
+        throwsA(isA<ContractViolation>()),
+      );
+      expect(
+        () => Catalog.parse(
+          payload('/dictionaries/../a.dictpack'),
+          origin: origin,
+        ),
+        throwsA(isA<ContractViolation>()),
+      );
     });
 
     final violations = <String, Pattern>{
@@ -42,8 +111,13 @@ void main() {
       test('${entry.key} is rejected', () {
         expect(
           () => parseFixture(entry.key),
-          throwsA(isA<ContractViolation>().having(
-              (v) => v.problem, 'problem', contains(entry.value as String))),
+          throwsA(
+            isA<ContractViolation>().having(
+              (v) => v.problem,
+              'problem',
+              contains(entry.value as String),
+            ),
+          ),
         );
       });
     }

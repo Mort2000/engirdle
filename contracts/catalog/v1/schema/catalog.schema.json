@@ -11,6 +11,11 @@
       "type": "array",
       "maxItems": 100000,
       "items": {"$ref": "#/$defs/package"}
+    },
+    "dictionaries": {
+      "type": "array",
+      "maxItems": 16,
+      "items": {"$ref": "#/$defs/dictionary"}
     }
   },
   "additionalProperties": true,
@@ -46,6 +51,45 @@
             {
               "format": "uri",
               "pattern": "^https?://[^/@?#]+/packages/[A-Za-z0-9][A-Za-z0-9._-]{0,199}\\.readpack$"
+            }
+          ]
+        }
+      },
+      "additionalProperties": true
+    },
+    "dictionary": {
+      "type": "object",
+      "required": [
+        "dictionary_id",
+        "revision",
+        "format_version",
+        "schema_version",
+        "display_name",
+        "size",
+        "sha256",
+        "url"
+      ],
+      "properties": {
+        "dictionary_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]*$"
+        },
+        "revision": {"$ref": "#/$defs/positiveInteger"},
+        "format_version": {"type": "string", "pattern": "^1\\.[0-9]+$"},
+        "schema_version": {"$ref": "#/$defs/positiveInteger"},
+        "display_name": {"type": "string", "minLength": 1, "maxLength": 256},
+        "size": {"type": "integer", "minimum": 1, "maximum": 536870912},
+        "sha256": {"$ref": "#/$defs/sha256"},
+        "url": {
+          "type": "string",
+          "maxLength": 2048,
+          "oneOf": [
+            {"pattern": "^/dictionaries/[A-Za-z0-9][A-Za-z0-9._-]{0,199}\\.dictpack$"},
+            {
+              "format": "uri",
+              "pattern": "^https?://[^/@?#]+/dictionaries/[A-Za-z0-9][A-Za-z0-9._-]{0,199}\\.dictpack$"
             }
           ]
         }

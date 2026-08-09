@@ -68,9 +68,7 @@ class PublishingService:
         # A rebuild always mints a fresh opaque name, so the staged file is ours
         # alone; a republish of the same package reuses the name and must not be
         # deleted on failure (it is still the live published file).
-        staged_only_by_us = (
-            previous is None or previous.opaque_name != artifact.opaque_name
-        )
+        staged_only_by_us = previous is None or previous.opaque_name != artifact.opaque_name
         try:
             self._files.stage_package(artifact)
             if finalize_job:
@@ -94,8 +92,12 @@ class PublishingService:
                 self._files.unstage_package(artifact.opaque_name)
             raise
 
-    def regenerate_catalog(self) -> Catalog:
-        version = max(1, self._repository.catalog_version())
+    def regenerate_catalog(self, *, content_changed: bool = False) -> Catalog:
+        version = (
+            self._repository.bump_catalog_version()
+            if content_changed
+            else max(1, self._repository.catalog_version())
+        )
         catalog = self._prepare_catalog(version)
         self._files.commit_catalog()
         return catalog
@@ -122,6 +124,7 @@ class PublishingService:
                 for item in self._repository.list_current()
                 if self._files.package_exists(item.opaque_name)
             ],
+            dictionaries=list(self._files.dictionary_entries()),
         )
         self._files.prepare_catalog(catalog)
         return catalog
@@ -189,9 +192,7 @@ class LocalLibraryService:
         trash = self._files.trash_article(article_id, job_ids, artifacts)
         return DeletedArticle(article_id=article_id, trash_path=trash)
 
-    def list_artifacts(
-        self, article_ids: tuple[str, ...]
-    ) -> tuple[PackageArtifact, ...]:
+    def list_artifacts(self, article_ids: tuple[str, ...]) -> tuple[PackageArtifact, ...]:
         return tuple(
             artifact
             for article_id in article_ids

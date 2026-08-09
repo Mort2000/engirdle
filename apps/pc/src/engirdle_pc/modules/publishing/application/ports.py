@@ -4,7 +4,7 @@ from pathlib import Path
 from typing import Protocol
 
 from engirdle_pc.modules.packaging.public import PackageArtifact
-from engirdle_pc.modules.publishing.application.contracts import Catalog
+from engirdle_pc.modules.publishing.application.contracts import Catalog, CatalogDictionary
 from engirdle_pc.modules.publishing.domain.models import PublishedPackage
 
 
@@ -21,6 +21,8 @@ class PublishingStore(Protocol):
     def current_for_article(self, article_id: str) -> PublishedPackage | None: ...
 
     def catalog_version(self) -> int: ...
+
+    def bump_catalog_version(self) -> int: ...
 
     def unpublish(self, article_id: str) -> int: ...
 
@@ -43,6 +45,8 @@ class PublicationFileStore(Protocol):
     def discard_prepared_catalog(self) -> None: ...
 
     def package_exists(self, opaque_name: str) -> bool: ...
+
+    def dictionary_entries(self) -> tuple[CatalogDictionary, ...]: ...
 
     def trash_article(
         self,

@@ -101,18 +101,24 @@ class AppDependencies {
     );
     final playback = PlaybackController(
       driver: driver ?? JustAudioDriver(),
-      sourcePort: sourcePort ??
+      sourcePort:
+          sourcePort ??
           LibraryPlaybackSourceAdapter(
             library: library,
             registry: leaseRegistry,
           ),
       focusPort: focusPort,
     );
-    final dictionary = DictionaryService(manifestDao: dictionaryManifestDao);
+    final dictionary = DictionaryService(
+      manifestDao: dictionaryManifestDao,
+      directories: directories,
+    );
     final vocabulary = VocabularyService(dao: vocabularyDao);
     final preferences = PreferencesService(dao: preferencesDao);
-    final attribution =
-        AttributionService(library: library, dictionary: dictionary);
+    final attribution = AttributionService(
+      library: library,
+      dictionary: dictionary,
+    );
 
     return AppDependencies._(
       database: db,
@@ -132,7 +138,10 @@ class AppDependencies {
 
   /// Startup recovery for interrupted imports (design §8.2). Call once after
   /// build; failures here must not prevent the app from starting.
-  Future<void> recoverImports() => importer.recoverUnfinished();
+  Future<void> recoverImports() async {
+    await importer.recoverUnfinished();
+    await dictionary.recover();
+  }
 
   Future<void> dispose() async {
     await playback.dispose();

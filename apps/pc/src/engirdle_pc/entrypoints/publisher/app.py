@@ -27,7 +27,7 @@ def create_publisher_app(queries: PublisherQueries) -> FastAPI:
 
     @app.api_route("/packages/{opaque_name}", methods=["GET", "HEAD"])
     def package(
-        opaque_name: str = Path(pattern=r"^[A-Za-z0-9][A-Za-z0-9._-]{0,199}\.readpack$")
+        opaque_name: str = Path(pattern=r"^[A-Za-z0-9][A-Za-z0-9._-]{0,199}\.readpack$"),
     ) -> Response:
         path = queries.resolve_package(opaque_name)
         if path is None:
@@ -35,6 +35,20 @@ def create_publisher_app(queries: PublisherQueries) -> FastAPI:
         return FileResponse(
             path,
             media_type="application/vnd.engirdle.readpack+zip",
+            filename=opaque_name,
+            headers={"Cache-Control": "public, max-age=31536000, immutable"},
+        )
+
+    @app.api_route("/dictionaries/{opaque_name}", methods=["GET", "HEAD"])
+    def dictionary(
+        opaque_name: str = Path(pattern=r"^[A-Za-z0-9][A-Za-z0-9._-]{0,199}\.dictpack$"),
+    ) -> Response:
+        path = queries.resolve_dictionary(opaque_name)
+        if path is None:
+            raise HTTPException(status_code=404, detail="published dictionary not found")
+        return FileResponse(
+            path,
+            media_type="application/vnd.engirdle.dictpack+zip",
             filename=opaque_name,
             headers={"Cache-Control": "public, max-age=31536000, immutable"},
         )

@@ -41,6 +41,7 @@ tts = [
 [project.scripts]
 engirdle-pc = "engirdle_pc.entrypoints.cli.main:main"
 engirdle-pc-worker = "engirdle_pc.entrypoints.worker.main:main"
+engirdle-dictionary-builder = "engirdle_pc.entrypoints.dictionary_builder.main:main"
 
 [build-system]
 requires = ["hatchling"]

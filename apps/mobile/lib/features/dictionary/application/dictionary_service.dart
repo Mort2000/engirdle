@@ -1,93 +1,177 @@
 import 'dart:io';
 
+import 'package:flutter/foundation.dart';
+
+import '../../../platform/filesystem/app_directories.dart';
+import '../../../platform/http/lan_http_client.dart';
+import '../../../shared_kernel/failures.dart';
 import '../domain/dictionary_models.dart';
 import '../infrastructure/dictionary_dao.dart';
 import '../infrastructure/dictionary_database.dart';
+import '../infrastructure/dictionary_installer.dart';
+import '../infrastructure/dictionary_package_source.dart';
 
-/// Offline dictionary use cases (MOB-DIC-001…004).
-///
-/// The dictionary is an independent, versioned resource: when absent, every
-/// other article feature keeps working and lookup reports [DictionaryResult]
-/// via the [DictionaryUnavailable] state instead.
 class DictionaryService {
-  DictionaryService({required DictionaryManifestDao manifestDao})
-      : _manifestDao = manifestDao;
+  DictionaryService({
+    required DictionaryManifestDao manifestDao,
+    required AppDirectories directories,
+  }) : _manifestDao = manifestDao,
+       _installer = DictionaryInstaller(
+         manifestDao: manifestDao,
+         directories: directories,
+       ),
+       status = ValueNotifier<DictionaryStatus>(_initialStatus(manifestDao));
 
   final DictionaryManifestDao _manifestDao;
+  final DictionaryInstaller _installer;
+  final ValueNotifier<DictionaryStatus> status;
   DictionaryDatabase? _openDb;
   String? _openPath;
 
-  /// Currently installed resource, or null (screen 10B state B).
-  DictionaryResource? currentResource() => _manifestDao.current();
-
-  bool get available {
-    final resource = currentResource();
-    return resource != null && File(resource.path).existsSync();
-  }
-
-  DictionaryDatabase? _db() {
-    final resource = currentResource();
-    if (resource == null || !File(resource.path).existsSync()) return null;
-    if (_openDb != null && _openPath == resource.path) return _openDb;
-    _openDb?.close();
-    _openDb = DictionaryDatabase.openReadOnly(resource.path);
-    _openPath = resource.path;
-    return _openDb;
-  }
-
-  /// Cleans a selection before lookup: trims whitespace and leading/trailing
-  /// punctuation. Sentence content itself is never rewritten (MOB-DIC-002).
-  /// (Unicode NFC is already guaranteed by the PC normalization pipeline.)
-  static final _edgeNoise = RegExp(
-      r"^[\s\p{P}\p{S}]+|[\s\p{P}\p{S}]+$",
-      unicode: true);
-
-  static String normalizeSelection(String raw) {
-    return raw.replaceAll(_edgeNoise, '').trim();
-  }
-
-  /// Lookup with the design §8.5 order: exact phrase → normalized form →
-  /// word-form table → lemma candidates. Returns an empty result (never a
-  /// fabricated gloss) when nothing matches.
-  DictionaryResult? lookup(String rawSelection) {
-    final db = _db();
-    if (db == null) return null; // dictionary not installed
-
-    final surface = normalizeSelection(rawSelection);
-    if (surface.isEmpty) {
-      return DictionaryResult(surface: rawSelection, normalized: '');
+  static DictionaryStatus _initialStatus(DictionaryManifestDao dao) {
+    final current = dao.current();
+    if (current == null) {
+      return const DictionaryStatus(DictionaryResourceState.unavailable);
     }
-    final normalized = surface.toLowerCase();
-
-    var senses = db.exact(surface);
-    String? lemma;
-    if (senses.isEmpty && normalized != surface) {
-      senses = db.exact(normalized);
-    }
-    if (senses.isEmpty) {
-      final lemmas = {
-        ...db.lemmasFor(surface),
-        if (normalized != surface) ...db.lemmasFor(normalized),
-      };
-      for (final candidate in lemmas) {
-        final found = db.exact(candidate);
-        if (found.isNotEmpty) {
-          lemma = candidate;
-          senses = found;
-          break;
-        }
-      }
-    }
-    return DictionaryResult(
-      surface: surface,
-      normalized: normalized,
-      lemma: lemma,
-      senses: senses,
+    return DictionaryStatus(
+      File(current.path).existsSync()
+          ? DictionaryResourceState.available
+          : DictionaryResourceState.corrupt,
+      resource: current,
+      message: File(current.path).existsSync() ? null : 'database file missing',
     );
   }
 
-  void dispose() {
+  DictionaryResource? currentResource() => _manifestDao.current();
+
+  bool get available => status.value.state == DictionaryResourceState.available;
+
+  Future<void> recover() async {
+    await _installer.recover();
+    status.value = _initialStatus(_manifestDao);
+  }
+
+  Future<DictionaryResource> install(
+    DictionaryPackageSource source, {
+    void Function(int receivedBytes, int? totalBytes)? onProgress,
+    CancelToken? cancelToken,
+  }) async {
+    final previous = currentResource();
+    status.value = DictionaryStatus(
+      DictionaryResourceState.installing,
+      resource: previous,
+    );
+    try {
+      final resource = await _installer.install(
+        source,
+        beforeActivate: _closeDatabase,
+        onProgress: onProgress,
+        cancelToken: cancelToken,
+      );
+      status.value = DictionaryStatus(
+        DictionaryResourceState.available,
+        resource: resource,
+      );
+      return resource;
+    } on AppFailure catch (failure) {
+      final stillUsable = previous != null && File(previous.path).existsSync();
+      status.value = DictionaryStatus(
+        stillUsable
+            ? DictionaryResourceState.available
+            : failure.kind == FailureKind.packageFormat
+            ? DictionaryResourceState.incompatible
+            : DictionaryResourceState.corrupt,
+        resource: stillUsable ? previous : null,
+        message: failure.message,
+      );
+      rethrow;
+    }
+  }
+
+  DictionaryDatabase _database(DictionaryResource resource) {
+    if (_openDb != null && _openPath == resource.path) return _openDb!;
+    _closeDatabase();
+    _openDb = DictionaryDatabase.openReadOnly(resource.path);
+    _openPath = resource.path;
+    return _openDb!;
+  }
+
+  static final _edgeNoise = RegExp(
+    r"^[\s\p{P}\p{S}]+|[\s\p{P}\p{S}]+$",
+    unicode: true,
+  );
+
+  static String normalizeSelection(String raw) =>
+      raw.replaceAll(_edgeNoise, '').trim();
+
+  static final _innerWhitespace = RegExp(r'\s+');
+
+  static String normalizeLookupKey(String surface) =>
+      surface.toLowerCase().replaceAll(_innerWhitespace, ' ').trim();
+
+  DictionaryLookup lookup(String rawSelection) {
+    final resource = currentResource();
+    if (resource == null) return DictionaryLookupUnavailable(rawSelection);
+    if (!File(resource.path).existsSync()) {
+      status.value = DictionaryStatus(
+        DictionaryResourceState.corrupt,
+        resource: resource,
+        message: 'database file missing',
+      );
+      _closeDatabase();
+      return DictionaryLookupResourceError(
+        rawSelection,
+        'database file missing',
+      );
+    }
+    final surface = normalizeSelection(rawSelection);
+    final normalized = normalizeLookupKey(surface);
+    final empty = DictionaryResult(surface: surface, normalized: normalized);
+    if (surface.isEmpty) return DictionaryLookupNotFound(empty);
+    try {
+      final db = _database(resource);
+      var senses = db.exact(surface);
+      String? lemma;
+      if (senses.isEmpty) senses = db.normalized(normalized);
+      if (senses.isEmpty) {
+        final lemmas = db.lemmasFor(normalized).toSet();
+        for (final candidate in lemmas) {
+          final found = db.normalized(candidate.toLowerCase());
+          if (found.isNotEmpty) {
+            lemma = candidate;
+            senses = found;
+            break;
+          }
+        }
+      }
+      final result = DictionaryResult(
+        surface: surface,
+        normalized: normalized,
+        lemma: lemma,
+        senses: senses,
+      );
+      return senses.isEmpty
+          ? DictionaryLookupNotFound(result)
+          : DictionaryLookupFound(result);
+    } catch (error) {
+      _closeDatabase();
+      status.value = DictionaryStatus(
+        DictionaryResourceState.corrupt,
+        resource: resource,
+        message: 'dictionary query failed',
+      );
+      return DictionaryLookupResourceError(rawSelection, '$error');
+    }
+  }
+
+  void _closeDatabase() {
     _openDb?.close();
     _openDb = null;
+    _openPath = null;
+  }
+
+  void dispose() {
+    _closeDatabase();
+    status.dispose();
   }
 }

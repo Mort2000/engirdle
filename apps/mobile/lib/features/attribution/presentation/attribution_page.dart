@@ -27,8 +27,7 @@ class AttributionPage extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             const Text('归属与许可'),
-            Text('入口：书架 / 阅读器溢出菜单 › 归属信息',
-                style: theme.textTheme.labelSmall),
+            Text('入口：书架 / 阅读器溢出菜单 › 归属信息', style: theme.textTheme.labelSmall),
           ],
         ),
       ),
@@ -40,22 +39,28 @@ class AttributionPage extends StatelessWidget {
               title: '文章',
               rows: [
                 ('标题', article.title),
-                ('作者 / 来源',
-                    '${article.author ?? 'unknown'} · ${article.sourceDisplayName ?? 'n/a'}'),
+                (
+                  '作者 / 来源',
+                  '${article.author ?? 'unknown'} · ${article.sourceDisplayName ?? 'n/a'}',
+                ),
                 ('许可', _articleLicense(parsed.attribution)),
                 (
                   '版本',
-                  'rev ${article.revision} · 制品 r${article.artifactRevision} · package ${_short(article.packageId)}'
+                  'rev ${article.revision} · 制品 r${article.artifactRevision} · package ${_short(article.packageId)}',
                 ),
               ],
             ),
             _Section(
               title: '翻译服务',
               rows: [
-                ('提供方 / 模型',
-                    '${parsed.manifest.pipeline.translationProvider} · ${parsed.manifest.pipeline.translationModel}'),
-                ('配置',
-                    'thinking ${parsed.manifest.pipeline.translationThinking} · effort ${parsed.manifest.pipeline.translationReasoningEffort}'),
+                (
+                  '提供方 / 模型',
+                  '${parsed.manifest.pipeline.translationProvider} · ${parsed.manifest.pipeline.translationModel}',
+                ),
+                (
+                  '配置',
+                  'thinking ${parsed.manifest.pipeline.translationThinking} · effort ${parsed.manifest.pipeline.translationReasoningEffort}',
+                ),
                 ('提示词版本', parsed.manifest.pipeline.translationPrompt),
               ],
             ),
@@ -64,10 +69,14 @@ class AttributionPage extends StatelessWidget {
               rows: [
                 ('合成模型', parsed.manifest.pipeline.ttsBaseModel),
                 ('锚点模型', parsed.manifest.pipeline.ttsCustomVoiceModel),
-                ('声音配置',
-                    '${parsed.manifest.pipeline.voiceProfile} · anchor ${_short(parsed.manifest.pipeline.anchorSha256)}'),
-                ('音频',
-                    'AAC-LC · 24 kHz · 单声道 · ${formatDurationMs(article.durationMs)}'),
+                (
+                  '声音配置',
+                  '${parsed.manifest.pipeline.voiceProfile} · anchor ${_short(parsed.manifest.pipeline.anchorSha256)}',
+                ),
+                (
+                  '音频',
+                  'AAC-LC · 24 kHz · 单声道 · ${formatDurationMs(article.durationMs)}',
+                ),
               ],
             ),
           ],
@@ -76,14 +85,21 @@ class AttributionPage extends StatelessWidget {
             rows: dictionary == null
                 ? const [('状态', '未安装 · 阅读 / 翻译 / 播放不受影响')]
                 : [
-                    ('ID / 修订',
-                        '${dictionary.dictionaryId} · r${dictionary.revision}'),
-                    ('大小 / SHA-256',
-                        '${formatBytes(dictionary.sizeBytes)} · ${_short(dictionary.sha256)}'),
+                    (
+                      'ID / 修订',
+                      '${dictionary.dictionaryId} · r${dictionary.revision}',
+                    ),
+                    (
+                      '大小 / SHA-256',
+                      '${formatBytes(dictionary.sizeBytes)} · ${_short(dictionary.sha256)}',
+                    ),
                     for (var i = 0; i < dictionary.sources.length; i++)
-                      ('数据源${dictionary.sources.length > 1 ? ' ${i + 1}' : ''}',
-                          dictionary.sources[i]),
-                    ('修改说明', dictionary.modifications ?? 'n/a'),
+                      (
+                        '数据源${dictionary.sources.length > 1 ? ' ${i + 1}' : ''}',
+                        '${dictionary.sources[i].displayName} ${dictionary.sources[i].version} · '
+                            '${dictionary.sources[i].licenses.map((license) => license.name).join(' / ')}',
+                      ),
+                    ('修改说明', dictionary.modifications.join('；')),
                   ],
           ),
           Padding(
@@ -108,8 +124,9 @@ class AttributionPage extends StatelessWidget {
     return 'unknown';
   }
 
-  static String _short(String hash) =>
-      hash.length <= 8 ? hash : '${hash.substring(0, 4)}…${hash.substring(hash.length - 4)}';
+  static String _short(String hash) => hash.length <= 8
+      ? hash
+      : '${hash.substring(0, 4)}…${hash.substring(hash.length - 4)}';
 }
 
 class _Section extends StatelessWidget {
@@ -137,16 +154,21 @@ class _Section extends StatelessWidget {
                   children: [
                     SizedBox(
                       width: 96,
-                      child: Text(key,
-                          style: theme.textTheme.bodySmall?.copyWith(
-                              color: theme.colorScheme.onSurfaceVariant)),
+                      child: Text(
+                        key,
+                        style: theme.textTheme.bodySmall?.copyWith(
+                          color: theme.colorScheme.onSurfaceVariant,
+                        ),
+                      ),
                     ),
                     Expanded(
                       child: Text(
                         value,
                         textAlign: TextAlign.end,
-                        style: theme.textTheme.bodySmall
-                            ?.copyWith(fontFamily: 'monospace', fontSize: 11),
+                        style: theme.textTheme.bodySmall?.copyWith(
+                          fontFamily: 'monospace',
+                          fontSize: 11,
+                        ),
                       ),
                     ),
                   ],

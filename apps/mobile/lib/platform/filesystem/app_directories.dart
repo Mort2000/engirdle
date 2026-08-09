@@ -23,17 +23,20 @@ class AppDirectories {
   File get databaseFile => File(p.join(root.path, 'app.db'));
 
   Directory articleDir(String articleId, int revision, int artifactRevision) =>
-      Directory(p.join(
-        root.path,
-        'articles',
-        _safeId(articleId),
-        revision.toString(),
-        artifactRevision.toString(),
-      ));
+      Directory(
+        p.join(
+          root.path,
+          'articles',
+          _safeId(articleId),
+          revision.toString(),
+          artifactRevision.toString(),
+        ),
+      );
 
   /// All installed artifact directories of one article revision.
   Directory articleRevisionDir(String articleId, int revision) => Directory(
-      p.join(root.path, 'articles', _safeId(articleId), revision.toString()));
+    p.join(root.path, 'articles', _safeId(articleId), revision.toString()),
+  );
 
   Directory articleRootDir(String articleId) =>
       Directory(p.join(root.path, 'articles', _safeId(articleId)));
@@ -46,8 +49,22 @@ class AppDirectories {
   File downloadFile(String importId) =>
       File(p.join(downloadsDir().path, '${_safeId(importId)}.readpack'));
 
-  Directory dictionaryDir(String dictionaryId, int revision) => Directory(p.join(
-      root.path, 'dictionaries', _safeId(dictionaryId), revision.toString()));
+  Directory dictionaryDir(String dictionaryId, int revision) => Directory(
+    p.join(
+      root.path,
+      'dictionaries',
+      _safeId(dictionaryId),
+      revision.toString(),
+    ),
+  );
+
+  Directory dictionaryStagingDir(String installId) => Directory(
+    p.join(root.path, 'staging', 'dictionary-${_safeId(installId)}'),
+  );
+
+  Directory get dictionaryRoot => Directory(p.join(root.path, 'dictionaries'));
+
+  Directory get stagingRoot => Directory(p.join(root.path, 'staging'));
 
   Future<void> ensureBaseLayout() async {
     await downloadsDir().create(recursive: true);

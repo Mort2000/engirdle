@@ -10,6 +10,7 @@
 |---|---|---|
 | Readpack v1 | ZIP 布局、manifest、文章、归属和安全导入规则 | [`readpack/v1`](./readpack/v1/) |
 | Catalog v1 | 局域网只读目录与当前发布制品 | [`catalog/v1`](./catalog/v1/) |
+| Dictionary v1 | 离线词典资源包、来源归属与 SQLite 预检规则 | [`dictionary/v1`](./dictionary/v1/) |
 
 ## 验证层次
 
@@ -17,7 +18,7 @@
 
 1. 传输层：核对 catalog 声明的 ZIP 字节数和 SHA-256。
 2. 容器层：在解压前检查 ZIP 路径、类型、重复项、加密标志和资源上限。
-3. 结构层：对 `manifest.json`、`article.json`、`attribution.json` 或 `catalog.json` 使用对应 schema。Schema `format` 断言也必须启用。
+3. 结构层：对 readpack/dictpack 的 `manifest.json`、`article.json`、`attribution.json` 或 `catalog.json` 使用对应 schema。Schema `format` 断言也必须启用。
 4. 完整性层：核对 manifest 中每个载荷文件的精确字节数和 SHA-256。
 5. 语义层：验证标识一致、唯一性、顺序、引用和音频边界。
 

@@ -35,10 +35,7 @@ def _tables(connection: sqlite3.Connection) -> set[str]:
 
 
 def _columns(connection: sqlite3.Connection, table: str) -> set[str]:
-    return {
-        row["name"]
-        for row in connection.execute(f"PRAGMA table_info({table})").fetchall()
-    }
+    return {row["name"] for row in connection.execute(f"PRAGMA table_info({table})").fetchall()}
 
 
 def test_database_applies_migrations_idempotently(tmp_path: Path) -> None:
@@ -52,11 +49,15 @@ def test_database_applies_migrations_idempotently(tmp_path: Path) -> None:
 
         versions = [
             row["version_num"]
-            for row in connection.execute(
-                "SELECT version_num FROM alembic_version"
-            ).fetchall()
+            for row in connection.execute("SELECT version_num FROM alembic_version").fetchall()
         ]
-        assert versions == ["0002_voice_profiles"]
+        assert versions == ["0003_catalog_version_floor"]
+        assert (
+            connection.execute(
+                "SELECT value FROM system_metadata WHERE key = 'catalog_version'"
+            ).fetchone()["value"]
+            == "1"
+        )
 
         # Preserve the original schema contract: the published_articles and
         # package_artifacts column sets must be unchanged after the Alembic

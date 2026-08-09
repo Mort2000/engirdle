@@ -58,9 +58,7 @@ def _bump_counter_stmt() -> Any:
 
 def _read_counter(session: Session) -> str:
     value = session.scalar(
-        select(SystemMetadataRecord.value).where(
-            SystemMetadataRecord.key == _CATALOG_VERSION
-        )
+        select(SystemMetadataRecord.value).where(SystemMetadataRecord.key == _CATALOG_VERSION)
     )
     assert value is not None
     return str(value)
@@ -111,6 +109,11 @@ class SqlAlchemyPublishingRepository:
 
     def catalog_version(self) -> int:
         with self._database.sessions() as session, session.begin():
+            return int(_read_counter(session))
+
+    def bump_catalog_version(self) -> int:
+        with self._database.sessions() as session, session.begin():
+            session.execute(_bump_counter_stmt())
             return int(_read_counter(session))
 
     def unpublish(self, article_id: str) -> int:

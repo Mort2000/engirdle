@@ -41,7 +41,7 @@ class VocabularyService {
       lemma: lemma,
       partOfSpeech: sense.partOfSpeech,
       senseId: sense.senseId,
-      senseEn: sense.glossEn,
+      senseEn: sense.glossEn ?? sense.glossZh!,
       senseZh: sense.glossZh,
       sourceName: sense.sourceName,
       dictionaryId: resource.dictionaryId,

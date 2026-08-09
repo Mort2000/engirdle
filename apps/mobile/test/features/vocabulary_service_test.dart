@@ -18,6 +18,7 @@ void main() {
     partOfSpeech: 'verb',
     glossEn: 'to repair something',
     glossZh: '修理',
+    sourceId: 'oewn-2025',
     sourceName: 'TestDict',
   );
   const resource = DictionaryResource(
@@ -26,9 +27,19 @@ void main() {
     path: '/nonexistent',
     sizeBytes: 1,
     sha256: '0000000000000000000000000000000000000000000000000000000000000000',
+    databaseSizeBytes: 1,
+    databaseSha256:
+        '0000000000000000000000000000000000000000000000000000000000000000',
+    formatVersion: '1.0',
+    schemaVersion: 1,
     displayName: 'Test Dictionary',
-    sources: ['TestSource'],
-    modifications: null,
+    generatedAt: '2026-08-09T00:00:00Z',
+    builderName: 'test',
+    builderVersion: '1.0.0',
+    normalizationVersion: 'unicode-nfc-casefold-v1',
+    sources: [],
+    modifications: [],
+    manifestJson: '{}',
   );
   const ref = SentenceRef(
     articleId: '11111111-1111-4111-8111-111111111111',
@@ -53,36 +64,38 @@ void main() {
 
   tearDown(() => appDb.close());
 
-  test('saveSense persists the chosen sense with the frozen context snapshot',
-      () {
-    final entry = service.saveSense(
-      surface: 'mended',
-      normalized: 'mended',
-      sense: sense,
-      lemma: 'mend',
-      resource: resource,
-      ref: ref,
-      sentenceText: 'He mended the fence.',
-      sentenceTranslationZh: '他修好了篱笆。',
-      article: article,
-    );
+  test(
+    'saveSense persists the chosen sense with the frozen context snapshot',
+    () {
+      final entry = service.saveSense(
+        surface: 'mended',
+        normalized: 'mended',
+        sense: sense,
+        lemma: 'mend',
+        resource: resource,
+        ref: ref,
+        sentenceText: 'He mended the fence.',
+        sentenceTranslationZh: '他修好了篱笆。',
+        article: article,
+      );
 
-    final all = service.list();
-    expect(all, hasLength(1));
-    final stored = all.single;
-    expect(stored.vocabularyId, entry.vocabularyId);
-    expect(stored.surface, 'mended');
-    expect(stored.lemma, 'mend');
-    expect(stored.partOfSpeech, 'verb');
-    expect(stored.senseEn, 'to repair something');
-    expect(stored.senseZh, '修理');
-    expect(stored.dictionaryId, 'testdict');
-    expect(stored.dictionaryRevision, 3);
-    expect(stored.ref, ref);
-    expect(stored.sentenceText, 'He mended the fence.');
-    expect(stored.sentenceTranslationZh, '他修好了篱笆。');
-    expect(stored.articleTitle, 'Minimal Contract Article');
-  });
+      final all = service.list();
+      expect(all, hasLength(1));
+      final stored = all.single;
+      expect(stored.vocabularyId, entry.vocabularyId);
+      expect(stored.surface, 'mended');
+      expect(stored.lemma, 'mend');
+      expect(stored.partOfSpeech, 'verb');
+      expect(stored.senseEn, 'to repair something');
+      expect(stored.senseZh, '修理');
+      expect(stored.dictionaryId, 'testdict');
+      expect(stored.dictionaryRevision, 3);
+      expect(stored.ref, ref);
+      expect(stored.sentenceText, 'He mended the fence.');
+      expect(stored.sentenceTranslationZh, '他修好了篱笆。');
+      expect(stored.articleTitle, 'Minimal Contract Article');
+    },
+  );
 
   test('list is newest-first even within the same millisecond', () {
     service.saveSense(
@@ -135,11 +148,13 @@ void main() {
     expect(service.countForArticle('another-article'), 0);
   });
 
-  test('snapshots survive article deletion (vocabulary has no article FK)',
-      () {
+  test('snapshots survive article deletion (vocabulary has no article FK)', () {
     final fkRows = appDb.db.select("PRAGMA foreign_key_list('vocabulary')");
-    expect(fkRows, isEmpty,
-        reason: 'vocabulary must stay readable after its article is gone');
+    expect(
+      fkRows,
+      isEmpty,
+      reason: 'vocabulary must stay readable after its article is gone',
+    );
 
     service.saveSense(
       surface: 'mend',

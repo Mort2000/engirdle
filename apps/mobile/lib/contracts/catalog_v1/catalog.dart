@@ -9,16 +9,26 @@ class Catalog {
     required this.catalogVersion,
     required this.generatedAt,
     required this.packages,
+    this.dictionaries = const [],
   });
 
   final int catalogVersion;
   final String generatedAt;
   final List<CatalogPackage> packages;
+  final List<CatalogDictionary> dictionaries;
 
-  static final _relativeUrlPattern =
-      RegExp(r'^/packages/[A-Za-z0-9][A-Za-z0-9._-]{0,199}\.readpack$');
-  static final _absolutePathPattern =
-      RegExp(r'^/packages/[A-Za-z0-9][A-Za-z0-9._-]{0,199}\.readpack$');
+  static final _relativeUrlPattern = RegExp(
+    r'^/packages/[A-Za-z0-9][A-Za-z0-9._-]{0,199}\.readpack$',
+  );
+  static final _absolutePathPattern = RegExp(
+    r'^/packages/[A-Za-z0-9][A-Za-z0-9._-]{0,199}\.readpack$',
+  );
+  static final _relativeDictionaryUrlPattern = RegExp(
+    r'^/dictionaries/[A-Za-z0-9][A-Za-z0-9._-]{0,199}\.dictpack$',
+  );
+  static final _absoluteDictionaryPathPattern = RegExp(
+    r'^/dictionaries/[A-Za-z0-9][A-Za-z0-9._-]{0,199}\.dictpack$',
+  );
 
   /// [origin] is the URL the catalog itself was fetched from; absolute
   /// package URLs must be same-origin with it (fixture: cross-origin-url).
@@ -33,35 +43,91 @@ class Catalog {
       final articleId = p['article_id'].uuid();
       if (!articleIds.add(articleId)) {
         throw ContractViolation(
-            'catalog.packages[$i].article_id', 'duplicate article');
+          'catalog.packages[$i].article_id',
+          'duplicate article',
+        );
       }
-      final url = _validateUrl(p['url'], origin);
+      final url = _validateUrl(
+        p['url'],
+        origin,
+        relativePattern: _relativeUrlPattern,
+        absolutePathPattern: _absolutePathPattern,
+      );
       if (!urls.add(url.toString())) {
         throw ContractViolation('catalog.packages[$i].url', 'duplicate url');
       }
-      packages.add(CatalogPackage(
-        articleId: articleId,
-        revision: p['revision'].positiveInt(),
-        artifactRevision: p['artifact_revision'].positiveInt(),
-        title: p['title'].asString(minLength: 1, maxLength: 512),
-        formatVersion: p['format_version'].v1Version(),
-        size: p['size'].asInt(min: 1, max: 536870912),
-        sha256: p['sha256'].sha256(),
-        url: url,
-      ));
+      packages.add(
+        CatalogPackage(
+          articleId: articleId,
+          revision: p['revision'].positiveInt(),
+          artifactRevision: p['artifact_revision'].positiveInt(),
+          title: p['title'].asString(minLength: 1, maxLength: 512),
+          formatVersion: p['format_version'].v1Version(),
+          size: p['size'].asInt(min: 1, max: 536870912),
+          sha256: p['sha256'].sha256(),
+          url: url,
+        ),
+      );
+    }
+    final dictionaryReaders =
+        r.optional('dictionaries')?.asArray(maxItems: 16) ?? const [];
+    final dictionaries = <CatalogDictionary>[];
+    final dictionaryIds = <String>{};
+    for (var i = 0; i < dictionaryReaders.length; i++) {
+      final dictionary = dictionaryReaders[i];
+      final dictionaryId = dictionary['dictionary_id'].opaqueId();
+      if (!dictionaryIds.add(dictionaryId)) {
+        throw ContractViolation(
+          'catalog.dictionaries[$i].dictionary_id',
+          'duplicate dictionary',
+        );
+      }
+      final url = _validateUrl(
+        dictionary['url'],
+        origin,
+        relativePattern: _relativeDictionaryUrlPattern,
+        absolutePathPattern: _absoluteDictionaryPathPattern,
+      );
+      if (!urls.add(url.toString())) {
+        throw ContractViolation(
+          'catalog.dictionaries[$i].url',
+          'duplicate url',
+        );
+      }
+      dictionaries.add(
+        CatalogDictionary(
+          dictionaryId: dictionaryId,
+          revision: dictionary['revision'].positiveInt(),
+          formatVersion: dictionary['format_version'].v1Version(),
+          schemaVersion: dictionary['schema_version'].positiveInt(),
+          displayName: dictionary['display_name'].asString(
+            minLength: 1,
+            maxLength: 256,
+          ),
+          size: dictionary['size'].asInt(min: 1, max: 536870912),
+          sha256: dictionary['sha256'].sha256(),
+          url: url,
+        ),
+      );
     }
     return Catalog(
       catalogVersion: r['catalog_version'].asInt(min: 1, max: 9007199254740991),
       generatedAt: r['generated_at'].dateTime(),
       packages: packages,
+      dictionaries: dictionaries,
     );
   }
 
   /// Validates the package URL shape and origin, returning a fetchable URL.
-  static Uri _validateUrl(JsonReader r, Uri origin) {
+  static Uri _validateUrl(
+    JsonReader r,
+    Uri origin, {
+    required RegExp relativePattern,
+    required RegExp absolutePathPattern,
+  }) {
     final raw = r.asString(maxLength: 2048);
     if (raw.startsWith('/')) {
-      if (!_relativeUrlPattern.hasMatch(raw)) {
+      if (!relativePattern.hasMatch(raw)) {
         throw ContractViolation(r.path, 'unsafe url');
       }
       return origin.replace(path: raw, query: null, fragment: null);
@@ -80,10 +146,11 @@ class Catalog {
         uri.userInfo.isNotEmpty) {
       throw ContractViolation(r.path, 'unsafe url');
     }
-    if (!_absolutePathPattern.hasMatch(uri.path)) {
+    if (!absolutePathPattern.hasMatch(uri.path)) {
       throw ContractViolation(r.path, 'unsafe url path');
     }
-    final sameOrigin = uri.scheme == origin.scheme &&
+    final sameOrigin =
+        uri.scheme == origin.scheme &&
         uri.host.toLowerCase() == origin.host.toLowerCase() &&
         _portOf(uri) == _portOf(origin);
     if (!sameOrigin) {
@@ -94,6 +161,28 @@ class Catalog {
 
   static int _portOf(Uri uri) =>
       uri.hasPort ? uri.port : (uri.isScheme('https') ? 443 : 80);
+}
+
+class CatalogDictionary {
+  const CatalogDictionary({
+    required this.dictionaryId,
+    required this.revision,
+    required this.formatVersion,
+    required this.schemaVersion,
+    required this.displayName,
+    required this.size,
+    required this.sha256,
+    required this.url,
+  });
+
+  final String dictionaryId;
+  final int revision;
+  final String formatVersion;
+  final int schemaVersion;
+  final String displayName;
+  final int size;
+  final String sha256;
+  final Uri url;
 }
 
 class CatalogPackage {
@@ -118,8 +207,8 @@ class CatalogPackage {
   final Uri url;
 
   ArticleRef get ref => ArticleRef(
-        articleId: articleId,
-        revision: revision,
-        artifactRevision: artifactRevision,
-      );
+    articleId: articleId,
+    revision: revision,
+    artifactRevision: artifactRevision,
+  );
 }

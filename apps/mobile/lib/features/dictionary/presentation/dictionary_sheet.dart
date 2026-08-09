@@ -220,8 +220,8 @@ class _SenseCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final gloss = showChinese
-        ? (sense.glossZh ?? sense.glossEn)
-        : sense.glossEn;
+        ? (sense.glossZh ?? sense.glossEn ?? '无可用释义')
+        : (sense.glossEn ?? sense.glossZh ?? '无可用释义');
     return Card(
       child: Padding(
         padding: const EdgeInsets.all(13),

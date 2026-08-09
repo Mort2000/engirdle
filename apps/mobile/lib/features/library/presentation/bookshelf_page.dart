@@ -59,9 +59,11 @@ class _BookshelfPageState extends State<BookshelfPage> {
     _firstRunChecked = true;
     final endpoint = AppScope.of(context).connection.current();
     if (endpoint == null) {
-      Navigator.of(context).push(MaterialPageRoute<void>(
-        builder: (_) => const ServiceSetupPage(isFirstRun: true),
-      ));
+      Navigator.of(context).push(
+        MaterialPageRoute<void>(
+          builder: (_) => const ServiceSetupPage(isFirstRun: true),
+        ),
+      );
     }
   }
 
@@ -72,18 +74,18 @@ class _BookshelfPageState extends State<BookshelfPage> {
     final deps = AppScope.of(context);
     final endpoint = deps.connection.current();
     if (endpoint == null) {
-      await Navigator.of(context).push(MaterialPageRoute<void>(
-        builder: (_) => const ServiceSetupPage(),
-      ));
+      await Navigator.of(
+        context,
+      ).push(MaterialPageRoute<void>(builder: (_) => const ServiceSetupPage()));
       _reload();
       return;
     }
     if (endpoint.verifiedAt == null) {
       // Saved but never verified (design 假设⑦): a successful check doubles
       // as the first verification — say so before connecting.
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-        content: Text('该地址尚未验证，正在尝试验证并获取目录。'),
-      ));
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('该地址尚未验证，正在尝试验证并获取目录。')));
     }
     setState(() {
       _checking = true;
@@ -102,8 +104,9 @@ class _BookshelfPageState extends State<BookshelfPage> {
   }
 
   Future<void> _openReader(InstalledArticle article) async {
-    await Navigator.of(context).pushNamed(AppRoutes.reader,
-        arguments: article.articleId);
+    await Navigator.of(
+      context,
+    ).pushNamed(AppRoutes.reader, arguments: article.articleId);
     _reload();
   }
 
@@ -158,8 +161,7 @@ class _BookshelfPageState extends State<BookshelfPage> {
             child: const Text('取消'),
           ),
           FilledButton(
-            style: FilledButton.styleFrom(
-                backgroundColor: AppPalette.error),
+            style: FilledButton.styleFrom(backgroundColor: AppPalette.error),
             onPressed: () => Navigator.of(dialogContext).pop(true),
             child: const Text('删除'),
           ),
@@ -207,9 +209,15 @@ class _BookshelfPageState extends State<BookshelfPage> {
                 case 'offline':
                   Navigator.of(context).pushNamed(AppRoutes.connectionOffline);
                 case 'service':
-                  Navigator.of(context).push(MaterialPageRoute<void>(
-                    builder: (_) => const ServiceSetupPage(),
-                  ));
+                  Navigator.of(context).push(
+                    MaterialPageRoute<void>(
+                      builder: (_) => const ServiceSetupPage(),
+                    ),
+                  );
+                case 'dictionary':
+                  Navigator.of(
+                    context,
+                  ).pushNamed(AppRoutes.dictionaryResources);
               }
             },
             itemBuilder: (_) => const [
@@ -217,6 +225,7 @@ class _BookshelfPageState extends State<BookshelfPage> {
               PopupMenuItem(value: 'typography', child: Text('排版与主题')),
               PopupMenuItem(value: 'offline', child: Text('连接与离线')),
               PopupMenuItem(value: 'service', child: Text('服务设置')),
+              PopupMenuItem(value: 'dictionary', child: Text('词典资源')),
             ],
           ),
         ],
@@ -235,23 +244,28 @@ class _BookshelfPageState extends State<BookshelfPage> {
           if (_articles.isEmpty && !catalogActive)
             _EmptyShelf(hasEndpoint: endpoint != null, onCheck: _checkUpdates)
           else if (catalogActive)
-            ..._catalog!.map((entry) => _CatalogTile(
-                  entry: entry,
-                  local: _articles
-                      .where((a) => a.articleId == entry.package.articleId)
-                      .firstOrNull,
-                  onOpen: _openReader,
-                  onDownload: () => _download(entry),
-                ))
+            ..._catalog!.map(
+              (entry) => _CatalogTile(
+                entry: entry,
+                local: _articles
+                    .where((a) => a.articleId == entry.package.articleId)
+                    .firstOrNull,
+                onOpen: _openReader,
+                onDownload: () => _download(entry),
+              ),
+            )
           else
-            ..._articles.map((article) => _ArticleTile(
-                  article: article,
-                  onOpen: () => _openReader(article),
-                  onDelete: () => _confirmDelete(article),
-                  onAttribution: () => Navigator.of(context).pushNamed(
-                      AppRoutes.attribution,
-                      arguments: article.articleId),
-                )),
+            ..._articles.map(
+              (article) => _ArticleTile(
+                article: article,
+                onOpen: () => _openReader(article),
+                onDelete: () => _confirmDelete(article),
+                onAttribution: () => Navigator.of(context).pushNamed(
+                  AppRoutes.attribution,
+                  arguments: article.articleId,
+                ),
+              ),
+            ),
           const SizedBox(height: 12),
           Text(
             catalogActive
@@ -296,9 +310,11 @@ class _RefreshCard extends StatelessWidget {
                 FilledButton.icon(
                   onPressed: checking ? null : onCheck,
                   icon: const Icon(Icons.refresh, size: 16),
-                  label: Text(catalogActive
-                      ? (checking ? '检查中…' : '再检查')
-                      : (checking ? '检查中…' : '检查更新')),
+                  label: Text(
+                    catalogActive
+                        ? (checking ? '检查中…' : '再检查')
+                        : (checking ? '检查中…' : '检查更新'),
+                  ),
                 ),
                 const SizedBox(width: 10),
                 Expanded(
@@ -315,8 +331,9 @@ class _RefreshCard extends StatelessWidget {
               const SizedBox(height: 8),
               Text(
                 '无法获取目录：$error\n列表保持本机内容不变，不影响离线使用。',
-                style: theme.textTheme.bodySmall
-                    ?.copyWith(color: theme.colorScheme.error),
+                style: theme.textTheme.bodySmall?.copyWith(
+                  color: theme.colorScheme.error,
+                ),
               ),
             ],
           ],
@@ -354,10 +371,12 @@ class _ArticleTile extends StatelessWidget {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(article.title,
-                      style: theme.textTheme.titleSmall,
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis),
+                  Text(
+                    article.title,
+                    style: theme.textTheme.titleSmall,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                  ),
                   Text(
                     '${article.author ?? '未知作者'} · 音频 ${formatDurationMs(article.durationMs)}',
                     style: theme.textTheme.bodySmall,
@@ -371,11 +390,14 @@ class _ArticleTile extends StatelessWidget {
                 color: AppPalette.okContainer,
                 borderRadius: BorderRadius.circular(6),
               ),
-              child: const Text('可用',
-                  style: TextStyle(
-                      fontSize: 10.5,
-                      fontWeight: FontWeight.w600,
-                      color: AppPalette.ok)),
+              child: const Text(
+                '可用',
+                style: TextStyle(
+                  fontSize: 10.5,
+                  fontWeight: FontWeight.w600,
+                  color: AppPalette.ok,
+                ),
+              ),
             ),
             PopupMenuButton<String>(
               onSelected: (value) {
@@ -424,10 +446,12 @@ class _CatalogTile extends StatelessWidget {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(package.title,
-                      style: theme.textTheme.titleSmall,
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis),
+                  Text(
+                    package.title,
+                    style: theme.textTheme.titleSmall,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                  ),
                   Text(
                     // 03B: package size is engineering detail — it belongs to
                     // the download page (04), not the list subtitle.
@@ -441,39 +465,48 @@ class _CatalogTile extends StatelessWidget {
             ),
             switch (entry.status) {
               CatalogEntryStatus.updateAvailable => Column(
-                  crossAxisAlignment: CrossAxisAlignment.end,
-                  children: [
-                    _badge('有更新', AppPalette.amberContainer, AppPalette.amber),
-                    const SizedBox(height: 6),
-                    FilledButton.tonalIcon(
-                      onPressed: onDownload,
-                      icon: const Icon(Icons.download, size: 14),
-                      label: const Text('更新'),
-                      style: FilledButton.styleFrom(
-                          padding: const EdgeInsets.symmetric(
-                              horizontal: 13, vertical: 5),
-                          textStyle: const TextStyle(fontSize: 11.5)),
-                    ),
-                  ],
-                ),
-              CatalogEntryStatus.notInstalled => OutlinedButton.icon(
-                  onPressed: onDownload,
-                  icon: const Icon(Icons.download, size: 14),
-                  label: const Text('下载'),
-                  style: OutlinedButton.styleFrom(
+                crossAxisAlignment: CrossAxisAlignment.end,
+                children: [
+                  _badge('有更新', AppPalette.amberContainer, AppPalette.amber),
+                  const SizedBox(height: 6),
+                  FilledButton.tonalIcon(
+                    onPressed: onDownload,
+                    icon: const Icon(Icons.download, size: 14),
+                    label: const Text('更新'),
+                    style: FilledButton.styleFrom(
                       padding: const EdgeInsets.symmetric(
-                          horizontal: 13, vertical: 5),
-                      textStyle: const TextStyle(fontSize: 11.5)),
+                        horizontal: 13,
+                        vertical: 5,
+                      ),
+                      textStyle: const TextStyle(fontSize: 11.5),
+                    ),
+                  ),
+                ],
+              ),
+              CatalogEntryStatus.notInstalled => OutlinedButton.icon(
+                onPressed: onDownload,
+                icon: const Icon(Icons.download, size: 14),
+                label: const Text('下载'),
+                style: OutlinedButton.styleFrom(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 13,
+                    vertical: 5,
+                  ),
+                  textStyle: const TextStyle(fontSize: 11.5),
                 ),
+              ),
               CatalogEntryStatus.upToDate => Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    const Icon(Icons.check, size: 13, color: AppPalette.ok),
-                    Text('已是最新',
-                        style: theme.textTheme.bodySmall
-                            ?.copyWith(color: theme.colorScheme.onSurfaceVariant)),
-                  ],
-                ),
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Icon(Icons.check, size: 13, color: AppPalette.ok),
+                  Text(
+                    '已是最新',
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: theme.colorScheme.onSurfaceVariant,
+                    ),
+                  ),
+                ],
+              ),
             },
           ],
         ),
@@ -488,9 +521,14 @@ class _CatalogTile extends StatelessWidget {
         color: background,
         borderRadius: BorderRadius.circular(6),
       ),
-      child: Text(text,
-          style: TextStyle(
-              fontSize: 10.5, fontWeight: FontWeight.w600, color: foreground)),
+      child: Text(
+        text,
+        style: TextStyle(
+          fontSize: 10.5,
+          fontWeight: FontWeight.w600,
+          color: foreground,
+        ),
+      ),
     );
   }
 }
@@ -511,8 +549,11 @@ class _EmptyShelf extends StatelessWidget {
         CircleAvatar(
           radius: 36,
           backgroundColor: PaletteScope.of(context).paper2,
-          child: Icon(Icons.menu_book_outlined,
-              size: 32, color: theme.colorScheme.onSurfaceVariant),
+          child: Icon(
+            Icons.menu_book_outlined,
+            size: 32,
+            color: theme.colorScheme.onSurfaceVariant,
+          ),
         ),
         const SizedBox(height: 12),
         Text('还没有文章', style: theme.textTheme.titleMedium),
@@ -532,10 +573,11 @@ class _EmptyShelf extends StatelessWidget {
                   label: const Text('检查更新'),
                 )
               : FilledButton.tonal(
-                  onPressed: () =>
-                      Navigator.of(context).push(MaterialPageRoute<void>(
-                    builder: (_) => const ServiceSetupPage(),
-                  )),
+                  onPressed: () => Navigator.of(context).push(
+                    MaterialPageRoute<void>(
+                      builder: (_) => const ServiceSetupPage(),
+                    ),
+                  ),
                   child: const Text('先去配置服务地址'),
                 ),
         ),

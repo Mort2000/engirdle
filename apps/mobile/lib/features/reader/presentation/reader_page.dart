@@ -7,6 +7,7 @@ import '../../../app/router.dart';
 import '../../../app/scope.dart';
 import '../../../app/theme.dart';
 import '../../../shared_kernel/content_identity.dart';
+import '../../dictionary/domain/dictionary_models.dart';
 import '../../dictionary/presentation/dictionary_sheet.dart';
 import '../../library/domain/installed_article.dart';
 import '../../playback/domain/playback_models.dart';
@@ -74,9 +75,9 @@ class _ReaderPageState extends State<ReaderPage> {
     // notice; the global host owns the failure toast.
     _playbackEvents = deps.playback.events.listen((event) {
       if (!mounted || event is! ContinuousSessionReplaced) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('「从此开始朗读」已取代上一连续播放会话。')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('「从此开始朗读」已取代上一连续播放会话。')));
     });
   }
 
@@ -95,11 +96,13 @@ class _ReaderPageState extends State<ReaderPage> {
   void _startPlayback(InstalledSentence sentence, PlaybackMode mode) {
     final content = _content;
     if (content == null) return;
-    AppScope.of(context).playback.start(PlaybackRequest(
-      articleRef: content.article.ref,
-      sentenceId: sentence.sentenceId,
-      mode: mode,
-    ));
+    AppScope.of(context).playback.start(
+      PlaybackRequest(
+        articleRef: content.article.ref,
+        sentenceId: sentence.sentenceId,
+        mode: mode,
+      ),
+    );
   }
 
   // ---- Gestures (constraints §7.3, UX-A4) ----
@@ -175,17 +178,28 @@ class _ReaderPageState extends State<ReaderPage> {
     bool preferChinese,
   ) {
     final deps = AppScope.of(context);
-    final result = deps.dictionary.lookup(selection);
+    final lookup = deps.dictionary.lookup(selection);
     final resource = deps.dictionary.currentResource();
-    if (result == null || resource == null) {
-      // Screen 10B state B: missing dictionary never affects reading.
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('未安装词典资源。阅读、翻译与播放不受影响，仅查词不可用；可在 设置 › 词典资源 安装后使用。'),
-        ),
-      );
-      return;
+    late final DictionaryResult result;
+    switch (lookup) {
+      case DictionaryLookupUnavailable():
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('未安装词典资源。阅读、翻译与播放不受影响，仅查词不可用；可在 设置 › 词典资源 安装后使用。'),
+          ),
+        );
+        return;
+      case DictionaryLookupResourceError():
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('词典资源损坏或不可读，请在 设置 › 词典资源 重试安装。')),
+        );
+        return;
+      case DictionaryLookupFound(result: final found):
+        result = found;
+      case DictionaryLookupNotFound(result: final missing):
+        result = missing;
     }
+    if (resource == null) return;
     final content = _content!;
     showModalBottomSheet<void>(
       context: context,
@@ -272,52 +286,57 @@ class _ReaderPageState extends State<ReaderPage> {
                     AppRoutes.attribution,
                     arguments: widget.articleId,
                   );
+                case 'dictionary':
+                  Navigator.of(
+                    context,
+                  ).pushNamed(AppRoutes.dictionaryResources);
               }
             },
             itemBuilder: (_) => const [
               PopupMenuItem(value: 'typography', child: Text('排版与主题')),
               PopupMenuItem(value: 'attribution', child: Text('归属信息')),
+              PopupMenuItem(value: 'dictionary', child: Text('词典资源')),
             ],
           ),
         ],
       ),
       body: ValueListenableBuilder<PlaybackSnapshot>(
-              valueListenable: deps.playback.state,
-              builder: (context, playbackState, _) {
-                return ListView(
-                  padding: EdgeInsets.fromLTRB(
-                    prefs.margin.logicalPixels,
-                    8,
-                    prefs.margin.logicalPixels,
-                    24,
-                  ),
-                  children: [
-                    _Header(
-                      content: content,
-                      mode: _mode,
-                      theme: theme,
-                      zhTitle: _zhTitleFallback(content.article.title),
-                    ),
-                    for (var b = 0; b < content.blocks.length; b++)
-                      _BlockView(
-                        block: content.blocks[b],
-                        mode: _mode,
-                        textStyle: textStyle,
-                        zhStyle: zhStyle,
-                        currentSentenceId: playbackState.currentSentenceId,
-                        viewKeys: _viewKeys,
-                        onSentenceTap: _onSentenceTap,
-                        onLookup: _onLookup,
-                        onSelectionChanged: _onSelectionChanged,
-                        onZhLongPress: () =>
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              const SnackBar(content: Text('请切换到仅英文或英中对照模式选词')),
-                            ),
-                      ),
-                  ],
-                );
-              },
+        valueListenable: deps.playback.state,
+        builder: (context, playbackState, _) {
+          return ListView(
+            padding: EdgeInsets.fromLTRB(
+              prefs.margin.logicalPixels,
+              8,
+              prefs.margin.logicalPixels,
+              24,
             ),
+            children: [
+              _Header(
+                content: content,
+                mode: _mode,
+                theme: theme,
+                zhTitle: _zhTitleFallback(content.article.title),
+              ),
+              for (var b = 0; b < content.blocks.length; b++)
+                _BlockView(
+                  block: content.blocks[b],
+                  mode: _mode,
+                  textStyle: textStyle,
+                  zhStyle: zhStyle,
+                  currentSentenceId: playbackState.currentSentenceId,
+                  viewKeys: _viewKeys,
+                  onSentenceTap: _onSentenceTap,
+                  onLookup: _onLookup,
+                  onSelectionChanged: _onSelectionChanged,
+                  onZhLongPress: () =>
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(content: Text('请切换到仅英文或英中对照模式选词')),
+                      ),
+                ),
+            ],
+          );
+        },
+      ),
     );
   }
 

@@ -135,6 +135,49 @@ const kMigrations = <List<String>>[
     )
     ''',
   ],
+  // v1 → v2: immutable dictionary installation records plus an explicit
+  // active pointer. The legacy newest-installed-at inference is intentionally
+  // removed; old rows are preserved and the previous newest row is activated.
+  [
+    'ALTER TABLE dictionary_manifest RENAME TO dictionary_manifest_legacy',
+    '''
+    CREATE TABLE dictionary_manifest (
+      dictionary_id TEXT NOT NULL,
+      revision INTEGER NOT NULL,
+      path TEXT NOT NULL,
+      package_size_bytes INTEGER NOT NULL,
+      package_sha256 TEXT NOT NULL,
+      manifest_json TEXT NOT NULL,
+      installed_at TEXT NOT NULL,
+      PRIMARY KEY (dictionary_id, revision)
+    )
+    ''',
+    '''
+    INSERT INTO dictionary_manifest (
+      dictionary_id, revision, path, package_size_bytes, package_sha256,
+      manifest_json, installed_at
+    )
+    SELECT dictionary_id, revision, path, size_bytes, sha256, meta_json, installed_at
+    FROM dictionary_manifest_legacy
+    ''',
+    '''
+    CREATE TABLE dictionary_active (
+      id INTEGER PRIMARY KEY CHECK (id = 1),
+      dictionary_id TEXT NOT NULL,
+      revision INTEGER NOT NULL,
+      FOREIGN KEY (dictionary_id, revision)
+        REFERENCES dictionary_manifest(dictionary_id, revision)
+    )
+    ''',
+    '''
+    INSERT INTO dictionary_active (id, dictionary_id, revision)
+    SELECT 1, dictionary_id, revision
+    FROM dictionary_manifest_legacy
+    ORDER BY installed_at DESC
+    LIMIT 1
+    ''',
+    'DROP TABLE dictionary_manifest_legacy',
+  ],
 ];
 
 /// Applies pending migrations inside a single transaction.

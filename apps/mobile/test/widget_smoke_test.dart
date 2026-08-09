@@ -1,6 +1,7 @@
 import 'package:engirdle_mobile/app/app.dart';
 import 'package:engirdle_mobile/app/dependencies.dart';
 import 'package:engirdle_mobile/features/preferences/presentation/typography_settings_page.dart';
+import 'package:engirdle_mobile/features/dictionary/presentation/dictionary_resources_page.dart';
 import 'package:engirdle_mobile/features/vocabulary/presentation/vocab_book_page.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -18,8 +19,9 @@ void main() {
     deps = await newTestDependencies();
   });
 
-  testWidgets('first run opens the bookshelf then routes to service setup',
-      (tester) async {
+  testWidgets('first run opens the bookshelf then routes to service setup', (
+    tester,
+  ) async {
     await tester.pumpWidget(EngirdleApp(dependencies: deps));
 
     // The bookshelf (screen 03) is the home page before any routing happens.
@@ -41,11 +43,26 @@ void main() {
   });
 
   testWidgets('typography settings render the three presets', (tester) async {
-    await tester
-        .pumpWidget(wrapTestWidget(deps, const TypographySettingsPage()));
+    await tester.pumpWidget(
+      wrapTestWidget(deps, const TypographySettingsPage()),
+    );
     await tester.pumpAndSettle();
     expect(find.text('排版与主题'), findsWidgets);
-    expect(
-        find.text('仅提供预设主题，不提供自定义取色器（MVP 排除项）。'), findsOneWidget);
+    expect(find.text('仅提供预设主题，不提供自定义取色器（MVP 排除项）。'), findsOneWidget);
   });
+
+  testWidgets(
+    'dictionary resources page distinguishes an uninstalled resource',
+    (tester) async {
+      await tester.pumpWidget(
+        wrapTestWidget(deps, const DictionaryResourcesPage()),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.text('词典资源'), findsWidgets);
+      expect(find.text('未安装'), findsOneWidget);
+      expect(find.textContaining('阅读、翻译、播放和生词本仍可使用'), findsOneWidget);
+      expect(find.text('检查可用资源'), findsOneWidget);
+    },
+  );
 }
