@@ -22,7 +22,6 @@ class JustAudioDriver implements PlaybackDriver {
   final AppLogger _logger;
 
   final _events = StreamController<PlaybackDriverEvent>.broadcast();
-  late final StreamSubscription _playingSub;
   late final StreamSubscription _processingSub;
   late final StreamSubscription _errorSub;
   late final StreamSubscription _positionSub;
@@ -32,9 +31,6 @@ class JustAudioDriver implements PlaybackDriver {
   void _wire() {
     if (_wired) return;
     _wired = true;
-    _playingSub = _player.playingStream.listen(
-      (playing) => _events.add(playing ? DriverPlaying() : DriverPaused()),
-    );
     _processingSub = _player.processingStateStream.listen((state) {
       if (state == ProcessingState.completed) _events.add(DriverCompleted());
     });
@@ -112,7 +108,6 @@ class JustAudioDriver implements PlaybackDriver {
   @override
   Future<void> dispose() async {
     if (_wired) {
-      await _playingSub.cancel();
       await _processingSub.cancel();
       await _errorSub.cancel();
       await _positionSub.cancel();

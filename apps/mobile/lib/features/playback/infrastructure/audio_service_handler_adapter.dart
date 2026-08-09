@@ -19,15 +19,14 @@ class EngirdleAudioHandler extends BaseAudioHandler {
   bool _bound = false;
 
   /// Subscribes to the coordinator's snapshot and publishes the initial state.
-  /// Call once after [AudioService.init].
+  /// Call once after [AudioService.init]. The handler lives for the process;
+  /// there is no teardown — the coordinator is disposed with the app.
   void bind() {
     if (_bound) return;
     _bound = true;
     _coordinator.state.addListener(_onSnapshot);
     _onSnapshot();
   }
-
-  void release() => _coordinator.state.removeListener(_onSnapshot);
 
   void _onSnapshot() {
     final snapshot = _coordinator.state.value;

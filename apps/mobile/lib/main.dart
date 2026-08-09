@@ -22,16 +22,15 @@ Future<void> main() async {
   try {
     focusPort = await AudioSessionAdapter.init();
   } catch (_) {
-    focusPort = _NullFocusPort();
+    focusPort = const NullAudioFocusPort();
   }
   final dependencies = await AppDependencies.build(
     directories: AppDirectories(supportDir),
     focusPort: focusPort,
   );
-  await dependencies.recoverImports();
   // Register the foreground media Service / MediaSession and bind it to the
-  // coordinator (design §7.1). Best-effort: a failure must not block the app —
-  // playback still works without the system media service.
+  // coordinator (design §7.1, step 4). Best-effort: a failure must not block
+  // the app — playback still works without the system media service.
   try {
     final handler = await AudioService.init<EngirdleAudioHandler>(
       builder: () => EngirdleAudioHandler(dependencies.playback),
@@ -41,6 +40,8 @@ Future<void> main() async {
   } catch (_) {
     // System media controls unavailable; local playback is unaffected.
   }
+  // Step 5: recover interrupted imports, then start the UI.
+  await dependencies.recoverImports();
   runApp(EngirdleApp(dependencies: dependencies));
 }
 
@@ -52,11 +53,3 @@ const _audioServiceConfig = AudioServiceConfig(
   fastForwardInterval: Duration(seconds: 10),
   rewindInterval: Duration(seconds: 10),
 );
-
-/// No-op focus port used only when the platform audio session cannot be
-/// configured at startup. It never emits, so the coordinator simply never
-/// reacts to interruptions — playback still works via just_audio.
-class _NullFocusPort implements AudioFocusPort {
-  @override
-  Stream<AudioFocusEvent> get events => const Stream<AudioFocusEvent>.empty();
-}

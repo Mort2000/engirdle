@@ -94,16 +94,10 @@ class PlaybackController {
   }
 
   Future<void> pause() async {
-    // Any explicit pause voids a pending transient-loss recovery.
+    // Any explicit pause voids a pending transient-loss recovery, then this is
+    // a non-recoverable system pause.
     _recoverableFocusToken = null;
-    if (state.value.phase != PlaybackPhase.playing) return;
-    final token = _token;
-    await _driver.pause();
-    // Re-validate after the await: stop() or a new start may have superseded
-    // this session — writing paused onto an idle session would resurrect a
-    // zombie control bar.
-    if (token != _token || state.value.phase != PlaybackPhase.playing) return;
-    state.value = state.value.copyWith(phase: PlaybackPhase.paused);
+    await _systemPause(recoverable: false);
   }
 
   Future<void> resume() async {
@@ -242,14 +236,6 @@ class PlaybackController {
         _fail(_token, '播放出错');
       case DriverPosition():
         _onPosition(event.position);
-      case DriverPlaying():
-        // Optimistic preparing→playing already happened on command settle;
-        // this is a no-op confirmation. (Kept in the protocol for observability.)
-        break;
-      case DriverPaused():
-        // The coordinator owns pause decisions; ignore the player's echo so a
-        // natural completion (playing→false) can't flash a paused state.
-        break;
     }
   }
 

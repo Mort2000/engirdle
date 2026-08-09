@@ -3,15 +3,11 @@ import 'dart:async';
 /// Observable events from the concrete player, merged into one stream so the
 /// coordinator reduces them through a single token-validated path (design
 /// §8: evolve PlaybackEngine into a PlaybackDriver that unifies
-/// position/playing/processing/completion/error). No plugin types leak past
-/// this boundary.
+/// position/processing/completion/error). No plugin types leak past this
+/// boundary. (The player's own playing/paused echoes are deliberately not
+/// surfaced: the coordinator drives pause/resume and would only have to
+/// reconcile them back, risking a paused flash on natural completion.)
 sealed class PlaybackDriverEvent {}
-
-/// The platform acknowledged the play request and audio is (or is about to)
-/// sound. Reconciles the coordinator's optimistic `preparing → playing`.
-class DriverPlaying extends PlaybackDriverEvent {}
-
-class DriverPaused extends PlaybackDriverEvent {}
 
 /// Playback reached the clip/file end naturally (distinct from the issue-time
 /// resolution of the play command future).

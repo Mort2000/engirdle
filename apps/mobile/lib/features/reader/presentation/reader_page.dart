@@ -70,15 +70,13 @@ class _ReaderPageState extends State<ReaderPage> {
     }
     // Background playback (design §6.1): leaving the reader no longer stops
     // the session, and app backgrounding no longer pauses it. The page only
-    // subscribes to state for highlight and to surface one-shot events.
+    // subscribes to state for highlight and to the continuous-replacement
+    // notice; the global host owns the failure toast.
     _playbackEvents = deps.playback.events.listen((event) {
-      if (!mounted) return;
-      final message = switch (event) {
-        ContinuousSessionReplaced() => '「从此开始朗读」已取代上一连续播放会话。',
-        PlaybackFailed() => '播放失败，请稍后重试。',
-      };
-      ScaffoldMessenger.of(context)
-          .showSnackBar(SnackBar(content: Text(message)));
+      if (!mounted || event is! ContinuousSessionReplaced) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('「从此开始朗读」已取代上一连续播放会话。')),
+      );
     });
   }
 

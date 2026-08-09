@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import '../features/playback/domain/playback_models.dart';
@@ -46,25 +48,51 @@ class EngirdleApp extends StatelessWidget {
 
 /// Hosts the current route and, below it, the global playback bar — but only
 /// while a session is active. Using a Column (not a Stack overlay) means the
-/// bar pushes the route up instead of covering its bottom content.
-class _GlobalPlaybackHost extends StatelessWidget {
+/// bar pushes the route up instead of covering its bottom content. It also owns
+/// the app-wide playback failure toast so an error surfaces no matter which
+/// route is showing (design §4.2).
+class _GlobalPlaybackHost extends StatefulWidget {
   const _GlobalPlaybackHost({required this.dependencies, required this.child});
 
   final AppDependencies dependencies;
   final Widget child;
 
   @override
+  State<_GlobalPlaybackHost> createState() => _GlobalPlaybackHostState();
+}
+
+class _GlobalPlaybackHostState extends State<_GlobalPlaybackHost> {
+  StreamSubscription<PlaybackEvent>? _events;
+
+  @override
+  void initState() {
+    super.initState();
+    _events = widget.dependencies.playback.events.listen((event) {
+      if (!mounted || event is! PlaybackFailed) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('播放失败，请稍后重试。')),
+      );
+    });
+  }
+
+  @override
+  void dispose() {
+    _events?.cancel();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
     return ValueListenableBuilder<PlaybackSnapshot>(
-      valueListenable: dependencies.playback.state,
+      valueListenable: widget.dependencies.playback.state,
       builder: (context, snapshot, _) {
         final bar = snapshot.isActive
-            ? PlaybackBar(controller: dependencies.playback)
+            ? PlaybackBar(controller: widget.dependencies.playback)
             : const SizedBox.shrink();
         return Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Expanded(child: child),
+            Expanded(child: widget.child),
             bar,
           ],
         );

@@ -167,6 +167,9 @@ class _BookshelfPageState extends State<BookshelfPage> {
       ),
     );
     if (confirmed == true) {
+      // Stop and release any active session on this article before deleting,
+      // so the lease guard never has to refuse (design §6.3).
+      await deps.playback.stopIfActive(article.articleId);
       await deps.library.deleteArticle(article.articleId);
       _reload();
     }

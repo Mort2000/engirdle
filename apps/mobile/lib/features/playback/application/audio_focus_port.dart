@@ -25,3 +25,12 @@ class OutputDisconnected extends AudioFocusEvent {}
 abstract class AudioFocusPort {
   Stream<AudioFocusEvent> get events;
 }
+
+/// Never-emitting focus port. Used when the platform audio session cannot be
+/// configured at startup: the coordinator simply never reacts to interruptions,
+/// and playback still works via just_audio's own session activation.
+class NullAudioFocusPort implements AudioFocusPort {
+  const NullAudioFocusPort();
+  @override
+  Stream<AudioFocusEvent> get events => const Stream<AudioFocusEvent>.empty();
+}
