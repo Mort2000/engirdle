@@ -125,7 +125,9 @@ PlaybackState playbackStateFromSnapshot(PlaybackSnapshot snapshot) {
       MediaAction.pause,
       MediaAction.stop,
     },
-    androidCompactActionIndices: const [0, 1],
+    // Indices must stay within controls (empty while idle): fall back to the
+    // plugin default when fewer than two controls exist.
+    androidCompactActionIndices: controls.length >= 2 ? const [0, 1] : null,
     processingState: processingState,
     playing: playing,
     updatePosition: snapshot.position,

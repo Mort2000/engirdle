@@ -79,11 +79,45 @@ void main() {
       expect(controller.state.value.currentSentenceId, 's2');
     });
 
-    test('stop releases the lease and returns to idle', () async {
+    test('stop releases the lease, the audio focus and returns to idle',
+        () async {
       await controller.start(sentence('s1'));
       await controller.stop();
       expect(controller.state.value.phase, PlaybackPhase.idle);
       expect(source.released.length, 1);
+      // Design §3.1: a user stop releases the audio focus.
+      expect(focus.releaseCount, 1);
+    });
+
+    test('the superseded lease stays pinned until the driver switches sources',
+        () async {
+      await controller.start(sentence('s1'));
+      driver.autoComplete = false;
+      final second = controller.start(sentence('s2'));
+      await pumpEventQueue(); // s2 past acquire → playClip parked
+      // The driver has not switched to the new source yet, so the old file
+      // must still be leased (design §6.3).
+      expect(source.released, isEmpty);
+
+      driver.pendingPlayClips.single.complete();
+      await second;
+      expect(source.released.length, 1);
+      expect(controller.state.value.currentSentenceId, 's2');
+    });
+
+    test('stop holds the lease until the driver stop completes', () async {
+      await controller.start(sentence('s1'));
+      driver.autoComplete = false;
+      final stopping = controller.stop();
+      // The player may still be reading the file while stop is in flight.
+      expect(source.released, isEmpty);
+      expect(focus.releaseCount, 0);
+
+      driver.pendingStops.single.complete();
+      await stopping;
+      expect(controller.state.value.phase, PlaybackPhase.idle);
+      expect(source.released.length, 1);
+      expect(focus.releaseCount, 1);
     });
 
     test('a continuous request records its start sentence', () async {
@@ -114,6 +148,8 @@ void main() {
       expect(events.single, isA<PlaybackFailed>());
       // acquire pinned a lease before play; the failure must release it.
       expect(source.released.length, 1);
+      // Design §3.1: an unrecoverable error releases the audio focus.
+      expect(focus.releaseCount, 1);
     });
 
     test('an acquire failure idles without pinning or releasing a lease',
@@ -158,6 +194,8 @@ void main() {
 
       expect(controller.state.value.phase, PlaybackPhase.idle);
       expect(source.released.length, 1);
+      // Design §3.1: natural completion releases the audio focus.
+      expect(focus.releaseCount, 1);
     });
 
     // Regression: the real driver resolves each command future at issue time
@@ -282,6 +320,22 @@ void main() {
       await pumpEventQueue();
       expect(controller.state.value.phase, PlaybackPhase.paused);
     });
+
+    test('pause keeps the focus; only ending the session releases it',
+        () async {
+      await controller.start(sentence('s1'));
+      await controller.pause();
+      // A paused session stays resumable from the lock screen / headset, so
+      // the focus must not be abandoned on pause (design §6.2).
+      expect(focus.releaseCount, 0);
+
+      focus.emit(TransientFocusLoss());
+      await pumpEventQueue();
+      expect(focus.releaseCount, 0);
+
+      await controller.stop();
+      expect(focus.releaseCount, 1);
+    });
   });
 
   group('continuous highlight', () {
@@ -405,8 +459,13 @@ class FakeSourcePort implements PlaybackSourcePort {
 class ControllableFocusPort implements AudioFocusPort {
   final _events = StreamController<AudioFocusEvent>.broadcast();
 
+  int releaseCount = 0;
+
   void emit(AudioFocusEvent event) => _events.add(event);
 
   @override
   Stream<AudioFocusEvent> get events => _events.stream;
+
+  @override
+  Future<void> releaseFocus() async => releaseCount++;
 }

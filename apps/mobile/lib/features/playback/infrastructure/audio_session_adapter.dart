@@ -7,9 +7,10 @@ import '../application/audio_focus_port.dart';
 /// Maps `audio_session`'s interruption / becoming-noisy / output-route signals
 /// into [AudioFocusEvent]s for the coordinator (design §6.2). The global
 /// session is configured for speech/audiobook; focus *activation* itself stays
-/// with just_audio's auto audio-session activation, so this adapter only
-/// surfaces the events the coordinator must react to. No policy lives here —
-/// it is a pure translator, not a second state machine.
+/// with just_audio's auto audio-session activation, while *release* is explicit:
+/// the coordinator calls [releaseFocus] when a session ends (design §3.1).
+/// This adapter only surfaces the events the coordinator must react to. No
+/// policy lives here — it is a pure translator, not a second state machine.
 class AudioSessionAdapter implements AudioFocusPort {
   AudioSessionAdapter._(this._session);
 
@@ -65,7 +66,11 @@ class AudioSessionAdapter implements AudioFocusPort {
   @override
   Stream<AudioFocusEvent> get events => _events.stream;
 
+  @override
+  Future<void> releaseFocus() => _session.setActive(false);
+
   Future<void> dispose() async {
+    await releaseFocus();
     await _interruption.cancel();
     await _noisy.cancel();
     await _devices.cancel();

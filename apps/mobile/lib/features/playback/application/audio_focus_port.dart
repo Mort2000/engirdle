@@ -24,6 +24,12 @@ class OutputDisconnected extends AudioFocusEvent {}
 /// (design §6.2); this port only surfaces the events the coordinator must react to.
 abstract class AudioFocusPort {
   Stream<AudioFocusEvent> get events;
+
+  /// Releases the audio focus held by the active session. The coordinator
+  /// calls this on every transition to Idle (user stop, natural completion,
+  /// unrecoverable error — design §3.1). Pausing keeps focus so a transient
+  /// interruption can still deliver its regain event (design §6.2).
+  Future<void> releaseFocus();
 }
 
 /// Never-emitting focus port. Used when the platform audio session cannot be
@@ -33,4 +39,6 @@ class NullAudioFocusPort implements AudioFocusPort {
   const NullAudioFocusPort();
   @override
   Stream<AudioFocusEvent> get events => const Stream<AudioFocusEvent>.empty();
+  @override
+  Future<void> releaseFocus() async {}
 }

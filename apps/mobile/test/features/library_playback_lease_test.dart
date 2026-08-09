@@ -48,6 +48,27 @@ void main() {
     await audio.writeAsBytes(const [0, 1, 2, 3]);
   }
 
+  void installArticle() {
+    final db = appDb.db;
+    db.execute(
+      "INSERT INTO articles (article_id, title, author, source_display_name, "
+      "source_url, revision, artifact_revision, package_id, format_version, "
+      "duration_ms, audio_codec, sample_rate_hz, channels, size_bytes, sha256, "
+      "installed_at, manifest_json, attribution_json) "
+      "VALUES ('a1','T','Au','s','http://x',1,0,'pkg','v1',2000,'aac',44100,1,4,"
+      "'abc','2026-01-01T00:00:00Z','{}','{}')");
+    db.execute(
+      "INSERT INTO blocks (article_id, block_id, kind, ord) VALUES ('a1','b1','p',0)");
+    db.execute(
+      "INSERT INTO sentences (article_id, block_id, sentence_id, ord, text, "
+      "translation_zh, audio_start_ms, audio_end_ms, audio_start_sample, "
+      "audio_end_sample) VALUES ('a1','b1','s1',0,'hello','你好',0,1000,0,44100)");
+    db.execute(
+      "INSERT INTO sentences (article_id, block_id, sentence_id, ord, text, "
+      "translation_zh, audio_start_ms, audio_end_ms, audio_start_sample, "
+      "audio_end_sample) VALUES ('a1','b1','s2',1,'world','世界',1000,2000,44100,88200)");
+  }
+
   group('upgrade cleanup respects leases', () {
     test('an unleased old artifact is removed', () async {
       final old = ArticleRef(articleId: 'a1', revision: 1, artifactRevision: 0);
@@ -64,6 +85,10 @@ void main() {
 
     test('a leased old artifact is skipped, then cleaned after release',
         () async {
+      installArticle();
+      // The installed version is now revision 2; retryCleanup re-reads it
+      // from the DAO rather than trusting the caller's ref.
+      appDb.db.execute("UPDATE articles SET revision = 2 WHERE article_id = 'a1'");
       final old = ArticleRef(articleId: 'a1', revision: 1, artifactRevision: 0);
       final current =
           ArticleRef(articleId: 'a1', revision: 2, artifactRevision: 0);
@@ -96,28 +121,38 @@ void main() {
     });
   });
 
-  group('source adapter', () {
-    void installArticle() {
-      final db = appDb.db;
-      db.execute(
-        "INSERT INTO articles (article_id, title, author, source_display_name, "
-        "source_url, revision, artifact_revision, package_id, format_version, "
-        "duration_ms, audio_codec, sample_rate_hz, channels, size_bytes, sha256, "
-        "installed_at, manifest_json, attribution_json) "
-        "VALUES ('a1','T','Au','s','http://x',1,0,'pkg','v1',2000,'aac',44100,1,4,"
-        "'abc','2026-01-01T00:00:00Z','{}','{}')");
-      db.execute(
-        "INSERT INTO blocks (article_id, block_id, kind, ord) VALUES ('a1','b1','p',0)");
-      db.execute(
-        "INSERT INTO sentences (article_id, block_id, sentence_id, ord, text, "
-        "translation_zh, audio_start_ms, audio_end_ms, audio_start_sample, "
-        "audio_end_sample) VALUES ('a1','b1','s1',0,'hello','你好',0,1000,0,44100)");
-      db.execute(
-        "INSERT INTO sentences (article_id, block_id, sentence_id, ord, text, "
-        "translation_zh, audio_start_ms, audio_end_ms, audio_start_sample, "
-        "audio_end_sample) VALUES ('a1','b1','s2',1,'world','世界',1000,2000,44100,88200)");
-    }
+  group('retryCleanup with a stale lease ref', () {
+    // Regression: a lease releases with the ref it acquired, which an upgrade
+    // may have superseded while the session was playing. retryCleanup must
+    // re-read the current version from the DAO — passing the stale ref
+    // through would keep the old artifact and delete the live one.
+    test('an upgraded article keeps its current artifact, drops the stale one',
+        () async {
+      installArticle();
+      // The installed version is now revision 2 (upgrade committed mid-play).
+      appDb.db.execute("UPDATE articles SET revision = 2 WHERE article_id = 'a1'");
+      final stale = ArticleRef(articleId: 'a1', revision: 1, artifactRevision: 0);
+      await writeArtifact(stale);
+      await writeArtifact(
+          ArticleRef(articleId: 'a1', revision: 2, artifactRevision: 0));
 
+      // The released lease still carries the pre-upgrade ref.
+      await library.retryCleanup(stale);
+
+      expect(dirs.articleDir('a1', 1, 0).existsSync(), isFalse); // stale removed
+      expect(dirs.articleDir('a1', 2, 0).existsSync(), isTrue); // current kept
+    });
+
+    test('an article deleted while leased is left untouched', () async {
+      await writeArtifact(sourceRef);
+      // No DB row (the delete landed right after the lease released): there is
+      // no current version to clean against.
+      await library.retryCleanup(sourceRef);
+      expect(dirs.articleDir('a1', 1, 0).existsSync(), isTrue);
+    });
+  });
+
+  group('source adapter', () {
     test('acquire pins the audio path and returns ordered ranges', () async {
       installArticle();
       await writeArtifact(sourceRef);

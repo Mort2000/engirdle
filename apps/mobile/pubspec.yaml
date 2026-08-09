@@ -21,8 +21,8 @@ dependencies:
   # background playback (design §6.2). Direct dependency, not transitive.
   audio_session: ^0.2.4
   # Foreground media Service, MediaSession, media notification, lock-screen and
-  # earphone controls (design §4.1/§7.2). Pinned to the version verified in the
-  # research notes; re-lock after the first successful build.
+  # earphone controls (design §4.1/§7.2). 0.18.19 is the version verified in the
+  # research notes; pubspec.lock records the exact resolved build.
   audio_service: ^0.18.19
   # SHA-256 streaming verification.
   crypto: ^3.0.7

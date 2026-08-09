@@ -94,6 +94,14 @@ void main() {
           playbackStateFromSnapshot(const PlaybackSnapshot.idle());
       expect(state.processingState, AudioProcessingState.idle);
       expect(state.controls, isEmpty);
+      // Compact indices must not point past the empty controls list.
+      expect(state.androidCompactActionIndices, isNull);
+    });
+
+    test('active states compact the first two controls', () {
+      final state = playbackStateFromSnapshot(snapshot());
+      expect(state.controls, hasLength(2));
+      expect(state.androidCompactActionIndices, [0, 1]);
     });
   });
 }

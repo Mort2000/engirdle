@@ -134,11 +134,20 @@ class LibraryService {
     }
   }
 
-  /// Re-runs [cleanupOldArtifacts] for [ref] after a playback lease releases.
-  /// Best-effort: failures are swallowed (the next import/lease release retries).
+  /// Re-runs [cleanupOldArtifacts] for [ref]'s article after a playback lease
+  /// releases. Best-effort: failures are swallowed (the next import/lease
+  /// release retries).
+  ///
+  /// [ref] comes from the released lease and may be stale — an upgrade may
+  /// have committed a newer version while the session was playing. Passing it
+  /// straight to [cleanupOldArtifacts] would protect the *old* directory and
+  /// delete the live one, so the current version is re-read from the DAO (same
+  /// pattern as the importer's startup recovery).
   Future<void> retryCleanup(ArticleRef ref) async {
     try {
-      await cleanupOldArtifacts(ref);
+      final current = _dao.getArticle(ref.articleId);
+      if (current == null) return; // deleted while leased
+      await cleanupOldArtifacts(current.ref);
     } catch (_) {
       // Swallowed: cleanup is idempotent and retried on the next opportunity.
     }

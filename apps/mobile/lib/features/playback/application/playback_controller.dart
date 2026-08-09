@@ -58,13 +58,16 @@ class PlaybackController {
   int? _recoverableFocusToken;
 
   /// Starts a session from [request] (design §4.2). A new request supersedes
-  /// any prior session, releasing its source lease.
+  /// any prior session; the prior lease stays pinned until the driver has
+  /// switched to the new source, so cleanup can never delete a file the player
+  /// is still reading (design §6.3).
   Future<void> start(PlaybackRequest request) async {
     _beginCommand();
     final token = _token;
     try {
       final lease = await _source.acquire(request.articleRef);
-      // Superseded while acquiring: hand back the stale lease and bail.
+      // Superseded while acquiring: hand back the stale lease and bail. The
+      // prior session's lease (if any) is owned by the superseding command.
       if (token != _token) {
         _source.release(lease);
         return;
@@ -75,9 +78,17 @@ class PlaybackController {
         _fail(token, '该句子没有音频');
         return;
       }
+      // Take over the session, but keep the superseded lease pinned until the
+      // dispatch below returns: only then has the driver stopped reading the
+      // old file (its setAudioSource/seek awaits are inside _dispatchPlay).
+      final superseded = _lease;
       _lease = lease;
       state.value = _initialSnapshot(token, lease, request, range);
-      await _dispatchPlay(request, lease, range);
+      try {
+        await _dispatchPlay(request, lease, range);
+      } finally {
+        if (superseded != null) _source.release(superseded);
+      }
       if (token == _token) {
         _settledToken = token;
         state.value = state.value.copyWith(phase: PlaybackPhase.playing);
@@ -113,12 +124,16 @@ class PlaybackController {
   /// Stops and collapses the bar; state returns to idle. Idempotent.
   Future<void> stop() async {
     final token = ++_token;
-    _releaseLease();
     _recoverableFocusToken = null;
     await _driver.stop();
-    // A play command issued during the await owns the session now; writing idle
-    // here would kill it.
-    if (token == _token) state.value = const PlaybackSnapshot.idle();
+    // A play command issued during the await owns the session now — including
+    // the lease hand-off — so releasing or writing idle here would kill it.
+    if (token != _token) return;
+    // Focus and lease are released only after the driver's stop returned:
+    // until then the player may still be reading the leased file.
+    await _focus.releaseFocus();
+    _releaseLease();
+    state.value = const PlaybackSnapshot.idle();
   }
 
   /// Stops the active session iff it belongs to [articleId] — the prelude to a
@@ -132,6 +147,7 @@ class PlaybackController {
   Future<void> dispose() async {
     await _driverSub.cancel();
     await _focusSub.cancel();
+    await _focus.releaseFocus();
     _releaseLease();
     await _driver.dispose();
     await _events.close();
@@ -140,12 +156,14 @@ class PlaybackController {
 
   // ---- Command helpers ----
 
-  /// A new start supersedes the old session (UX-A2 replacement notice).
+  /// A new start supersedes the old session (UX-A2 replacement notice). The
+  /// old lease is NOT released here: the driver may still be reading the old
+  /// file, so custody passes to the new command, which releases it once the
+  /// driver has switched sources (see [start]).
   void _beginCommand() {
     final replacedContinuous =
         state.value.isActive && state.value.mode == PlaybackMode.continuous;
     _token++;
-    _releaseLease();
     _recoverableFocusToken = null;
     if (replacedContinuous) _events.add(ContinuousSessionReplaced());
   }
@@ -167,6 +185,7 @@ class PlaybackController {
 
   void _fail(int token, String reason) {
     if (token != _token) return;
+    unawaited(_focus.releaseFocus());
     _releaseLease();
     _recoverableFocusToken = null;
     unawaited(_driver.stop());
@@ -228,6 +247,7 @@ class PlaybackController {
       case DriverCompleted():
         // Only the settled session may complete (see class doc).
         if (!state.value.isActive || _settledToken != _token) return;
+        unawaited(_focus.releaseFocus());
         _releaseLease();
         state.value = const PlaybackSnapshot.idle();
       case DriverError():

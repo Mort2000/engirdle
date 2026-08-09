@@ -98,6 +98,8 @@ class FakePlaybackDriver implements PlaybackDriver {
 class FakeAudioFocusPort implements AudioFocusPort {
   @override
   Stream<AudioFocusEvent> get events => const Stream<AudioFocusEvent>.empty();
+  @override
+  Future<void> releaseFocus() async {}
 }
 
 /// Builds a full dependency graph on an in-memory database and a temp data
