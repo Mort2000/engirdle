@@ -12,7 +12,7 @@ class VocabularyEntry {
     this.lemma,
     this.partOfSpeech,
     required this.senseId,
-    required this.senseEn,
+    this.senseEn,
     this.senseZh,
     required this.sourceName,
     required this.dictionaryId,
@@ -32,7 +32,7 @@ class VocabularyEntry {
 
   /// Namespace-qualified sense id; persisted, never displayed.
   final String senseId;
-  final String senseEn;
+  final String? senseEn;
   final String? senseZh;
   final String sourceName;
   final String dictionaryId;

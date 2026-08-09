@@ -37,8 +37,10 @@ class _VocabBookPageState extends State<VocabBookPage> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             const Text('生词本'),
-            Text('${_entries.length} 条 · 按保存时间排序',
-                style: theme.textTheme.labelSmall),
+            Text(
+              '${_entries.length} 条 · 按保存时间排序',
+              style: theme.textTheme.labelSmall,
+            ),
           ],
         ),
       ),
@@ -50,8 +52,11 @@ class _VocabBookPageState extends State<VocabBookPage> {
             CircleAvatar(
               radius: 36,
               backgroundColor: PaletteScope.of(context).paper2,
-              child: Icon(Icons.bookmark_border,
-                  size: 32, color: theme.colorScheme.onSurfaceVariant),
+              child: Icon(
+                Icons.bookmark_border,
+                size: 32,
+                color: theme.colorScheme.onSurfaceVariant,
+              ),
             ),
             const SizedBox(height: 12),
             Center(child: Text('生词本还是空的', style: theme.textTheme.titleMedium)),
@@ -67,8 +72,9 @@ class _VocabBookPageState extends State<VocabBookPage> {
                 entry: entry,
                 onTap: () async {
                   await Navigator.of(context).pushNamed(
-                      AppRoutes.vocabularyDetail,
-                      arguments: entry.vocabularyId);
+                    AppRoutes.vocabularyDetail,
+                    arguments: entry.vocabularyId,
+                  );
                   _reload();
                 },
               ),
@@ -115,14 +121,17 @@ class _VocabTile extends StatelessWidget {
                   Text(
                     headline.toString(),
                     style: const TextStyle(
-                        fontFamily: 'serif',
-                        fontSize: 13.5,
-                        fontWeight: FontWeight.w600),
+                      fontFamily: 'serif',
+                      fontSize: 13.5,
+                      fontWeight: FontWeight.w600,
+                    ),
                   ),
-                  Text(entry.senseZh ?? entry.senseEn,
-                      style: theme.textTheme.bodySmall,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis),
+                  Text(
+                    entry.senseZh ?? entry.senseEn ?? '无可用释义',
+                    style: theme.textTheme.bodySmall,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
                   Text(
                     '出自《${entry.articleTitle}》第 ${entry.ref.revision} 版 · ${formatRelative(entry.createdAt)}',
                     style: theme.textTheme.bodySmall,
@@ -130,8 +139,11 @@ class _VocabTile extends StatelessWidget {
                 ],
               ),
             ),
-            Icon(Icons.chevron_right,
-                size: 18, color: theme.colorScheme.onSurfaceVariant),
+            Icon(
+              Icons.chevron_right,
+              size: 18,
+              color: theme.colorScheme.onSurfaceVariant,
+            ),
           ],
         ),
       ),

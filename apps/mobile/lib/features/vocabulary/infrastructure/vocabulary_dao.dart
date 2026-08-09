@@ -44,52 +44,56 @@ class VocabularyDao {
   }
 
   void delete(String vocabularyId) {
-    _db.execute('DELETE FROM vocabulary WHERE vocabulary_id = ?',
-        [vocabularyId]);
+    _db.execute('DELETE FROM vocabulary WHERE vocabulary_id = ?', [
+      vocabularyId,
+    ]);
   }
 
   /// Default order: newest first (design 假设⑤).
   List<VocabularyEntry> list() {
     final rows = _db.select(
-        'SELECT $_cols FROM vocabulary ORDER BY created_at DESC, rowid DESC');
+      'SELECT $_cols FROM vocabulary ORDER BY created_at DESC, rowid DESC',
+    );
     return [for (final row in rows) _fromRow(row)];
   }
 
   VocabularyEntry? byId(String vocabularyId) {
     final rows = _db.select(
-        'SELECT $_cols FROM vocabulary WHERE vocabulary_id = ?',
-        [vocabularyId]);
+      'SELECT $_cols FROM vocabulary WHERE vocabulary_id = ?',
+      [vocabularyId],
+    );
     if (rows.isEmpty) return null;
     return _fromRow(rows.first);
   }
 
   int countForArticle(String articleId) {
     final rows = _db.select(
-        'SELECT COUNT(*) AS n FROM vocabulary WHERE article_id = ?',
-        [articleId]);
+      'SELECT COUNT(*) AS n FROM vocabulary WHERE article_id = ?',
+      [articleId],
+    );
     return rows.first['n'] as int;
   }
 
   static VocabularyEntry _fromRow(Row row) => VocabularyEntry(
-        vocabularyId: row['vocabulary_id'] as String,
-        surface: row['surface'] as String,
-        normalized: row['normalized'] as String,
-        lemma: row['lemma'] as String?,
-        partOfSpeech: row['part_of_speech'] as String?,
-        senseId: row['sense_id'] as String,
-        senseEn: row['sense_en'] as String,
-        senseZh: row['sense_zh'] as String?,
-        sourceName: row['source_name'] as String,
-        dictionaryId: row['dictionary_id'] as String,
-        dictionaryRevision: row['dictionary_revision'] as int,
-        ref: SentenceRef(
-          articleId: row['article_id'] as String,
-          revision: row['revision'] as int,
-          sentenceId: row['sentence_id'] as String,
-        ),
-        sentenceText: row['sentence_text'] as String,
-        sentenceTranslationZh: row['sentence_translation_zh'] as String?,
-        articleTitle: row['article_title'] as String,
-        createdAt: DateTime.parse(row['created_at'] as String).toLocal(),
-      );
+    vocabularyId: row['vocabulary_id'] as String,
+    surface: row['surface'] as String,
+    normalized: row['normalized'] as String,
+    lemma: row['lemma'] as String?,
+    partOfSpeech: row['part_of_speech'] as String?,
+    senseId: row['sense_id'] as String,
+    senseEn: row['sense_en'] as String?,
+    senseZh: row['sense_zh'] as String?,
+    sourceName: row['source_name'] as String,
+    dictionaryId: row['dictionary_id'] as String,
+    dictionaryRevision: row['dictionary_revision'] as int,
+    ref: SentenceRef(
+      articleId: row['article_id'] as String,
+      revision: row['revision'] as int,
+      sentenceId: row['sentence_id'] as String,
+    ),
+    sentenceText: row['sentence_text'] as String,
+    sentenceTranslationZh: row['sentence_translation_zh'] as String?,
+    articleTitle: row['article_title'] as String,
+    createdAt: DateTime.parse(row['created_at'] as String).toLocal(),
+  );
 }

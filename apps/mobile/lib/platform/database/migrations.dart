@@ -178,6 +178,49 @@ const kMigrations = <List<String>>[
     ''',
     'DROP TABLE dictionary_manifest_legacy',
   ],
+  // v2 → v3: Chinese-only dictionary senses must remain Chinese-only in
+  // frozen vocabulary snapshots; sense_en is therefore nullable.
+  [
+    'ALTER TABLE vocabulary RENAME TO vocabulary_legacy',
+    '''
+    CREATE TABLE vocabulary (
+      vocabulary_id TEXT PRIMARY KEY,
+      surface TEXT NOT NULL,
+      normalized TEXT NOT NULL,
+      lemma TEXT,
+      part_of_speech TEXT,
+      sense_id TEXT NOT NULL,
+      sense_en TEXT,
+      sense_zh TEXT,
+      source_name TEXT NOT NULL,
+      dictionary_id TEXT NOT NULL,
+      dictionary_revision INTEGER NOT NULL,
+      article_id TEXT NOT NULL,
+      revision INTEGER NOT NULL,
+      sentence_id TEXT NOT NULL,
+      sentence_text TEXT NOT NULL,
+      sentence_translation_zh TEXT,
+      article_title TEXT NOT NULL,
+      created_at TEXT NOT NULL
+    )
+    ''',
+    '''
+    INSERT INTO vocabulary (
+      vocabulary_id, surface, normalized, lemma, part_of_speech, sense_id,
+      sense_en, sense_zh, source_name, dictionary_id, dictionary_revision,
+      article_id, revision, sentence_id, sentence_text,
+      sentence_translation_zh, article_title, created_at
+    )
+    SELECT
+      vocabulary_id, surface, normalized, lemma, part_of_speech, sense_id,
+      sense_en, sense_zh, source_name, dictionary_id, dictionary_revision,
+      article_id, revision, sentence_id, sentence_text,
+      sentence_translation_zh, article_title, created_at
+    FROM vocabulary_legacy
+    ''',
+    'DROP TABLE vocabulary_legacy',
+    'CREATE INDEX idx_vocabulary_created ON vocabulary(created_at DESC)',
+  ],
 ];
 
 /// Applies pending migrations inside a single transaction.

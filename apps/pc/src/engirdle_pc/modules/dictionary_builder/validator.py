@@ -10,6 +10,10 @@ from zipfile import ZipFile
 
 from jsonschema import Draft202012Validator, FormatChecker  # type: ignore[import-untyped]
 
+from engirdle_pc.modules.dictionary_builder.sources import (
+    FREEDICT_2025_11_23_SHA256,
+    OEWN_2025_SHA256,
+)
 from engirdle_pc.shared.domain.hashing import sha256_bytes
 
 
@@ -18,6 +22,8 @@ class DictionaryPackValidator:
     _MAX_DATABASE_BYTES: ClassVar[int] = 512 * 1024 * 1024
     _MAX_EXPANDED_BYTES: ClassVar[int] = 640 * 1024 * 1024
     _MAX_ENTRIES: ClassVar[int] = 16
+    _MAX_MANIFEST_BYTES: ClassVar[int] = 1024 * 1024
+    _MAX_LICENSE_BYTES: ClassVar[int] = 1024 * 1024
     _SOURCE_IDS: ClassVar[set[str]] = {
         "oewn-2025",
         "freedict-eng-zho-2025.11.23",
@@ -29,9 +35,17 @@ class DictionaryPackValidator:
         "idx_forms_normalized_order",
     }
 
-    def __init__(self, contracts_dir: Path) -> None:
+    def __init__(
+        self,
+        contracts_dir: Path,
+        *,
+        oewn_sha256: str = OEWN_2025_SHA256,
+        freedict_sha256: str = FREEDICT_2025_11_23_SHA256,
+    ) -> None:
         schema = contracts_dir / "dictionary/v1/schema/manifest.schema.json"
         self._schema = cast(dict[str, Any], json.loads(schema.read_text(encoding="utf-8")))
+        self._oewn_sha256 = oewn_sha256
+        self._freedict_sha256 = freedict_sha256
 
     def validate(self, package_path: Path) -> None:
         if package_path.stat().st_size > self._MAX_PACKAGE_BYTES:
@@ -47,6 +61,13 @@ class DictionaryPackValidator:
             for entry in entries:
                 self._validate_entry(entry.filename, entry.external_attr, entry.flag_bits)
                 total_expanded += entry.file_size
+                if entry.filename == "manifest.json" and entry.file_size > self._MAX_MANIFEST_BYTES:
+                    raise ValueError("dictionary manifest exceeds the v1 size limit")
+                if (
+                    entry.filename.startswith("licenses/")
+                    and entry.file_size > self._MAX_LICENSE_BYTES
+                ):
+                    raise ValueError("dictionary license notice exceeds the v1 size limit")
                 if entry.filename == "dictionary.db" and entry.file_size > self._MAX_DATABASE_BYTES:
                     raise ValueError("dictionary database exceeds the v1 size limit")
             if total_expanded > self._MAX_EXPANDED_BYTES:
@@ -66,6 +87,7 @@ class DictionaryPackValidator:
             source_ids = [source["source_id"] for source in manifest["sources"]]
             if len(set(source_ids)) != 2 or set(source_ids) != self._SOURCE_IDS:
                 raise ValueError("dictionary manifest formal source set is invalid")
+            self._validate_formal_sources(manifest)
             if set(manifest["license_files"]) != {
                 name for name in names if name.startswith("licenses/")
             }:
@@ -81,6 +103,29 @@ class DictionaryPackValidator:
                 database_path = Path(temporary) / "dictionary.db"
                 database_path.write_bytes(database_bytes)
                 self._validate_database(database_path, manifest)
+
+    def _validate_formal_sources(self, manifest: dict[str, Any]) -> None:
+        sources = {source["source_id"]: source for source in manifest["sources"]}
+        oewn = sources["oewn-2025"]
+        freedict = sources["freedict-eng-zho-2025.11.23"]
+        if (
+            oewn["version"] != "2025"
+            or oewn["direction"] != "en-en"
+            or oewn["input"]["url"] != "https://en-word.net/static/english-wordnet-2025.xml.gz"
+            or oewn["input"]["sha256"] != self._oewn_sha256
+        ):
+            raise ValueError("OEWN formal source identity is invalid")
+        if (
+            freedict["version"] != "2025.11.23"
+            or freedict["direction"] != "en-zh"
+            or freedict["input"]["url"]
+            != (
+                "https://download.freedict.org/dictionaries/eng-zho/2025.11.23/"
+                "freedict-eng-zho-2025.11.23.src.tar.xz"
+            )
+            or freedict["input"]["sha256"] != self._freedict_sha256
+        ):
+            raise ValueError("FreeDict formal source identity is invalid")
 
     @staticmethod
     def _validate_entry(name: str, external_attributes: int, flags: int) -> None:

@@ -38,7 +38,7 @@
       "required": ["algorithm", "version"],
       "properties": {
         "algorithm": {"type": "string", "minLength": 1, "maxLength": 1024},
-        "version": {"type": "string", "minLength": 1, "maxLength": 128}
+        "version": {"const": "unicode-nfc-lower-v1"}
       },
       "additionalProperties": true
     },

@@ -52,9 +52,17 @@ class DictionaryBuildRequest:
 
 
 @dataclass(frozen=True)
+class SourceBuildSummary:
+    source_id: str
+    input_sha256: str
+    counts: SourceCounts
+
+
+@dataclass(frozen=True)
 class DictionaryArtifact:
     dictionary_id: str
     revision: int
     path: Path
     size: int
     sha256: str
+    sources: tuple[SourceBuildSummary, ...]

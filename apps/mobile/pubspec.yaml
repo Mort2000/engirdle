@@ -26,6 +26,8 @@ dependencies:
   audio_service: ^0.18.19
   # SHA-256 streaming verification.
   crypto: ^3.0.7
+  # Contract-compatible Unicode NFC lookup keys.
+  unorm_dart: ^0.3.2
 
 dev_dependencies:
   flutter_test:

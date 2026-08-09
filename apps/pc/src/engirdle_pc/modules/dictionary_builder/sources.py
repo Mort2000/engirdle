@@ -7,6 +7,7 @@ import tarfile
 import unicodedata
 import xml.etree.ElementTree as ET
 from collections.abc import Iterator
+from dataclasses import dataclass
 from pathlib import Path
 
 from engirdle_pc.modules.dictionary_builder.domain import (
@@ -18,6 +19,8 @@ from engirdle_pc.modules.dictionary_builder.domain import (
 
 OEWN_SOURCE_ID = "oewn-2025"
 FREEDICT_SOURCE_ID = "freedict-eng-zho-2025.11.23"
+OEWN_2025_SHA256 = "9ca6d1dcb75f822fdd66617f7d9da48142ace38dd544d6ad5e2feca1674ad3fe"
+FREEDICT_2025_11_23_SHA256 = "78f6909786861809886201827e5e3d55dbf8e12f753d7a7183e785dbc574de8b"
 
 _XML_ID = "{http://www.w3.org/XML/1998/namespace}id"
 _XML_LANG = "{http://www.w3.org/XML/1998/namespace}lang"
@@ -37,8 +40,22 @@ _POS_NAMES = {
 }
 
 
+@dataclass(frozen=True)
+class _FreedictSenseRow:
+    node: ET.Element
+    gloss_en: str | None
+    gloss_zh: str | None
+
+
 class OewnLmfSource:
     """Streaming reader for the official OEWN 2025 GWN-LMF gzip release."""
+
+    def __init__(self, *, expected_sha256: str = OEWN_2025_SHA256) -> None:
+        self._expected_sha256 = expected_sha256
+
+    @property
+    def expected_sha256(self) -> str:
+        return self._expected_sha256
 
     def read(self, archive: Path) -> ParsedDictionarySource:
         if archive.name not in {
@@ -46,6 +63,8 @@ class OewnLmfSource:
             "english-wordnet-2025.xml",
         }:
             raise ValueError("OEWN input must be the official 2025 core LMF release")
+        _require_snapshot(archive, self._expected_sha256, "OEWN 2025")
+        self._validate_metadata(archive)
         synsets = self._read_synsets(archive)
         entries: list[DictionaryEntry] = []
         forms: list[DictionaryForm] = []
@@ -86,10 +105,14 @@ class OewnLmfSource:
                 continue
             explicit_forms = {
                 form
-                for node in _descendants(lexical_entry, "WordForm")
+                for node in _descendants(lexical_entry, "Form")
                 if (form := _written_form(node)) and normalize(form) != normalize(lemma)
             }
-            all_forms = explicit_forms | _generated_forms(lemma, pos)
+            all_forms = explicit_forms | _generated_forms(
+                lemma,
+                pos,
+                has_explicit_forms=bool(explicit_forms),
+            )
             for form_order, form in enumerate(
                 sorted(all_forms, key=lambda value: (normalize(value), value))
             ):
@@ -123,6 +146,24 @@ class OewnLmfSource:
         return result
 
     @staticmethod
+    def _validate_metadata(archive: Path) -> None:
+        opener = gzip.open if archive.suffix == ".gz" else Path.open
+        with opener(archive, "rb") as stream:
+            for _, element in ET.iterparse(stream, events=("start",)):
+                if _local_name(element.tag) != "Lexicon":
+                    continue
+                if (
+                    element.attrib.get("id") != "oewn"
+                    or element.attrib.get("language") != "en"
+                    or element.attrib.get("version") != "2025"
+                    or element.attrib.get("license")
+                    != "https://creativecommons.org/licenses/by/4.0"
+                ):
+                    raise ValueError("OEWN internal release metadata is not the frozen 2025 core")
+                return
+        raise ValueError("OEWN input does not contain Lexicon metadata")
+
+    @staticmethod
     def _elements(archive: Path, wanted: str) -> Iterator[ET.Element]:
         opener = gzip.open if archive.suffix == ".gz" else Path.open
         with opener(archive, "rb") as stream:
@@ -137,15 +178,24 @@ class FreedictTeiSource:
 
     _MAX_TEI_BYTES = 256 * 1024 * 1024
 
+    def __init__(self, *, expected_sha256: str = FREEDICT_2025_11_23_SHA256) -> None:
+        self._expected_sha256 = expected_sha256
+
+    @property
+    def expected_sha256(self) -> str:
+        return self._expected_sha256
+
     def read(self, archive: Path) -> ParsedDictionarySource:
         if archive.name != "freedict-eng-zho-2025.11.23.src.tar.xz":
             raise ValueError(
                 "FreeDict input must be the official eng-zho 2025.11.23 source package"
             )
+        _require_snapshot(archive, self._expected_sha256, "FreeDict eng-zho 2025.11.23")
         entries: list[DictionaryEntry] = []
         forms: list[DictionaryForm] = []
         original = 0
         filtered = 0
+        edition: str | None = None
         with tarfile.open(archive, "r:xz") as tar:
             candidates = [
                 member
@@ -158,18 +208,21 @@ class FreedictTeiSource:
             if extracted is None:
                 raise ValueError("FreeDict TEI source is unreadable")
             for _, entry_node in ET.iterparse(extracted, events=("end",)):
-                if _local_name(entry_node.tag) != "entry":
+                local_name = _local_name(entry_node.tag)
+                if local_name == "edition" and edition is None:
+                    edition = _text(entry_node)
+                if local_name != "entry":
                     continue
                 original += 1
                 headword = _lemma_from_tei(entry_node)
                 entry_pos = _pos(_first_text(entry_node, "pos"))
                 pronunciation = _first_text(entry_node, "pron")
                 accepted = 0
-                sense_nodes = list(_descendants(entry_node, "sense"))
-                if not sense_nodes:
-                    sense_nodes = [entry_node]
-                for sense_order, sense in enumerate(sense_nodes):
-                    gloss_en, gloss_zh = _freedict_glosses(sense)
+                sense_rows = list(_freedict_sense_rows(entry_node))
+                for sense_order, sense_row in enumerate(sense_rows):
+                    sense = sense_row.node
+                    gloss_en = sense_row.gloss_en
+                    gloss_zh = sense_row.gloss_zh
                     if not headword or (not gloss_en and not gloss_zh):
                         continue
                     sense_pos = _pos(_first_text(sense, "pos"))
@@ -178,7 +231,7 @@ class FreedictTeiSource:
                     raw_id = sense.attrib.get(_XML_ID) or sense.attrib.get("id")
                     if not raw_id:
                         stable = "|".join(
-                            (headword, sense_pos, gloss_en or "", gloss_zh or "", str(sense_order))
+                            [headword, sense_pos, gloss_en or "", gloss_zh or "", str(sense_order)]
                         )
                         raw_id = hashlib.sha256(stable.encode()).hexdigest()[:20]
                     entries.append(
@@ -221,6 +274,8 @@ class FreedictTeiSource:
                         )
                     )
                 entry_node.clear()
+        if edition != "2025.11.23":
+            raise ValueError("FreeDict internal edition is not the frozen 2025.11.23 release")
         return ParsedDictionarySource(
             entries=tuple(entries),
             forms=tuple(forms),
@@ -233,7 +288,7 @@ class FreedictTeiSource:
 
 
 def normalize(value: str) -> str:
-    return _WHITESPACE.sub(" ", unicodedata.normalize("NFC", value).strip()).casefold()
+    return _WHITESPACE.sub(" ", unicodedata.normalize("NFC", value).strip()).lower()
 
 
 def _local_name(tag: str) -> str:
@@ -278,10 +333,33 @@ def _lemma_from_tei(entry: ET.Element) -> str:
     return _first_text(entry, "orth") or ""
 
 
-def _freedict_glosses(sense: ET.Element) -> tuple[str | None, str | None]:
+def _freedict_sense_rows(
+    entry: ET.Element,
+) -> Iterator[_FreedictSenseRow]:
+    top_level = [node for node in entry if _local_name(node.tag) == "sense"]
+    for outer in top_level or [entry]:
+        outer_english, outer_chinese = _freedict_direct_glosses(outer)
+        children = [node for node in outer if _local_name(node.tag) == "sense"]
+        if not children:
+            yield _FreedictSenseRow(
+                node=outer,
+                gloss_en=_join_unique(outer_english),
+                gloss_zh=_join_unique(outer_chinese),
+            )
+            continue
+        for child in children:
+            child_english, child_chinese = _freedict_direct_glosses(child)
+            yield _FreedictSenseRow(
+                node=child,
+                gloss_en=_join_unique([*outer_english, *child_english]),
+                gloss_zh=_join_unique([*outer_chinese, *child_chinese]),
+            )
+
+
+def _freedict_direct_glosses(sense: ET.Element) -> tuple[list[str], list[str]]:
     english: list[str] = []
     chinese: list[str] = []
-    for node in sense.iter():
+    for node in _without_nested_senses(sense):
         local = _local_name(node.tag)
         if local not in {"def", "quote"}:
             continue
@@ -293,7 +371,15 @@ def _freedict_glosses(sense: ET.Element) -> tuple[str | None, str | None]:
             english.append(value)
         else:
             chinese.append(value)
-    return (_join_unique(english), _join_unique(chinese))
+    return english, chinese
+
+
+def _without_nested_senses(element: ET.Element) -> Iterator[ET.Element]:
+    for child in element:
+        if _local_name(child.tag) == "sense":
+            continue
+        yield child
+        yield from _without_nested_senses(child)
 
 
 def _join_unique(values: list[str]) -> str | None:
@@ -305,7 +391,12 @@ def _pos(raw: str | None) -> str:
     return _POS_NAMES.get((raw or "").strip().lower().rstrip("."), "other")
 
 
-def _generated_forms(lemma: str, part_of_speech: str) -> set[str]:
+def _generated_forms(
+    lemma: str,
+    part_of_speech: str,
+    *,
+    has_explicit_forms: bool = False,
+) -> set[str]:
     if " " in lemma or "-" in lemma or not lemma.isalpha():
         return set()
     lower = lemma.lower()
@@ -324,6 +415,11 @@ def _generated_forms(lemma: str, part_of_speech: str) -> set[str]:
     irregular_forms = irregular.get((lower, part_of_speech))
     if irregular_forms is not None:
         return set(irregular_forms)
+    if has_explicit_forms:
+        # OEWN's explicit Form nodes encode spelling-sensitive inflections
+        # (for example stopped/stopping). Only add the spelling-safe present
+        # tense here so a generic suffix rule cannot reintroduce stoped/stoping.
+        return {_third_person(lower)} if part_of_speech == "verb" else set()
     forms: set[str] = set()
     if part_of_speech == "noun":
         forms.add(_plural(lower))
@@ -333,6 +429,15 @@ def _generated_forms(lemma: str, part_of_speech: str) -> set[str]:
         forms.update({_comparative(lower), _superlative(lower)})
     forms.discard(lower)
     return forms
+
+
+def _require_snapshot(path: Path, expected_sha256: str, label: str) -> None:
+    digest = hashlib.sha256()
+    with path.open("rb") as stream:
+        for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+            digest.update(chunk)
+    if digest.hexdigest() != expected_sha256:
+        raise ValueError(f"{label} snapshot sha256 does not match the frozen release")
 
 
 def _plural(word: str) -> str:

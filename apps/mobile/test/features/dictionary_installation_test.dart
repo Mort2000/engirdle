@@ -332,6 +332,80 @@ void main() {
       expect(service.currentResource(), isNull);
     },
   );
+
+  test('a manifest above its per-entry limit is rejected', () async {
+    final temp = await Directory.systemTemp.createTemp(
+      'dictionary_large_manifest_',
+    );
+    addTearDown(() async {
+      if (await temp.exists()) await temp.delete(recursive: true);
+    });
+    final dirs = AppDirectories(Directory(p.join(temp.path, 'app')));
+    await dirs.ensureBaseLayout();
+    final appDb = AppDatabase.inMemory();
+    addTearDown(appDb.close);
+    final service = DictionaryService(
+      manifestDao: DictionaryManifestDao(appDb.db),
+      directories: dirs,
+    );
+    addTearDown(service.dispose);
+    final package = await _buildPackage(
+      temp,
+      revision: 1,
+      manifestPaddingBytes: 1024 * 1024 + 1,
+    );
+
+    await expectLater(
+      service.install(
+        LocalDictionaryPackageSource(
+          descriptor: await _descriptor(package, revision: 1),
+          package: package,
+        ),
+      ),
+      throwsA(isA<AppFailure>()),
+    );
+
+    expect(service.currentResource(), isNull);
+  });
+
+  test('an installed resource cannot be downgraded', () async {
+    final temp = await Directory.systemTemp.createTemp('dictionary_downgrade_');
+    addTearDown(() async {
+      if (await temp.exists()) await temp.delete(recursive: true);
+    });
+    final dirs = AppDirectories(Directory(p.join(temp.path, 'app')));
+    await dirs.ensureBaseLayout();
+    final appDb = AppDatabase.inMemory();
+    addTearDown(appDb.close);
+    final service = DictionaryService(
+      manifestDao: DictionaryManifestDao(appDb.db),
+      directories: dirs,
+    );
+    addTearDown(service.dispose);
+    final revisionTwoRoot = Directory(p.join(temp.path, 'r2'))..createSync();
+    final revisionOneRoot = Directory(p.join(temp.path, 'r1'))..createSync();
+    final revisionTwo = await _buildPackage(revisionTwoRoot, revision: 2);
+    final revisionOne = await _buildPackage(revisionOneRoot, revision: 1);
+    await service.install(
+      LocalDictionaryPackageSource(
+        descriptor: await _descriptor(revisionTwo, revision: 2),
+        package: revisionTwo,
+      ),
+    );
+
+    await expectLater(
+      service.install(
+        LocalDictionaryPackageSource(
+          descriptor: await _descriptor(revisionOne, revision: 1),
+          package: revisionOne,
+        ),
+      ),
+      throwsA(isA<AppFailure>()),
+    );
+
+    expect(service.currentResource()!.revision, 2);
+    expect(service.lookup('mend'), isA<DictionaryLookupFound>());
+  });
 }
 
 Future<DictionaryPackageDescriptor> _descriptor(
@@ -354,6 +428,7 @@ Future<File> _buildPackage(
   String oewnVersion = '2025',
   String generatedAt = '2026-08-09T00:00:00Z',
   bool includeEmptySense = false,
+  int manifestPaddingBytes = 0,
 }) async {
   final database = File(p.join(root.path, 'dictionary-$revision.db'));
   final db = sqlite3.open(database.path);
@@ -414,7 +489,7 @@ Future<File> _buildPackage(
   ]);
   db.execute('INSERT INTO dictionary_meta VALUES (?, ?)', [
     'normalization_version',
-    'unicode-nfc-casefold-v1',
+    'unicode-nfc-lower-v1',
   ]);
   db.execute(
     'INSERT INTO entries VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
@@ -489,8 +564,8 @@ Future<File> _buildPackage(
     'generated_at': generatedAt,
     'builder': {'name': 'test-builder', 'version': '1.0.0'},
     'normalization': {
-      'algorithm': 'Unicode NFC, whitespace collapse and Unicode case-fold',
-      'version': 'unicode-nfc-casefold-v1',
+      'algorithm': 'Unicode NFC, whitespace collapse and Unicode lowercase',
+      'version': 'unicode-nfc-lower-v1',
     },
     'database': {
       'path': 'dictionary.db',
@@ -516,6 +591,7 @@ Future<File> _buildPackage(
       'licenses/oewn-2025.txt',
       'licenses/freedict-eng-zho-2025.11.23.txt',
     ],
+    if (manifestPaddingBytes > 0) 'padding': 'x' * manifestPaddingBytes,
   };
   final zip = TestZipBuilder()
     ..addStored('manifest.json', utf8.encode(jsonEncode(manifest)))
@@ -546,7 +622,9 @@ Map<String, Object> _source({
         ? 'https://en-word.net/static/english-wordnet-2025.xml.gz'
         : 'https://download.freedict.org/dictionaries/eng-zho/2025.11.23/'
               'freedict-eng-zho-2025.11.23.src.tar.xz',
-    'sha256': 'a' * 64,
+    'sha256': id == 'oewn-2025'
+        ? '9ca6d1dcb75f822fdd66617f7d9da48142ace38dd544d6ad5e2feca1674ad3fe'
+        : '78f6909786861809886201827e5e3d55dbf8e12f753d7a7183e785dbc574de8b',
   },
   'licenses': [
     {'name': license, 'url': 'https://example.invalid/license'},

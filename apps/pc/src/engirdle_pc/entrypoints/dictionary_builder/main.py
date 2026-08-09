@@ -43,8 +43,29 @@ def main() -> None:
             generated_at=arguments.generated_at,
         )
     )
+    for source in artifact.sources:
+        logging.info(
+            "dictionary source complete: source_id=%s input_sha256=%s "
+            "original_headwords=%d filtered_headwords=%d final_headwords=%d",
+            source.source_id,
+            source.input_sha256,
+            source.counts.original_headwords,
+            source.counts.filtered_headwords,
+            source.counts.final_headwords,
+            extra={
+                "source_id": source.source_id,
+                "input_sha256": source.input_sha256,
+                "original_headwords": source.counts.original_headwords,
+                "filtered_headwords": source.counts.filtered_headwords,
+                "final_headwords": source.counts.final_headwords,
+            },
+        )
     logging.info(
-        "dictionary build complete",
+        "dictionary build complete: dictionary_id=%s revision=%d size=%d sha256=%s",
+        artifact.dictionary_id,
+        artifact.revision,
+        artifact.size,
+        artifact.sha256,
         extra={
             "dictionary_id": artifact.dictionary_id,
             "revision": artifact.revision,

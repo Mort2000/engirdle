@@ -14,6 +14,10 @@ from engirdle_pc.modules.dictionary_builder.public import (
     DictionaryBuildRequest,
     DictionaryPublisher,
 )
+from engirdle_pc.modules.dictionary_builder.sources import (
+    FreedictTeiSource,
+    OewnLmfSource,
+)
 from engirdle_pc.shared.infrastructure.workspace import Workspace
 
 
@@ -32,8 +36,9 @@ def test_builder_emits_deterministic_versioned_bilingual_dictpack(
         generated_at="2026-08-09T00:00:00Z",
     )
 
-    artifact = DictionaryBuilder().build(request)
-    DictionaryBuilder().build(
+    builder = _fixture_builder(oewn, freedict)
+    artifact = builder.build(request)
+    _fixture_builder(oewn, freedict).build(
         DictionaryBuildRequest(
             oewn_archive=oewn,
             freedict_archive=freedict,
@@ -46,6 +51,18 @@ def test_builder_emits_deterministic_versioned_bilingual_dictpack(
     assert artifact.dictionary_id == "engirdle-en-zh"
     assert artifact.revision == 1
     assert artifact.sha256 == _sha256(first)
+    assert len(artifact.sources) == 2
+    oewn_summary, freedict_summary = artifact.sources
+    assert oewn_summary.source_id == "oewn-2025"
+    assert oewn_summary.input_sha256 == _sha256(oewn)
+    assert oewn_summary.counts.original_headwords == 5
+    assert oewn_summary.counts.filtered_headwords == 0
+    assert oewn_summary.counts.final_headwords == 4
+    assert freedict_summary.source_id == "freedict-eng-zho-2025.11.23"
+    assert freedict_summary.input_sha256 == _sha256(freedict)
+    assert freedict_summary.counts.original_headwords == 2
+    assert freedict_summary.counts.filtered_headwords == 0
+    assert freedict_summary.counts.final_headwords == 2
     assert first.read_bytes() == second.read_bytes()
 
     with ZipFile(first) as package:
@@ -65,9 +82,9 @@ def test_builder_emits_deterministic_versioned_bilingual_dictpack(
             "freedict-eng-zho-2025.11.23",
         ]
         assert manifest["sources"][0]["counts"] == {
-            "original_headwords": 4,
+            "original_headwords": 5,
             "filtered_headwords": 0,
-            "final_headwords": 3,
+            "final_headwords": 4,
         }
         assert manifest["sources"][1]["counts"] == {
             "original_headwords": 2,
@@ -93,7 +110,7 @@ def test_builder_emits_deterministic_versioned_bilingual_dictpack(
             (
                 "mend",
                 "verb",
-                None,
+                "to repair something",
                 "修理; 修补",
                 "freedict-eng-zho-2025.11.23",
             ),
@@ -110,6 +127,16 @@ def test_builder_emits_deterministic_versioned_bilingual_dictpack(
             == []
         )
         assert connection.execute(
+            "SELECT normalized_form FROM forms WHERE lemma = 'stop' ORDER BY normalized_form"
+        ).fetchall() == [("stopped",), ("stopping",), ("stops",)]
+        assert (
+            connection.execute(
+                "SELECT normalized_form FROM forms WHERE lemma = 'stop' "
+                "AND normalized_form IN ('stoped', 'stoping')"
+            ).fetchall()
+            == []
+        )
+        assert connection.execute(
             "SELECT gloss_en FROM entries WHERE normalized_headword = 'take off'"
         ).fetchone() == ("to leave the ground",)
         assert connection.execute(
@@ -120,16 +147,26 @@ def test_builder_emits_deterministic_versioned_bilingual_dictpack(
         assert connection.execute(
             "SELECT COUNT(*) FROM entries WHERE normalized_headword = 'not-a-word'"
         ).fetchone() == (0,)
+        assert connection.execute(
+            "SELECT gloss_en, gloss_zh FROM entries "
+            "WHERE source_id = 'freedict-eng-zho-2025.11.23' "
+            "AND normalized_headword = 'bank' ORDER BY ord"
+        ).fetchall() == [
+            ("a financial institution", "银行"),
+            ("the building used by that institution", "银行"),
+        ]
         assert connection.execute("PRAGMA quick_check").fetchone() == ("ok",)
 
 
 def test_publisher_copies_an_immutable_package_and_records_catalog_metadata(
     tmp_path: Path,
 ) -> None:
-    artifact = DictionaryBuilder().build(
+    oewn = _write_oewn_fixture(tmp_path)
+    freedict = _write_freedict_fixture(tmp_path)
+    artifact = _fixture_builder(oewn, freedict).build(
         DictionaryBuildRequest(
-            oewn_archive=_write_oewn_fixture(tmp_path),
-            freedict_archive=_write_freedict_fixture(tmp_path),
+            oewn_archive=oewn,
+            freedict_archive=freedict,
             output=tmp_path / "built.dictpack",
             revision=1,
             generated_at="2026-08-09T00:00:00Z",
@@ -148,7 +185,7 @@ def test_publisher_copies_an_immutable_package_and_records_catalog_metadata(
     assert sidecar["dictionary_id"] == "engirdle-en-zh"
     assert sidecar["sha256"] == artifact.sha256
 
-    different = DictionaryBuilder().build(
+    different = _fixture_builder(oewn, freedict).build(
         DictionaryBuildRequest(
             oewn_archive=tmp_path / "english-wordnet-2025.xml.gz",
             freedict_archive=tmp_path / "freedict-eng-zho-2025.11.23.src.tar.xz",
@@ -165,14 +202,31 @@ def test_publisher_copies_an_immutable_package_and_records_catalog_metadata(
     )
 
 
+def test_default_builder_rejects_renamed_untrusted_snapshots(tmp_path: Path) -> None:
+    oewn = _write_oewn_fixture(tmp_path)
+    freedict = _write_freedict_fixture(tmp_path)
+
+    with pytest.raises(ValueError, match="snapshot sha256"):
+        DictionaryBuilder().build(
+            DictionaryBuildRequest(
+                oewn_archive=oewn,
+                freedict_archive=freedict,
+                output=tmp_path / "untrusted.dictpack",
+                revision=1,
+                generated_at="2026-08-09T00:00:00Z",
+            )
+        )
+
+
 def _write_oewn_fixture(root: Path) -> Path:
     path = root / "english-wordnet-2025.xml.gz"
     payload = """<?xml version="1.0" encoding="UTF-8"?>
 <LexicalResource xmlns="http://globalwordnet.github.io/schemas/WN-LMF-1.3">
-  <Lexicon id="oewn" label="Open English WordNet" language="en">
+  <Lexicon id="oewn" label="Open English WordNet" language="en"
+           version="2025" license="https://creativecommons.org/licenses/by/4.0">
     <LexicalEntry id="oewn-mend-v">
       <Lemma writtenForm="mend" partOfSpeech="v" />
-      <WordForm writtenForm="mended" />
+      <Form writtenForm="mended" />
       <Sense id="oewn-mend-v-1" synset="oewn-0001-v" />
     </LexicalEntry>
     <LexicalEntry id="oewn-take-off-v">
@@ -187,6 +241,12 @@ def _write_oewn_fixture(root: Path) -> Path:
       <Lemma writtenForm="go" partOfSpeech="v" />
       <Sense id="oewn-go-v-1" synset="oewn-0004-v" />
     </LexicalEntry>
+    <LexicalEntry id="oewn-stop-v">
+      <Lemma writtenForm="stop" partOfSpeech="v" />
+      <Form writtenForm="stopped" />
+      <Form writtenForm="stopping" />
+      <Sense id="oewn-stop-v-1" synset="oewn-0005-v" />
+    </LexicalEntry>
     <Synset id="oewn-0001-v" partOfSpeech="v">
       <Definition>to repair something</Definition>
     </Synset>
@@ -198,6 +258,9 @@ def _write_oewn_fixture(root: Path) -> Path:
     </Synset>
     <Synset id="oewn-0004-v" partOfSpeech="v">
       <Definition>to move or travel</Definition>
+    </Synset>
+    <Synset id="oewn-0005-v" partOfSpeech="v">
+      <Definition>to cease moving</Definition>
     </Synset>
   </Lexicon>
 </LexicalResource>
@@ -211,20 +274,27 @@ def _write_freedict_fixture(root: Path) -> Path:
     path = root / "freedict-eng-zho-2025.11.23.src.tar.xz"
     tei = """<?xml version="1.0" encoding="UTF-8"?>
 <TEI xmlns="http://www.tei-c.org/ns/1.0">
+  <teiHeader><fileDesc>
+    <editionStmt><edition>2025.11.23</edition></editionStmt>
+    <extent>2 headwords</extent>
+  </fileDesc></teiHeader>
   <text><body>
     <entry xml:id="mend-v">
       <form type="lemma"><orth>mend</orth><pron>mɛnd</pron></form>
       <gramGrp><pos>verb</pos></gramGrp>
-      <sense xml:id="mend-v-1">
+      <sense>
         <cit type="trans"><quote xml:lang="zh">修理</quote></cit>
         <cit type="trans"><quote xml:lang="zh">修补</quote></cit>
+        <sense xml:id="mend-v-1"><def>to repair something</def></sense>
       </sense>
     </entry>
     <entry xml:id="bank-n">
       <form type="lemma"><orth>bank</orth></form>
       <gramGrp><pos>noun</pos></gramGrp>
-      <sense xml:id="bank-n-1">
+      <sense>
         <cit type="trans"><quote xml:lang="zh">银行</quote></cit>
+        <sense xml:id="bank-n-1"><def>a financial institution</def></sense>
+        <sense xml:id="bank-n-2"><def>the building used by that institution</def></sense>
       </sense>
     </entry>
   </body></text>
@@ -238,6 +308,13 @@ def _write_freedict_fixture(root: Path) -> Path:
         with source.open("rb") as stream:
             archive.addfile(info, stream)
     return path
+
+
+def _fixture_builder(oewn: Path, freedict: Path) -> DictionaryBuilder:
+    return DictionaryBuilder(
+        oewn=OewnLmfSource(expected_sha256=_sha256(oewn)),
+        freedict=FreedictTeiSource(expected_sha256=_sha256(freedict)),
+    )
 
 
 def _sha256(path: Path) -> str:

@@ -1,6 +1,7 @@
 import 'dart:io';
 
 import 'package:flutter/foundation.dart';
+import 'package:unorm_dart/unorm_dart.dart' as unorm;
 
 import '../../../platform/filesystem/app_directories.dart';
 import '../../../platform/http/lan_http_client.dart';
@@ -85,6 +86,16 @@ class DictionaryService {
         message: failure.message,
       );
       rethrow;
+    } catch (error) {
+      final stillUsable = previous != null && File(previous.path).existsSync();
+      status.value = DictionaryStatus(
+        stillUsable
+            ? DictionaryResourceState.available
+            : DictionaryResourceState.corrupt,
+        resource: stillUsable ? previous : null,
+        message: 'dictionary installation failed: $error',
+      );
+      rethrow;
     }
   }
 
@@ -107,7 +118,7 @@ class DictionaryService {
   static final _innerWhitespace = RegExp(r'\s+');
 
   static String normalizeLookupKey(String surface) =>
-      surface.toLowerCase().replaceAll(_innerWhitespace, ' ').trim();
+      unorm.nfc(surface).toLowerCase().replaceAll(_innerWhitespace, ' ').trim();
 
   DictionaryLookup lookup(String rawSelection) {
     final resource = currentResource();
@@ -124,19 +135,38 @@ class DictionaryService {
         'database file missing',
       );
     }
-    final surface = normalizeSelection(rawSelection);
-    final normalized = normalizeLookupKey(surface);
-    final empty = DictionaryResult(surface: surface, normalized: normalized);
-    if (surface.isEmpty) return DictionaryLookupNotFound(empty);
+    final original = rawSelection.trim();
+    final originalNormalized = normalizeLookupKey(original);
+    if (original.isEmpty) {
+      return DictionaryLookupNotFound(
+        DictionaryResult(surface: original, normalized: originalNormalized),
+      );
+    }
     try {
       final db = _database(resource);
-      var senses = db.exact(surface);
+      var senses = db.exact(original);
+      if (senses.isNotEmpty) {
+        return DictionaryLookupFound(
+          DictionaryResult(
+            surface: original,
+            normalized: originalNormalized,
+            senses: senses,
+          ),
+        );
+      }
+      final surface = normalizeSelection(original);
+      final normalized = normalizeLookupKey(surface);
+      if (surface.isEmpty) {
+        return DictionaryLookupNotFound(
+          DictionaryResult(surface: surface, normalized: normalized),
+        );
+      }
       String? lemma;
-      if (senses.isEmpty) senses = db.normalized(normalized);
+      senses = db.normalized(normalized);
       if (senses.isEmpty) {
         final lemmas = db.lemmasFor(normalized).toSet();
         for (final candidate in lemmas) {
-          final found = db.normalized(candidate.toLowerCase());
+          final found = db.normalized(normalizeLookupKey(candidate));
           if (found.isNotEmpty) {
             lemma = candidate;
             senses = found;

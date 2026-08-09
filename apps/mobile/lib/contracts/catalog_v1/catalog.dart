@@ -17,16 +17,10 @@ class Catalog {
   final List<CatalogPackage> packages;
   final List<CatalogDictionary> dictionaries;
 
-  static final _relativeUrlPattern = RegExp(
+  static final _packagePathPattern = RegExp(
     r'^/packages/[A-Za-z0-9][A-Za-z0-9._-]{0,199}\.readpack$',
   );
-  static final _absolutePathPattern = RegExp(
-    r'^/packages/[A-Za-z0-9][A-Za-z0-9._-]{0,199}\.readpack$',
-  );
-  static final _relativeDictionaryUrlPattern = RegExp(
-    r'^/dictionaries/[A-Za-z0-9][A-Za-z0-9._-]{0,199}\.dictpack$',
-  );
-  static final _absoluteDictionaryPathPattern = RegExp(
+  static final _dictionaryPathPattern = RegExp(
     r'^/dictionaries/[A-Za-z0-9][A-Za-z0-9._-]{0,199}\.dictpack$',
   );
 
@@ -50,8 +44,7 @@ class Catalog {
       final url = _validateUrl(
         p['url'],
         origin,
-        relativePattern: _relativeUrlPattern,
-        absolutePathPattern: _absolutePathPattern,
+        pathPattern: _packagePathPattern,
       );
       if (!urls.add(url.toString())) {
         throw ContractViolation('catalog.packages[$i].url', 'duplicate url');
@@ -85,8 +78,7 @@ class Catalog {
       final url = _validateUrl(
         dictionary['url'],
         origin,
-        relativePattern: _relativeDictionaryUrlPattern,
-        absolutePathPattern: _absoluteDictionaryPathPattern,
+        pathPattern: _dictionaryPathPattern,
       );
       if (!urls.add(url.toString())) {
         throw ContractViolation(
@@ -122,12 +114,11 @@ class Catalog {
   static Uri _validateUrl(
     JsonReader r,
     Uri origin, {
-    required RegExp relativePattern,
-    required RegExp absolutePathPattern,
+    required RegExp pathPattern,
   }) {
     final raw = r.asString(maxLength: 2048);
     if (raw.startsWith('/')) {
-      if (!relativePattern.hasMatch(raw)) {
+      if (!pathPattern.hasMatch(raw)) {
         throw ContractViolation(r.path, 'unsafe url');
       }
       return origin.replace(path: raw, query: null, fragment: null);
@@ -146,7 +137,7 @@ class Catalog {
         uri.userInfo.isNotEmpty) {
       throw ContractViolation(r.path, 'unsafe url');
     }
-    if (!absolutePathPattern.hasMatch(uri.path)) {
+    if (!pathPattern.hasMatch(uri.path)) {
       throw ContractViolation(r.path, 'unsafe url path');
     }
     final sameOrigin =

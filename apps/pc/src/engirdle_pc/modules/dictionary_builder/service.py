@@ -15,6 +15,7 @@ from engirdle_pc.modules.dictionary_builder.domain import (
     DictionaryEntry,
     DictionaryForm,
     ParsedDictionarySource,
+    SourceBuildSummary,
 )
 from engirdle_pc.modules.dictionary_builder.sources import (
     FREEDICT_SOURCE_ID,
@@ -32,7 +33,7 @@ BUILDER_VERSION = "1.0.0"
 
 _POS_RANK = {"noun": 0, "verb": 1, "adjective": 2, "adverb": 3, "other": 9}
 _MODIFICATIONS = [
-    "Unicode NFC normalization, whitespace collapse and Unicode case-folded lookup keys.",
+    "Unicode NFC normalization, whitespace collapse and Unicode lowercase lookup keys.",
     "Source-preserving sense rows; no cross-source sense merge.",
     "Empty senses are filtered, duplicate translations are collapsed, and TEI markup is flattened.",
     "OEWN explicit forms plus deterministic common English inflection rules are indexed.",
@@ -49,7 +50,11 @@ class DictionaryBuilder:
     ) -> None:
         self._oewn = oewn or OewnLmfSource()
         self._freedict = freedict or FreedictTeiSource()
-        self._validator = validator or DictionaryPackValidator(Settings().contracts_dir)
+        self._validator = validator or DictionaryPackValidator(
+            Settings().contracts_dir,
+            oewn_sha256=self._oewn.expected_sha256,
+            freedict_sha256=self._freedict.expected_sha256,
+        )
 
     def build(self, request: DictionaryBuildRequest) -> DictionaryArtifact:
         if request.revision < 1:
@@ -74,6 +79,18 @@ class DictionaryBuilder:
             path=request.output,
             size=request.output.stat().st_size,
             sha256=sha256_file(request.output),
+            sources=(
+                SourceBuildSummary(
+                    source_id=OEWN_SOURCE_ID,
+                    input_sha256=sha256_file(request.oewn_archive),
+                    counts=oewn.counts,
+                ),
+                SourceBuildSummary(
+                    source_id=FREEDICT_SOURCE_ID,
+                    input_sha256=sha256_file(request.freedict_archive),
+                    counts=freedict.counts,
+                ),
+            ),
         )
 
     @staticmethod
@@ -158,7 +175,7 @@ class DictionaryBuilder:
                     ("dictionary_id", DICTIONARY_ID),
                     ("revision", str(revision)),
                     ("schema_version", str(SCHEMA_VERSION)),
-                    ("normalization_version", "unicode-nfc-casefold-v1"),
+                    ("normalization_version", "unicode-nfc-lower-v1"),
                 ),
             )
             connection.commit()
@@ -185,8 +202,8 @@ class DictionaryBuilder:
                 "version": BUILDER_VERSION,
             },
             "normalization": {
-                "algorithm": "Unicode NFC, whitespace collapse and Unicode case-fold",
-                "version": "unicode-nfc-casefold-v1",
+                "algorithm": "Unicode NFC, whitespace collapse and Unicode lowercase",
+                "version": "unicode-nfc-lower-v1",
             },
             "database": {
                 "path": "dictionary.db",

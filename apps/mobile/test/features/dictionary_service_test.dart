@@ -30,8 +30,9 @@ void main() {
       expect(DictionaryService.normalizeSelection('  …  '), '');
     });
 
-    test('lookup keys case-fold and collapse internal whitespace', () {
+    test('lookup keys normalize NFC, lowercase and internal whitespace', () {
       expect(DictionaryService.normalizeLookupKey('Take  \n OFF'), 'take off');
+      expect(DictionaryService.normalizeLookupKey('A\u030A'), 'å');
     });
   });
 
@@ -88,6 +89,14 @@ void main() {
       expect(result.lemma, 'mend');
     });
 
+    test('an exact entry keeps meaningful edge punctuation', () {
+      activate();
+      final result =
+          (service.lookup("  'hood  ") as DictionaryLookupFound).result;
+      expect(result.surface, "'hood");
+      expect(result.senses.single.headword, "'hood");
+    });
+
     test('missing and invalid databases are resource errors', () {
       activate(p.join(temp.path, 'missing.db'));
       expect(service.lookup('mend'), isA<DictionaryLookupResourceError>());
@@ -133,6 +142,23 @@ void _buildDictionary(String path) {
       'oewn-2025',
       'Open English WordNet 2025',
       1,
+      0,
+      0,
+    ],
+  );
+  db.execute(
+    'INSERT INTO entries VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+    [
+      "'hood",
+      "'hood",
+      'noun',
+      'oewn/hood-n-1',
+      'a state or condition',
+      null,
+      null,
+      'oewn-2025',
+      'Open English WordNet 2025',
+      0,
       0,
       0,
     ],

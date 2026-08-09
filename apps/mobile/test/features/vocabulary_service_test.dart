@@ -36,7 +36,7 @@ void main() {
     generatedAt: '2026-08-09T00:00:00Z',
     builderName: 'test',
     builderVersion: '1.0.0',
-    normalizationVersion: 'unicode-nfc-casefold-v1',
+    normalizationVersion: 'unicode-nfc-lower-v1',
     sources: [],
     modifications: [],
     manifestJson: '{}',
@@ -96,6 +96,32 @@ void main() {
       expect(stored.articleTitle, 'Minimal Contract Article');
     },
   );
+
+  test('a Chinese-only sense stays Chinese-only in the frozen snapshot', () {
+    const chineseOnly = DictionarySense(
+      senseId: 'freedict/mend-v-1',
+      headword: 'mend',
+      partOfSpeech: 'verb',
+      glossEn: null,
+      glossZh: '修理',
+      sourceId: 'freedict-eng-zho-2025.11.23',
+      sourceName: 'FreeDict',
+    );
+
+    service.saveSense(
+      surface: 'mend',
+      normalized: 'mend',
+      sense: chineseOnly,
+      resource: resource,
+      ref: ref,
+      sentenceText: 'Mend it.',
+      article: article,
+    );
+
+    final stored = service.list().single;
+    expect(stored.senseEn, isNull);
+    expect(stored.senseZh, '修理');
+  });
 
   test('list is newest-first even within the same millisecond', () {
     service.saveSense(

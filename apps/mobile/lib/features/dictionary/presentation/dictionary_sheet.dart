@@ -219,9 +219,12 @@ class _SenseCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final gloss = showChinese
+    final primaryGloss = showChinese
         ? (sense.glossZh ?? sense.glossEn ?? '无可用释义')
         : (sense.glossEn ?? sense.glossZh ?? '无可用释义');
+    final supplementaryGloss = showChinese
+        ? (sense.glossZh != null ? sense.glossEn : null)
+        : (sense.glossEn != null ? sense.glossZh : null);
     return Card(
       child: Padding(
         padding: const EdgeInsets.all(13),
@@ -247,12 +250,20 @@ class _SenseCard extends StatelessWidget {
                         style: theme.textTheme.bodySmall,
                       ),
                       Text(
-                        gloss,
+                        primaryGloss,
                         style: TextStyle(
                           fontSize: 13,
                           fontFamily: showChinese ? null : 'serif',
                         ),
                       ),
+                      if (supplementaryGloss != null)
+                        Padding(
+                          padding: const EdgeInsets.only(top: 3),
+                          child: Text(
+                            '${showChinese ? '英英' : '英中'}：$supplementaryGloss',
+                            style: theme.textTheme.bodySmall,
+                          ),
+                        ),
                     ],
                   ),
                 ),

@@ -29,6 +29,54 @@ void main() {
         installed_at TEXT NOT NULL
       )
     ''');
+      legacy.execute('''
+      CREATE TABLE vocabulary (
+        vocabulary_id TEXT PRIMARY KEY,
+        surface TEXT NOT NULL,
+        normalized TEXT NOT NULL,
+        lemma TEXT,
+        part_of_speech TEXT,
+        sense_id TEXT NOT NULL,
+        sense_en TEXT NOT NULL,
+        sense_zh TEXT,
+        source_name TEXT NOT NULL,
+        dictionary_id TEXT NOT NULL,
+        dictionary_revision INTEGER NOT NULL,
+        article_id TEXT NOT NULL,
+        revision INTEGER NOT NULL,
+        sentence_id TEXT NOT NULL,
+        sentence_text TEXT NOT NULL,
+        sentence_translation_zh TEXT,
+        article_title TEXT NOT NULL,
+        created_at TEXT NOT NULL
+      )
+    ''');
+      legacy.execute(
+        'CREATE INDEX idx_vocabulary_created ON vocabulary(created_at DESC)',
+      );
+      legacy.execute(
+        'INSERT INTO vocabulary VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+        [
+          'v1',
+          'mend',
+          'mend',
+          null,
+          'verb',
+          'oewn/mend-v-1',
+          'to repair',
+          '修理',
+          'OEWN',
+          'legacy',
+          1,
+          'article',
+          1,
+          'sentence',
+          'Mend it.',
+          null,
+          'Article',
+          '2026-08-09T00:00:00Z',
+        ],
+      );
       legacy.execute(
         'INSERT INTO dictionary_manifest VALUES (?, ?, ?, ?, ?, ?, ?)',
         [
@@ -70,6 +118,16 @@ void main() {
         dao.current()!.dictionaryId,
         'newer',
         reason: 'current must come from dictionary_active, never timestamps',
+      );
+      final senseEnColumn = migrated.db
+          .select("PRAGMA table_info('vocabulary')")
+          .singleWhere((row) => row['name'] == 'sense_en');
+      expect(senseEnColumn['notnull'], 0);
+      expect(
+        migrated.db
+            .select('SELECT sense_en FROM vocabulary')
+            .single['sense_en'],
+        'to repair',
       );
     },
   );

@@ -38,9 +38,10 @@ class VocabDetailPage extends StatelessWidget {
           Text(
             entry.surface,
             style: const TextStyle(
-                fontFamily: 'serif',
-                fontSize: 21,
-                fontWeight: FontWeight.w600),
+              fontFamily: 'serif',
+              fontSize: 21,
+              fontWeight: FontWeight.w600,
+            ),
           ),
           const SizedBox(height: 2),
           Text(
@@ -58,19 +59,25 @@ class VocabDetailPage extends StatelessWidget {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text('选定义项 · 来自 ${entry.sourceName}',
-                      style: theme.textTheme.bodySmall),
-                  const SizedBox(height: 3),
                   Text(
-                    '${entry.partOfSpeech ?? ''} ${entry.senseEn}'.trim(),
-                    style:
-                        const TextStyle(fontFamily: 'serif', fontSize: 13),
+                    '选定义项 · 来自 ${entry.sourceName}',
+                    style: theme.textTheme.bodySmall,
                   ),
+                  const SizedBox(height: 3),
+                  if (entry.senseEn != null)
+                    Text(
+                      '${entry.partOfSpeech ?? ''} ${entry.senseEn}'.trim(),
+                      style: const TextStyle(fontFamily: 'serif', fontSize: 13),
+                    ),
                   if (entry.senseZh != null)
                     Padding(
-                      padding: const EdgeInsets.only(top: 3),
-                      child: Text('英中：${entry.senseZh}',
-                          style: theme.textTheme.bodySmall),
+                      padding: EdgeInsets.only(
+                        top: entry.senseEn == null ? 0 : 3,
+                      ),
+                      child: Text(
+                        '英中：${entry.senseZh}',
+                        style: theme.textTheme.bodySmall,
+                      ),
                     ),
                 ],
               ),
@@ -86,14 +93,15 @@ class VocabDetailPage extends StatelessWidget {
                   const SizedBox(height: 3),
                   Text(
                     '“${entry.sentenceText}”',
-                    style:
-                        const TextStyle(fontFamily: 'serif', fontSize: 13),
+                    style: const TextStyle(fontFamily: 'serif', fontSize: 13),
                   ),
                   if (entry.sentenceTranslationZh != null)
                     Padding(
                       padding: const EdgeInsets.only(top: 3),
-                      child: Text(entry.sentenceTranslationZh!,
-                          style: theme.textTheme.bodySmall),
+                      child: Text(
+                        entry.sentenceTranslationZh!,
+                        style: theme.textTheme.bodySmall,
+                      ),
                     ),
                   Padding(
                     padding: const EdgeInsets.only(top: 5),
@@ -115,8 +123,7 @@ class VocabDetailPage extends StatelessWidget {
             child: const Row(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Icon(Icons.info_outline,
-                    size: 17, color: Color(0xFF234534)),
+                Icon(Icons.info_outline, size: 17, color: Color(0xFF234534)),
                 SizedBox(width: 9),
                 Expanded(
                   child: Text(
@@ -132,8 +139,9 @@ class VocabDetailPage extends StatelessWidget {
             alignment: Alignment.centerRight,
             child: FilledButton.icon(
               style: FilledButton.styleFrom(
-                  backgroundColor: Colors.transparent,
-                  foregroundColor: AppPalette.error),
+                backgroundColor: Colors.transparent,
+                foregroundColor: AppPalette.error,
+              ),
               onPressed: () => _confirmDelete(context, entry),
               icon: const Icon(Icons.delete_outline, size: 15),
               label: const Text('删除该生词'),
@@ -145,7 +153,9 @@ class VocabDetailPage extends StatelessWidget {
   }
 
   Future<void> _confirmDelete(
-      BuildContext context, VocabularyEntry entry) async {
+    BuildContext context,
+    VocabularyEntry entry,
+  ) async {
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (dialogContext) => AlertDialog(
@@ -157,8 +167,7 @@ class VocabDetailPage extends StatelessWidget {
             child: const Text('取消'),
           ),
           FilledButton(
-            style:
-                FilledButton.styleFrom(backgroundColor: AppPalette.error),
+            style: FilledButton.styleFrom(backgroundColor: AppPalette.error),
             onPressed: () => Navigator.of(dialogContext).pop(true),
             child: const Text('删除'),
           ),

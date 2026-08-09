@@ -30,6 +30,8 @@ class DictionaryInstaller {
 
   static const maxPackageBytes = 512 * 1024 * 1024;
   static const maxDatabaseBytes = 512 * 1024 * 1024;
+  static const maxManifestBytes = 1024 * 1024;
+  static const maxLicenseBytes = 1024 * 1024;
   static const maxExpandedBytes = 640 * 1024 * 1024;
   static const maxEntries = 16;
 
@@ -62,6 +64,7 @@ class DictionaryInstaller {
           'dictionary package too large',
         );
       }
+      _rejectDowngrade(descriptor);
       await source.copyTo(
         package,
         onProgress: onProgress,
@@ -149,6 +152,12 @@ class DictionaryInstaller {
         'dictionary file operation failed',
         detail: error.message,
       );
+    } on StateError catch (error) {
+      throw AppFailure(
+        FailureKind.packageFormat,
+        'dictionary activation conflict',
+        detail: error.message,
+      );
     } finally {
       if (!moved && await staging.exists()) {
         try {
@@ -233,6 +242,20 @@ class DictionaryInstaller {
           'dictionary database too large',
         );
       }
+      if (entry.path == 'manifest.json' &&
+          entry.uncompressedSize > maxManifestBytes) {
+        throw const AppFailure(
+          FailureKind.resourceLimit,
+          'dictionary manifest too large',
+        );
+      }
+      if (entry.path.startsWith('licenses/') &&
+          entry.uncompressedSize > maxLicenseBytes) {
+        throw const AppFailure(
+          FailureKind.resourceLimit,
+          'dictionary license notice too large',
+        );
+      }
     }
     if (!paths.containsAll({'manifest.json', 'dictionary.db'}) ||
         expanded > maxExpandedBytes) {
@@ -289,6 +312,18 @@ class DictionaryInstaller {
           'immutable dictionary revision already has different package bytes',
         );
       }
+    }
+  }
+
+  void _rejectDowngrade(DictionaryPackageDescriptor descriptor) {
+    final active = _manifestDao.current();
+    if (active != null &&
+        active.dictionaryId == descriptor.dictionaryId &&
+        descriptor.revision < active.revision) {
+      throw const AppFailure(
+        FailureKind.packageFormat,
+        'dictionary revision cannot be downgraded',
+      );
     }
   }
 

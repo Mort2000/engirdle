@@ -1,6 +1,7 @@
 from engirdle_pc.modules.dictionary_builder.domain import (
     DictionaryArtifact,
     DictionaryBuildRequest,
+    SourceBuildSummary,
 )
 from engirdle_pc.modules.dictionary_builder.publisher import DictionaryPublisher
 from engirdle_pc.modules.dictionary_builder.service import DictionaryBuilder
@@ -12,4 +13,5 @@ __all__ = [
     "DictionaryBuilder",
     "DictionaryPackValidator",
     "DictionaryPublisher",
+    "SourceBuildSummary",
 ]
