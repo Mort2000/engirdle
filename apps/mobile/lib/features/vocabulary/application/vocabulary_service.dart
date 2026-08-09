@@ -7,9 +7,8 @@ import '../infrastructure/vocabulary_dao.dart';
 
 /// Vocabulary use cases (MOB-VOC-001/002).
 ///
-/// Saving is one step (UX-A1): tapping「保存该义项」in the dictionary sheet is
-/// itself the explicit sense selection; the snackbar offers undo, which is
-/// implemented as deleting the just-inserted entry.
+/// Saving is one step (UX-A1): tapping a sense card's bookmark is the explicit
+/// sense selection; the snackbar offers undo by deleting that inserted entry.
 class VocabularyService {
   VocabularyService({required VocabularyDao dao}) : _dao = dao;
 

@@ -17,7 +17,14 @@ void main() {
     headword: 'mend',
     partOfSpeech: 'verb',
     glossEn: 'to repair something',
-    glossZh: '修理',
+    translations: [
+      DictionaryTranslation(
+        sourceSenseId: 'omw-cmn:2.0/repair-1',
+        rawLemma: '修理',
+        displayLemma: '修理',
+        sourceId: 'omw-cmn:2.0',
+      ),
+    ],
     sourceId: 'oewn-2025',
     sourceName: 'TestDict',
   );
@@ -30,8 +37,8 @@ void main() {
     databaseSizeBytes: 1,
     databaseSha256:
         '0000000000000000000000000000000000000000000000000000000000000000',
-    formatVersion: '1.0',
-    schemaVersion: 1,
+    formatVersion: '2.0',
+    schemaVersion: 2,
     displayName: 'Test Dictionary',
     generatedAt: '2026-08-09T00:00:00Z',
     builderName: 'test',
@@ -97,21 +104,20 @@ void main() {
     },
   );
 
-  test('a Chinese-only sense stays Chinese-only in the frozen snapshot', () {
-    const chineseOnly = DictionarySense(
-      senseId: 'freedict/mend-v-1',
+  test('an OEWN sense without Chinese lemmas can still be saved', () {
+    const englishOnly = DictionarySense(
+      senseId: 'oewn-2025/mend-v-2',
       headword: 'mend',
       partOfSpeech: 'verb',
-      glossEn: null,
-      glossZh: '修理',
-      sourceId: 'freedict-eng-zho-2025.11.23',
-      sourceName: 'FreeDict',
+      glossEn: 'to make amends',
+      sourceId: 'oewn-2025',
+      sourceName: 'Open English WordNet 2025',
     );
 
     service.saveSense(
       surface: 'mend',
       normalized: 'mend',
-      sense: chineseOnly,
+      sense: englishOnly,
       resource: resource,
       ref: ref,
       sentenceText: 'Mend it.',
@@ -119,8 +125,8 @@ void main() {
     );
 
     final stored = service.list().single;
-    expect(stored.senseEn, isNull);
-    expect(stored.senseZh, '修理');
+    expect(stored.senseEn, 'to make amends');
+    expect(stored.senseZh, isNull);
   });
 
   test('list is newest-first even within the same millisecond', () {

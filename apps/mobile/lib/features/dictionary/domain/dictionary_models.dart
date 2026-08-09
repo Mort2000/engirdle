@@ -5,7 +5,7 @@ class DictionarySense {
     required this.headword,
     required this.partOfSpeech,
     required this.glossEn,
-    this.glossZh,
+    this.translations = const [],
     this.pronunciation,
     required this.sourceId,
     required this.sourceName,
@@ -15,10 +15,28 @@ class DictionarySense {
   final String headword;
   final String partOfSpeech;
   final String? glossEn;
-  final String? glossZh;
+  final List<DictionaryTranslation> translations;
   final String? pronunciation;
   final String sourceId;
   final String sourceName;
+
+  String? get glossZh => translations.isEmpty
+      ? null
+      : translations.map((translation) => translation.displayLemma).join('；');
+}
+
+class DictionaryTranslation {
+  const DictionaryTranslation({
+    required this.sourceSenseId,
+    required this.rawLemma,
+    required this.displayLemma,
+    required this.sourceId,
+  });
+
+  final String sourceSenseId;
+  final String rawLemma;
+  final String displayLemma;
+  final String sourceId;
 }
 
 class DictionaryResult {

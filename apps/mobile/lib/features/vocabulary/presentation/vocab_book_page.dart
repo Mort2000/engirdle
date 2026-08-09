@@ -62,7 +62,7 @@ class _VocabBookPageState extends State<VocabBookPage> {
             Center(child: Text('生词本还是空的', style: theme.textTheme.titleMedium)),
             const SizedBox(height: 4),
             Text(
-              '在阅读器内长按单词 → 英英/英中翻译 → 保存义项后，\n生词会出现在这里。',
+              '在阅读器内长按单词 → 词典 → 点选义项书签后，\n生词会出现在这里。',
               textAlign: TextAlign.center,
               style: theme.textTheme.bodySmall,
             ),

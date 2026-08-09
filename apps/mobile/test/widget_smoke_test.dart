@@ -96,14 +96,14 @@ void main() {
 
 final _dictionaryResource = DictionaryResource(
   dictionaryId: 'engirdle-en-zh',
-  revision: 1,
+  revision: 2,
   path: '/missing/dictionary.db',
   sizeBytes: 1024,
   sha256: '0' * 64,
   databaseSizeBytes: 512,
   databaseSha256: '1' * 64,
-  formatVersion: '1.0',
-  schemaVersion: 1,
+  formatVersion: '2.0',
+  schemaVersion: 2,
   displayName: 'Engirdle Offline Dictionary',
   generatedAt: '2026-08-09T00:00:00Z',
   builderName: 'test',
@@ -126,13 +126,13 @@ class _CatalogHttpClient extends LanHttpClient {
     'dictionaries': [
       {
         'dictionary_id': 'engirdle-en-zh',
-        'revision': 1,
-        'format_version': '1.0',
-        'schema_version': 1,
+        'revision': 2,
+        'format_version': '2.0',
+        'schema_version': 2,
         'display_name': 'Engirdle Offline Dictionary',
         'size': 1024,
         'sha256': '0' * 64,
-        'url': '/dictionaries/engirdle-en-zh-r1-test.dictpack',
+        'url': '/dictionaries/engirdle-en-zh-r2-test.dictpack',
       },
     ],
   };

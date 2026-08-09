@@ -17,6 +17,94 @@ import '../helpers/test_zip_builder.dart';
 
 void main() {
   test(
+    'startup removes an installed v1 resource but preserves vocabulary',
+    () async {
+      final temp = await Directory.systemTemp.createTemp(
+        'dictionary_v1_cleanup_',
+      );
+      addTearDown(() async {
+        if (await temp.exists()) await temp.delete(recursive: true);
+      });
+      final dirs = AppDirectories(Directory(p.join(temp.path, 'app')));
+      await dirs.ensureBaseLayout();
+      final appDb = AppDatabase.inMemory();
+      addTearDown(appDb.close);
+      final manifestDao = DictionaryManifestDao(appDb.db);
+      final oldDirectory = dirs.dictionaryDir('engirdle-en-zh', 1);
+      await oldDirectory.create(recursive: true);
+      final oldDatabase = File(p.join(oldDirectory.path, 'dictionary.db'));
+      await oldDatabase.writeAsBytes([1, 2, 3]);
+      manifestDao.activate(
+        DictionaryResource(
+          dictionaryId: 'engirdle-en-zh',
+          revision: 1,
+          path: oldDatabase.path,
+          sizeBytes: 3,
+          sha256: '0' * 64,
+          databaseSizeBytes: 3,
+          databaseSha256: '0' * 64,
+          formatVersion: '1.0',
+          schemaVersion: 1,
+          displayName: 'Old Dictionary',
+          generatedAt: '2026-08-08T00:00:00Z',
+          builderName: 'old',
+          builderVersion: '1.0.0',
+          normalizationVersion: 'unicode-nfc-lower-v1',
+          sources: const [],
+          modifications: const [],
+          manifestJson: jsonEncode({
+            'format_version': '1.0',
+            'schema_version': 1,
+            'display_name': 'Old Dictionary',
+          }),
+        ),
+      );
+      appDb.db.execute(
+        'INSERT INTO vocabulary VALUES '
+        '(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+        [
+          'saved-v1',
+          'mend',
+          'mend',
+          null,
+          'verb',
+          'oewn-2025/mend-v-1',
+          'to repair',
+          '修理',
+          'Open English WordNet 2025',
+          'engirdle-en-zh',
+          1,
+          'article',
+          1,
+          'sentence',
+          'Mend it.',
+          null,
+          'Article',
+          '2026-08-09T00:00:00Z',
+        ],
+      );
+      final service = DictionaryService(
+        manifestDao: manifestDao,
+        directories: dirs,
+      );
+      addTearDown(service.dispose);
+
+      expect(service.status.value.state, DictionaryResourceState.incompatible);
+      await service.recover();
+
+      expect(service.currentResource(), isNull);
+      expect(service.status.value.state, DictionaryResourceState.unavailable);
+      expect(await oldDirectory.exists(), isFalse);
+      expect(
+        appDb.db
+            .select('SELECT vocabulary_id FROM vocabulary')
+            .single['vocabulary_id'],
+        'saved-v1',
+      );
+    },
+  );
+
+  test(
     'a validated package installs atomically and supports offline lookup',
     () async {
       final temp = await Directory.systemTemp.createTemp('dictionary_install_');
@@ -32,13 +120,13 @@ void main() {
         directories: dirs,
       );
       addTearDown(service.dispose);
-      final package = await _buildPackage(temp, revision: 1);
+      final package = await _buildPackage(temp, revision: 2);
       final descriptor = DictionaryPackageDescriptor(
         dictionaryId: 'engirdle-en-zh',
-        revision: 1,
-        formatVersion: '1.0',
-        schemaVersion: 1,
-        displayName: 'Engirdle English–Chinese Offline Dictionary',
+        revision: 2,
+        formatVersion: '2.0',
+        schemaVersion: 2,
+        displayName: 'Engirdle OEWN / Chinese Open Wordnet Dictionary',
         sizeBytes: await package.length(),
         sha256: await sha256OfFile(package),
       );
@@ -50,10 +138,10 @@ void main() {
       expect(service.status.value.state, DictionaryResourceState.available);
       final resource = service.currentResource()!;
       expect(resource.dictionaryId, 'engirdle-en-zh');
-      expect(resource.revision, 1);
+      expect(resource.revision, 2);
       expect(resource.sources.map((source) => source.sourceId), [
         'oewn-2025',
-        'freedict-eng-zho-2025.11.23',
+        'omw-cmn:2.0',
       ]);
       expect(
         resource.path,
@@ -61,7 +149,7 @@ void main() {
           dirs.root.path,
           'dictionaries',
           'engirdle-en-zh',
-          '1',
+          '2',
           'dictionary.db',
         ),
       );
@@ -71,12 +159,10 @@ void main() {
       expect(lookup, isA<DictionaryLookupFound>());
       final result = (lookup as DictionaryLookupFound).result;
       expect(result.lemma, 'mend');
-      expect(result.senses.map((sense) => sense.sourceId), [
-        'oewn-2025',
-        'freedict-eng-zho-2025.11.23',
-      ]);
-      expect(result.senses.first.glossEn, 'to repair something');
-      expect(result.senses.last.glossZh, '修理');
+      expect(result.senses, hasLength(1));
+      expect(result.senses.single.sourceId, 'oewn-2025');
+      expect(result.senses.single.glossEn, 'to repair something');
+      expect(result.senses.single.glossZh, '修理；修补');
     },
   );
 
@@ -489,9 +575,9 @@ Future<DictionaryPackageDescriptor> _descriptor(
 }) async => DictionaryPackageDescriptor(
   dictionaryId: 'engirdle-en-zh',
   revision: revision,
-  formatVersion: '1.0',
-  schemaVersion: 1,
-  displayName: 'Engirdle English–Chinese Offline Dictionary',
+  formatVersion: '2.0',
+  schemaVersion: 2,
+  displayName: 'Engirdle OEWN / Chinese Open Wordnet Dictionary',
   sizeBytes: await package.length(),
   sha256: await sha256OfFile(package),
 );
@@ -514,8 +600,8 @@ Future<File> _buildPackage(
       pos TEXT NOT NULL,
       sense_id TEXT PRIMARY KEY,
       gloss_en TEXT,
-      gloss_zh TEXT,
       pronunciation TEXT,
+      synset_ili TEXT,
       source_id TEXT NOT NULL,
       source_name TEXT NOT NULL,
       pos_rank INTEGER NOT NULL,
@@ -535,6 +621,18 @@ Future<File> _buildPackage(
       PRIMARY KEY (normalized_form, lemma, source_id, pos)
     ) WITHOUT ROWID
   ''');
+  db.execute('''
+    CREATE TABLE sense_translations (
+      sense_id TEXT NOT NULL REFERENCES entries(sense_id),
+      source_sense_id TEXT NOT NULL,
+      raw_lemma TEXT NOT NULL,
+      display_lemma TEXT NOT NULL,
+      source_id TEXT NOT NULL,
+      ord INTEGER NOT NULL,
+      PRIMARY KEY (sense_id, source_sense_id),
+      UNIQUE (sense_id, display_lemma)
+    ) WITHOUT ROWID
+  ''');
   db.execute(
     'CREATE TABLE dictionary_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL)',
   );
@@ -550,6 +648,10 @@ Future<File> _buildPackage(
     'CREATE INDEX idx_forms_normalized_order ON forms('
     'normalized_form, source_rank, ord, lemma)',
   );
+  db.execute(
+    'CREATE INDEX idx_sense_translations_sense_order ON sense_translations('
+    'sense_id, ord, source_sense_id)',
+  );
   db.execute('INSERT INTO dictionary_meta VALUES (?, ?)', [
     'dictionary_id',
     'engirdle-en-zh',
@@ -560,11 +662,15 @@ Future<File> _buildPackage(
   ]);
   db.execute('INSERT INTO dictionary_meta VALUES (?, ?)', [
     'schema_version',
-    '1',
+    '2',
   ]);
   db.execute('INSERT INTO dictionary_meta VALUES (?, ?)', [
     'normalization_version',
     'unicode-nfc-lower-v1',
+  ]);
+  db.execute('INSERT INTO dictionary_meta VALUES (?, ?)', [
+    'translation_alignment',
+    'exact-ili-v1',
   ]);
   db.execute(
     'INSERT INTO entries VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
@@ -575,7 +681,7 @@ Future<File> _buildPackage(
       'oewn-2025/oewn-mend-v-1',
       'to repair something',
       null,
-      null,
+      'i100',
       'oewn-2025',
       'Open English WordNet 2025',
       1,
@@ -583,23 +689,22 @@ Future<File> _buildPackage(
       0,
     ],
   );
-  db.execute(
-    'INSERT INTO entries VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
-    [
-      'mend',
-      'mend',
-      'verb',
-      'freedict-eng-zho-2025.11.23/mend-v-1',
-      null,
-      '修理',
-      'mɛnd',
-      'freedict-eng-zho-2025.11.23',
-      'FreeDict English–Chinese 2025.11.23',
-      1,
-      1,
-      0,
-    ],
-  );
+  db.execute('INSERT INTO sense_translations VALUES (?, ?, ?, ?, ?, ?)', [
+    'oewn-2025/oewn-mend-v-1',
+    'omw-cmn:2.0/omw-cmn-repair-1',
+    '修理',
+    '修理',
+    'omw-cmn:2.0',
+    0,
+  ]);
+  db.execute('INSERT INTO sense_translations VALUES (?, ?, ?, ?, ?, ?)', [
+    'oewn-2025/oewn-mend-v-1',
+    'omw-cmn:2.0/omw-cmn-mend-1',
+    '修补',
+    '修补',
+    'omw-cmn:2.0',
+    1,
+  ]);
   db.execute('INSERT INTO forms VALUES (?, ?, ?, ?, ?, ?, ?)', [
     'mended',
     'mended',
@@ -619,7 +724,7 @@ Future<File> _buildPackage(
         'oewn-2025/empty-n-1',
         null,
         null,
-        null,
+        'i999',
         'oewn-2025',
         'Open English WordNet 2025',
         0,
@@ -631,13 +736,13 @@ Future<File> _buildPackage(
   db.close();
 
   final manifest = {
-    'format_version': '1.0',
+    'format_version': '2.0',
     'dictionary_id': 'engirdle-en-zh',
     'revision': revision,
-    'schema_version': 1,
-    'display_name': 'Engirdle English–Chinese Offline Dictionary',
+    'schema_version': 2,
+    'display_name': 'Engirdle OEWN / Chinese Open Wordnet Dictionary',
     'generated_at': generatedAt,
-    'builder': {'name': 'test-builder', 'version': '1.0.0'},
+    'builder': {'name': 'test-builder', 'version': '2.0.0'},
     'normalization': {
       'algorithm': 'Unicode NFC, whitespace collapse and Unicode lowercase',
       'version': 'unicode-nfc-lower-v1',
@@ -655,17 +760,14 @@ Future<File> _buildPackage(
         license: 'Creative Commons Attribution 4.0 International',
       ),
       _source(
-        id: 'freedict-eng-zho-2025.11.23',
-        version: '2025.11.23',
-        name: 'FreeDict English–Chinese',
-        license: 'Creative Commons Attribution-ShareAlike 3.0',
+        id: 'omw-cmn:2.0',
+        version: '2.0',
+        name: 'Chinese Open Wordnet 2.0',
+        license: 'Chinese Open Wordnet License',
       ),
     ],
     'modifications': ['normalized and source-preserving'],
-    'license_files': [
-      'licenses/oewn-2025.txt',
-      'licenses/freedict-eng-zho-2025.11.23.txt',
-    ],
+    'license_files': ['licenses/oewn-2025.txt', 'licenses/omw-cmn-2.0.txt'],
     if (manifestPaddingBytes > 0) 'padding': 'x' * manifestPaddingBytes,
   };
   final zip = TestZipBuilder()
@@ -673,8 +775,8 @@ Future<File> _buildPackage(
     ..addStored('dictionary.db', await database.readAsBytes())
     ..addStored('licenses/oewn-2025.txt', utf8.encode('CC BY 4.0'))
     ..addStored(
-      'licenses/freedict-eng-zho-2025.11.23.txt',
-      utf8.encode('CC BY-SA 3.0'),
+      'licenses/omw-cmn-2.0.txt',
+      utf8.encode('Chinese Open Wordnet License'),
     );
   if (extraPath != null) zip.addStored(extraPath, [1, 2, 3]);
   final package = File(p.join(root.path, 'dictionary-$revision.dictpack'));
@@ -691,15 +793,15 @@ Map<String, Object> _source({
   'source_id': id,
   'version': version,
   'display_name': name,
-  'direction': id == 'oewn-2025' ? 'en-en' : 'en-zh',
+  'direction': id == 'oewn-2025' ? 'en-en' : 'zh',
   'input': {
     'url': id == 'oewn-2025'
         ? 'https://en-word.net/static/english-wordnet-2025.xml.gz'
-        : 'https://download.freedict.org/dictionaries/eng-zho/2025.11.23/'
-              'freedict-eng-zho-2025.11.23.src.tar.xz',
+        : 'https://github.com/omwn/omw-data/releases/download/v2.0/'
+              'omw-cmn-2.0.tar.xz',
     'sha256': id == 'oewn-2025'
         ? '9ca6d1dcb75f822fdd66617f7d9da48142ace38dd544d6ad5e2feca1674ad3fe'
-        : '78f6909786861809886201827e5e3d55dbf8e12f753d7a7183e785dbc574de8b',
+        : '7d07af60a6ced0cedc4ca114d0b60a796d3f138df0f3be21f6322e53d004e91c',
   },
   'licenses': [
     {'name': license, 'url': 'https://example.invalid/license'},
@@ -722,10 +824,8 @@ Map<String, Object> _source({
         ]
       : [
           for (final attribution in const [
-            'FreeDict',
-            'WikDict',
-            'DBnary',
-            'Wiktionary',
+            'Chinese Open Wordnet',
+            'Open Multilingual Wordnet',
           ])
             {
               'name': attribution,

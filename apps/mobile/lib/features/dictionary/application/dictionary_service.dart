@@ -34,6 +34,13 @@ class DictionaryService {
     if (current == null) {
       return const DictionaryStatus(DictionaryResourceState.unavailable);
     }
+    if (!current.formatVersion.startsWith('2.') || current.schemaVersion != 2) {
+      return DictionaryStatus(
+        DictionaryResourceState.incompatible,
+        resource: current,
+        message: 'installed dictionary requires v2 replacement',
+      );
+    }
     return DictionaryStatus(
       File(current.path).existsSync()
           ? DictionaryResourceState.available
@@ -48,8 +55,23 @@ class DictionaryService {
   bool get available => status.value.state == DictionaryResourceState.available;
 
   Future<void> recover() async {
-    await _installer.recover();
-    status.value = _initialStatus(_manifestDao);
+    _closeDatabase();
+    try {
+      await _installer.recover();
+      status.value = _initialStatus(_manifestDao);
+    } on AppFailure catch (failure) {
+      status.value = DictionaryStatus(
+        DictionaryResourceState.corrupt,
+        resource: _manifestDao.current(),
+        message: failure.message,
+      );
+    } catch (error) {
+      status.value = DictionaryStatus(
+        DictionaryResourceState.corrupt,
+        resource: _manifestDao.current(),
+        message: 'dictionary cleanup failed: $error',
+      );
+    }
   }
 
   Future<DictionaryResource> install(

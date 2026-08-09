@@ -7,6 +7,7 @@ import '../../../app/router.dart';
 import '../../../app/scope.dart';
 import '../../../app/theme.dart';
 import '../../../shared_kernel/content_identity.dart';
+import '../../../platform/translation/local_text_translator.dart';
 import '../../dictionary/domain/dictionary_models.dart';
 import '../../dictionary/presentation/dictionary_sheet.dart';
 import '../../library/domain/installed_article.dart';
@@ -172,11 +173,7 @@ class _ReaderPageState extends State<ReaderPage> {
     _selectionViewKey = _viewKeys[sentence.sentenceId];
   }
 
-  void _onLookup(
-    InstalledSentence sentence,
-    String selection,
-    bool preferChinese,
-  ) {
+  void _onLookup(InstalledSentence sentence, String selection) {
     final deps = AppScope.of(context);
     final lookup = deps.dictionary.lookup(selection);
     final resource = deps.dictionary.currentResource();
@@ -184,14 +181,24 @@ class _ReaderPageState extends State<ReaderPage> {
     switch (lookup) {
       case DictionaryLookupUnavailable():
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('未安装词典资源。阅读、翻译与播放不受影响，仅查词不可用；可在 设置 › 词典资源 安装后使用。'),
+          SnackBar(
+            content: const Text('未安装词典资源；可在 设置 › 词典资源 安装后使用。'),
+            action: SnackBarAction(
+              label: '本机翻译',
+              onPressed: () => _translateLocally(selection),
+            ),
           ),
         );
         return;
       case DictionaryLookupResourceError():
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('词典资源损坏或不可读，请在 设置 › 词典资源 重试安装。')),
+          SnackBar(
+            content: const Text('词典资源损坏或不可读，请在 设置 › 词典资源 重试安装。'),
+            action: SnackBarAction(
+              label: '本机翻译',
+              onPressed: () => _translateLocally(selection),
+            ),
+          ),
         );
         return;
       case DictionaryLookupFound(result: final found):
@@ -212,7 +219,6 @@ class _ReaderPageState extends State<ReaderPage> {
           heightFactor: 0.8,
           child: DictionarySheet(
             selection: selection,
-            preferChinese: preferChinese,
             result: result,
             resource: resource,
             article: content.article,
@@ -223,12 +229,29 @@ class _ReaderPageState extends State<ReaderPage> {
             ),
             sentenceText: sentence.text,
             sentenceTranslationZh: sentence.translationZh,
-            dictionary: deps.dictionary,
             vocabulary: deps.vocabulary,
+            onTranslateLocally: () => _translateLocally(selection),
           ),
         ),
       ),
     );
+  }
+
+  Future<void> _translateLocally(String selection) async {
+    try {
+      final result = await AppScope.of(
+        context,
+      ).localTextTranslator.translate(selection);
+      if (!mounted || result == LocalTranslationResult.opened) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('未找到可处理所选文本的本机翻译应用。')));
+    } catch (_) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('无法打开本机翻译应用。')));
+    }
   }
 
   void _setMode(ReadingMode mode) {
@@ -327,6 +350,7 @@ class _ReaderPageState extends State<ReaderPage> {
                   viewKeys: _viewKeys,
                   onSentenceTap: _onSentenceTap,
                   onLookup: _onLookup,
+                  onTranslate: (_, selection) => _translateLocally(selection),
                   onSelectionChanged: _onSelectionChanged,
                   onZhLongPress: () =>
                       ScaffoldMessenger.of(context).showSnackBar(
@@ -407,6 +431,7 @@ class _BlockView extends StatelessWidget {
     required this.viewKeys,
     required this.onSentenceTap,
     required this.onLookup,
+    required this.onTranslate,
     required this.onSelectionChanged,
     required this.onZhLongPress,
   });
@@ -418,7 +443,8 @@ class _BlockView extends StatelessWidget {
   final String? currentSentenceId;
   final Map<String, GlobalKey<SentenceViewState>> viewKeys;
   final void Function(InstalledSentence) onSentenceTap;
-  final void Function(InstalledSentence, String, bool) onLookup;
+  final void Function(InstalledSentence, String) onLookup;
+  final void Function(InstalledSentence, String) onTranslate;
   final void Function(InstalledSentence, bool) onSelectionChanged;
   final VoidCallback onZhLongPress;
 
@@ -440,8 +466,8 @@ class _BlockView extends StatelessWidget {
               playing: playing,
               selectable: true,
               onTap: () => onSentenceTap(sentence),
-              onLookup: (selection, preferChinese) =>
-                  onLookup(sentence, selection, preferChinese),
+              onLookup: (selection) => onLookup(sentence, selection),
+              onTranslate: (selection) => onTranslate(sentence, selection),
               onSelectionChanged: (hasSelection) =>
                   onSelectionChanged(sentence, hasSelection),
             ),
@@ -457,8 +483,8 @@ class _BlockView extends StatelessWidget {
                 playing: playing,
                 selectable: true,
                 onTap: () => onSentenceTap(sentence),
-                onLookup: (selection, preferChinese) =>
-                    onLookup(sentence, selection, preferChinese),
+                onLookup: (selection) => onLookup(sentence, selection),
+                onTranslate: (selection) => onTranslate(sentence, selection),
                 onSelectionChanged: (hasSelection) =>
                     onSelectionChanged(sentence, hasSelection),
               ),
@@ -490,7 +516,8 @@ class _BlockView extends StatelessWidget {
               playing: playing,
               selectable: false,
               onTap: () => onSentenceTap(sentence),
-              onLookup: (_, _) {},
+              onLookup: (_) {},
+              onTranslate: (_) {},
               onSelectionChanged: (_) {},
               onLongPressHint: onZhLongPress,
             ),

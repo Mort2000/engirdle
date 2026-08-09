@@ -11,8 +11,8 @@ from zipfile import ZipFile
 from jsonschema import Draft202012Validator, FormatChecker  # type: ignore[import-untyped]
 
 from engirdle_pc.modules.dictionary_builder.sources import (
-    FREEDICT_2025_11_23_SHA256,
     OEWN_2025_SHA256,
+    OMW_CMN_2_0_SHA256,
 )
 from engirdle_pc.shared.domain.hashing import sha256_bytes
 
@@ -24,15 +24,18 @@ class DictionaryPackValidator:
     _MAX_ENTRIES: ClassVar[int] = 16
     _MAX_MANIFEST_BYTES: ClassVar[int] = 1024 * 1024
     _MAX_LICENSE_BYTES: ClassVar[int] = 1024 * 1024
-    _SOURCE_IDS: ClassVar[set[str]] = {
-        "oewn-2025",
-        "freedict-eng-zho-2025.11.23",
+    _SOURCE_IDS: ClassVar[set[str]] = {"oewn-2025", "omw-cmn:2.0"}
+    _TABLES: ClassVar[set[str]] = {
+        "entries",
+        "forms",
+        "sense_translations",
+        "dictionary_meta",
     }
-    _TABLES: ClassVar[set[str]] = {"entries", "forms", "dictionary_meta"}
     _INDEXES: ClassVar[set[str]] = {
         "idx_entries_headword_order",
         "idx_entries_normalized_order",
         "idx_forms_normalized_order",
+        "idx_sense_translations_sense_order",
     }
 
     def __init__(
@@ -40,16 +43,16 @@ class DictionaryPackValidator:
         contracts_dir: Path,
         *,
         oewn_sha256: str = OEWN_2025_SHA256,
-        freedict_sha256: str = FREEDICT_2025_11_23_SHA256,
+        omw_cmn_sha256: str = OMW_CMN_2_0_SHA256,
     ) -> None:
-        schema = contracts_dir / "dictionary/v1/schema/manifest.schema.json"
+        schema = contracts_dir / "dictionary/v2/schema/manifest.schema.json"
         self._schema = cast(dict[str, Any], json.loads(schema.read_text(encoding="utf-8")))
         self._oewn_sha256 = oewn_sha256
-        self._freedict_sha256 = freedict_sha256
+        self._omw_cmn_sha256 = omw_cmn_sha256
 
     def validate(self, package_path: Path) -> None:
         if package_path.stat().st_size > self._MAX_PACKAGE_BYTES:
-            raise ValueError("dictpack exceeds the v1 package size limit")
+            raise ValueError("dictpack exceeds the v2 package size limit")
         with ZipFile(package_path) as package:
             entries = package.infolist()
             names = [entry.filename for entry in entries]
@@ -62,14 +65,14 @@ class DictionaryPackValidator:
                 self._validate_entry(entry.filename, entry.external_attr, entry.flag_bits)
                 total_expanded += entry.file_size
                 if entry.filename == "manifest.json" and entry.file_size > self._MAX_MANIFEST_BYTES:
-                    raise ValueError("dictionary manifest exceeds the v1 size limit")
+                    raise ValueError("dictionary manifest exceeds the v2 size limit")
                 if (
                     entry.filename.startswith("licenses/")
                     and entry.file_size > self._MAX_LICENSE_BYTES
                 ):
-                    raise ValueError("dictionary license notice exceeds the v1 size limit")
+                    raise ValueError("dictionary license notice exceeds the v2 size limit")
                 if entry.filename == "dictionary.db" and entry.file_size > self._MAX_DATABASE_BYTES:
-                    raise ValueError("dictionary database exceeds the v1 size limit")
+                    raise ValueError("dictionary database exceeds the v2 size limit")
             if total_expanded > self._MAX_EXPANDED_BYTES:
                 raise ValueError("dictpack exceeds the expanded size limit")
 
@@ -77,10 +80,7 @@ class DictionaryPackValidator:
             if manifest_bytes.startswith(b"\xef\xbb\xbf"):
                 raise ValueError("dictionary manifest must not contain a BOM")
             manifest = cast(dict[str, Any], json.loads(manifest_bytes.decode("utf-8")))
-            validator = Draft202012Validator(
-                self._schema,
-                format_checker=FormatChecker(),
-            )
+            validator = Draft202012Validator(self._schema, format_checker=FormatChecker())
             errors = sorted(validator.iter_errors(manifest), key=lambda error: list(error.path))
             if errors:
                 raise ValueError(f"dictionary manifest schema error: {errors[0].message}")
@@ -107,7 +107,7 @@ class DictionaryPackValidator:
     def _validate_formal_sources(self, manifest: dict[str, Any]) -> None:
         sources = {source["source_id"]: source for source in manifest["sources"]}
         oewn = sources["oewn-2025"]
-        freedict = sources["freedict-eng-zho-2025.11.23"]
+        omw_cmn = sources["omw-cmn:2.0"]
         if (
             oewn["version"] != "2025"
             or oewn["direction"] != "en-en"
@@ -116,16 +116,13 @@ class DictionaryPackValidator:
         ):
             raise ValueError("OEWN formal source identity is invalid")
         if (
-            freedict["version"] != "2025.11.23"
-            or freedict["direction"] != "en-zh"
-            or freedict["input"]["url"]
-            != (
-                "https://download.freedict.org/dictionaries/eng-zho/2025.11.23/"
-                "freedict-eng-zho-2025.11.23.src.tar.xz"
-            )
-            or freedict["input"]["sha256"] != self._freedict_sha256
+            omw_cmn["version"] != "2.0"
+            or omw_cmn["direction"] != "zh"
+            or omw_cmn["input"]["url"]
+            != "https://github.com/omwn/omw-data/releases/download/v2.0/omw-cmn-2.0.tar.xz"
+            or omw_cmn["input"]["sha256"] != self._omw_cmn_sha256
         ):
-            raise ValueError("FreeDict formal source identity is invalid")
+            raise ValueError("Chinese Open Wordnet formal source identity is invalid")
 
     @staticmethod
     def _validate_entry(name: str, external_attributes: int, flags: int) -> None:
@@ -165,6 +162,7 @@ class DictionaryPackValidator:
                 "revision": str(manifest["revision"]),
                 "schema_version": str(manifest["schema_version"]),
                 "normalization_version": manifest["normalization"]["version"],
+                "translation_alignment": "exact-ili-v1",
             }
             if any(metadata.get(key) != value for key, value in expected.items()):
                 raise ValueError("dictionary internal metadata mismatch")
@@ -174,24 +172,35 @@ class DictionaryPackValidator:
             form_sources = {
                 row[0] for row in connection.execute("SELECT DISTINCT source_id FROM forms")
             }
-            if not entry_sources <= self._SOURCE_IDS or not form_sources <= self._SOURCE_IDS:
-                raise ValueError("dictionary rows contain an unregistered source")
+            translation_sources = {
+                row[0]
+                for row in connection.execute(
+                    "SELECT DISTINCT source_id FROM sense_translations"
+                )
+            }
+            if (
+                not entry_sources <= {"oewn-2025"}
+                or not form_sources <= {"oewn-2025"}
+                or not translation_sources <= {"omw-cmn:2.0"}
+            ):
+                raise ValueError("dictionary rows contain an invalid source role")
             if connection.execute(
-                """
-                SELECT 1
-                FROM entries
-                WHERE NULLIF(TRIM(gloss_en), '') IS NULL
-                  AND NULLIF(TRIM(gloss_zh), '') IS NULL
-                LIMIT 1
-                """
+                "SELECT 1 FROM entries WHERE NULLIF(TRIM(gloss_en), '') IS NULL LIMIT 1"
             ).fetchone():
-                raise ValueError("dictionary contains an empty sense")
+                raise ValueError("dictionary contains an empty English sense")
             if connection.execute(
-                """
-                SELECT 1
-                FROM entries
-                WHERE sense_id NOT LIKE source_id || '/%'
-                LIMIT 1
-                """
+                "SELECT 1 FROM entries WHERE sense_id NOT LIKE source_id || '/%' LIMIT 1"
             ).fetchone():
                 raise ValueError("dictionary sense id is outside its source namespace")
+            if connection.execute(
+                """
+                SELECT 1 FROM sense_translations
+                WHERE source_sense_id NOT LIKE source_id || '/%'
+                   OR NULLIF(TRIM(raw_lemma), '') IS NULL
+                   OR NULLIF(TRIM(display_lemma), '') IS NULL
+                LIMIT 1
+                """
+            ).fetchone():
+                raise ValueError("dictionary contains invalid Chinese lemma provenance")
+            if connection.execute("PRAGMA foreign_key_check").fetchone():
+                raise ValueError("dictionary translation references an unknown sense")

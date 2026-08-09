@@ -10,8 +10,8 @@ class DictionaryEntry:
     part_of_speech: str
     sense_id: str
     gloss_en: str | None
-    gloss_zh: str | None
     pronunciation: str | None
+    synset_ili: str | None
     source_id: str
     source_name: str
     source_rank: int
@@ -43,9 +43,35 @@ class ParsedDictionarySource:
 
 
 @dataclass(frozen=True)
+class ChineseLemma:
+    synset_ili: str
+    source_sense_id: str
+    raw_lemma: str
+    display_lemma: str
+    source_id: str
+    order: int
+
+
+@dataclass(frozen=True)
+class ParsedChineseSource:
+    lemmas: tuple[ChineseLemma, ...]
+    counts: SourceCounts
+
+
+@dataclass(frozen=True)
+class SenseTranslation:
+    sense_id: str
+    source_sense_id: str
+    raw_lemma: str
+    display_lemma: str
+    source_id: str
+    order: int
+
+
+@dataclass(frozen=True)
 class DictionaryBuildRequest:
     oewn_archive: Path
-    freedict_archive: Path
+    omw_cmn_archive: Path
     output: Path
     revision: int
     generated_at: str

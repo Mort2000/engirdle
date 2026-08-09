@@ -13,6 +13,7 @@ import 'package:engirdle_mobile/platform/crypto/sha256.dart';
 import 'package:engirdle_mobile/platform/database/app_database.dart';
 import 'package:engirdle_mobile/platform/filesystem/app_directories.dart';
 import 'package:engirdle_mobile/platform/http/lan_http_client.dart';
+import 'package:engirdle_mobile/platform/translation/local_text_translator.dart';
 import 'package:engirdle_mobile/platform/zip/secure_zip_reader.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -114,6 +115,7 @@ class FakeAudioFocusPort implements AudioFocusPort {
 Future<AppDependencies> newTestDependencies({
   PlaybackDriver? driver,
   LanHttpClient? httpClient,
+  LocalTextTranslator localTextTranslator = const _FakeLocalTextTranslator(),
 }) async {
   final temp = await Directory.systemTemp.createTemp('engirdle_test_');
   final deps = await AppDependencies.build(
@@ -122,12 +124,21 @@ Future<AppDependencies> newTestDependencies({
     driver: driver ?? FakePlaybackDriver(),
     focusPort: FakeAudioFocusPort(),
     httpClient: httpClient ?? LanHttpClient(),
+    localTextTranslator: localTextTranslator,
   );
   addTearDown(() async {
     await deps.dispose();
     if (await temp.exists()) await temp.delete(recursive: true);
   });
   return deps;
+}
+
+class _FakeLocalTextTranslator implements LocalTextTranslator {
+  const _FakeLocalTextTranslator();
+
+  @override
+  Future<LocalTranslationResult> translate(String text) async =>
+      LocalTranslationResult.opened;
 }
 
 /// Wraps a page with the app scope, palette and theme it expects.

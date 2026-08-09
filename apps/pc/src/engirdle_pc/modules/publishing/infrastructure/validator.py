@@ -64,7 +64,7 @@ class CatalogValidator:
                 raise InvalidCatalog("catalog resource URLs must be unique")
             dictionary_ids.add(dictionary_id)
             urls.add(url)
-            if not dictionary["format_version"].startswith("1."):
+            if not dictionary["format_version"].startswith("2."):
                 raise InvalidCatalog("catalog references an unsupported dictpack major")
             parsed = urlparse(url)
             if parsed.scheme or parsed.netloc:

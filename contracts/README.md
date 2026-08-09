@@ -10,7 +10,8 @@
 |---|---|---|
 | Readpack v1 | ZIP 布局、manifest、文章、归属和安全导入规则 | [`readpack/v1`](./readpack/v1/) |
 | Catalog v1 | 局域网只读目录与当前发布制品 | [`catalog/v1`](./catalog/v1/) |
-| Dictionary v1 | 离线词典资源包、来源归属与 SQLite 预检规则 | [`dictionary/v1`](./dictionary/v1/) |
+| Dictionary v1 | 历史离线词典资源包契约 | [`dictionary/v1`](./dictionary/v1/) |
+| Dictionary v2 | OEWN sense 与 Chinese Open Wordnet lemma 的 ILI 对齐 | [`dictionary/v2`](./dictionary/v2/) |
 
 ## 验证层次
 

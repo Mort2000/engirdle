@@ -1,5 +1,11 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools">
+    <queries>
+        <intent>
+            <action android:name="android.intent.action.PROCESS_TEXT"/>
+            <data android:mimeType="text/plain"/>
+        </intent>
+    </queries>
     <!-- Install-time network access for the user-configured LAN publisher only. -->
     <uses-permission android:name="android.permission.INTERNET"/>
     <!-- Background media playback (design §7.2): keep audio playing while the

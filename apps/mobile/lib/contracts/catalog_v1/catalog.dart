@@ -90,7 +90,7 @@ class Catalog {
         CatalogDictionary(
           dictionaryId: dictionaryId,
           revision: dictionary['revision'].positiveInt(),
-          formatVersion: dictionary['format_version'].v1Version(),
+          formatVersion: dictionary['format_version'].v2Version(),
           schemaVersion: dictionary['schema_version'].positiveInt(),
           displayName: dictionary['display_name'].asString(
             minLength: 1,

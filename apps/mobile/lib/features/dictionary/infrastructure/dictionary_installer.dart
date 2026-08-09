@@ -5,7 +5,7 @@ import 'package:path/path.dart' as p;
 import 'package:sqlite3/sqlite3.dart';
 
 import '../../../contracts/contract_violation.dart';
-import '../../../contracts/dictionary_v1/manifest.dart';
+import '../../../contracts/dictionary_v2/manifest.dart';
 import '../../../platform/crypto/sha256.dart';
 import '../../../platform/filesystem/app_directories.dart';
 import '../../../platform/http/lan_http_client.dart';
@@ -35,11 +35,17 @@ class DictionaryInstaller {
   static const maxExpandedBytes = 640 * 1024 * 1024;
   static const maxEntries = 16;
 
-  static const _requiredTables = {'entries', 'forms', 'dictionary_meta'};
+  static const _requiredTables = {
+    'entries',
+    'forms',
+    'sense_translations',
+    'dictionary_meta',
+  };
   static const _requiredIndexes = {
     'idx_entries_headword_order',
     'idx_entries_normalized_order',
     'idx_forms_normalized_order',
+    'idx_sense_translations_sense_order',
   };
 
   final DictionaryManifestDao _manifestDao;
@@ -202,9 +208,43 @@ class DictionaryInstaller {
         }
       }
     }
-    final active = _manifestDao.current();
+    var active = _manifestDao.current();
+    if (active != null && !_isSupported(active)) {
+      await _removeIncompatible(active);
+      active = _manifestDao.current();
+    }
     if (active != null) await _cleanupInactive(active);
     await _cleanupOrphanDirectories(active);
+  }
+
+  static bool _isSupported(DictionaryResource resource) =>
+      resource.formatVersion.startsWith('2.') && resource.schemaVersion == 2;
+
+  Future<void> _removeIncompatible(DictionaryResource resource) async {
+    final expectedDirectory = _directories.dictionaryDir(
+      resource.dictionaryId,
+      resource.revision,
+    );
+    final expectedDatabase = p.join(expectedDirectory.path, 'dictionary.db');
+    if (!p.equals(p.normalize(resource.path), p.normalize(expectedDatabase))) {
+      throw const AppFailure(
+        FailureKind.packageFormat,
+        'incompatible dictionary path is outside its recorded revision',
+      );
+    }
+    final entityType = await FileSystemEntity.type(
+      expectedDirectory.path,
+      followLinks: false,
+    );
+    if (entityType == FileSystemEntityType.directory) {
+      await expectedDirectory.delete(recursive: true);
+    } else if (entityType != FileSystemEntityType.notFound) {
+      throw const AppFailure(
+        FailureKind.packageFormat,
+        'incompatible dictionary revision is not a regular directory',
+      );
+    }
+    _manifestDao.removeInstallation(resource.dictionaryId, resource.revision);
   }
 
   Future<void> _validateOuter(
@@ -380,23 +420,29 @@ class DictionaryInstaller {
       if (metadata['dictionary_id'] != manifest.dictionaryId ||
           metadata['revision'] != manifest.revision.toString() ||
           metadata['schema_version'] != manifest.schemaVersion.toString() ||
-          metadata['normalization_version'] != manifest.normalizationVersion) {
+          metadata['normalization_version'] != manifest.normalizationVersion ||
+          metadata['translation_alignment'] != 'exact-ili-v1') {
         throw const AppFailure(
           FailureKind.database,
           'dictionary metadata mismatch',
         );
       }
-      // Verify required columns through a harmless indexed query. It also
-      // catches a database whose table names exist but whose v1 layout does not.
+      // Verify required v2 columns through harmless indexed queries.
       db.select(
-        'SELECT headword, normalized_headword, pos, sense_id, gloss_en, gloss_zh, '
-        'pronunciation, source_id, source_name, pos_rank, source_rank, ord '
+        'SELECT headword, normalized_headword, pos, sense_id, gloss_en, '
+        'pronunciation, synset_ili, source_id, source_name, pos_rank, '
+        'source_rank, ord '
         'FROM entries WHERE normalized_headword = ? LIMIT 1',
         ['__engirdle_preflight__'],
       );
       db.select(
         'SELECT form, normalized_form, lemma, source_id, pos, source_rank, ord '
         'FROM forms WHERE normalized_form = ? LIMIT 1',
+        ['__engirdle_preflight__'],
+      );
+      db.select(
+        'SELECT sense_id, source_sense_id, raw_lemma, display_lemma, '
+        'source_id, ord FROM sense_translations WHERE sense_id = ? LIMIT 1',
         ['__engirdle_preflight__'],
       );
       final sourceIds = manifest.sources
@@ -410,8 +456,18 @@ class DictionaryInstaller {
           .select('SELECT DISTINCT source_id FROM forms')
           .map((row) => row['source_id'] as String)
           .toSet();
-      if (!sourceIds.containsAll(entrySources) ||
-          !sourceIds.containsAll(formSources)) {
+      final translationSources = db
+          .select('SELECT DISTINCT source_id FROM sense_translations')
+          .map((row) => row['source_id'] as String)
+          .toSet();
+      if (!entrySources.every((source) => source == 'oewn-2025') ||
+          !formSources.every((source) => source == 'oewn-2025') ||
+          !translationSources.every((source) => source == 'omw-cmn:2.0') ||
+          !sourceIds.containsAll({
+            ...entrySources,
+            ...formSources,
+            ...translationSources,
+          })) {
         throw const AppFailure(
           FailureKind.database,
           'dictionary rows contain an unregistered source',
@@ -421,12 +477,11 @@ class DictionaryInstaller {
         SELECT 1
         FROM entries
         WHERE NULLIF(TRIM(gloss_en), '') IS NULL
-          AND NULLIF(TRIM(gloss_zh), '') IS NULL
         LIMIT 1
       ''').isNotEmpty) {
         throw const AppFailure(
           FailureKind.database,
-          'dictionary contains an empty sense',
+          'dictionary contains an empty English sense',
         );
       }
       if (db.select('''
@@ -438,6 +493,25 @@ class DictionaryInstaller {
         throw const AppFailure(
           FailureKind.database,
           'dictionary sense id is outside its source namespace',
+        );
+      }
+      if (db.select('''
+        SELECT 1
+        FROM sense_translations
+        WHERE source_sense_id NOT LIKE source_id || '/%'
+           OR NULLIF(TRIM(raw_lemma), '') IS NULL
+           OR NULLIF(TRIM(display_lemma), '') IS NULL
+        LIMIT 1
+      ''').isNotEmpty) {
+        throw const AppFailure(
+          FailureKind.database,
+          'dictionary contains invalid Chinese lemma provenance',
+        );
+      }
+      if (db.select('PRAGMA foreign_key_check').isNotEmpty) {
+        throw const AppFailure(
+          FailureKind.database,
+          'dictionary translation references an unknown sense',
         );
       }
     } finally {
@@ -472,10 +546,8 @@ class DictionaryInstaller {
   }
 
   Future<void> _cleanupOrphanDirectories(DictionaryResource? active) async {
-    if (!await _directories.dictionaryRoot.exists()) return;
-    final activeDirectory = active == null
-        ? null
-        : p.normalize(p.dirname(active.path));
+    if (active == null || !await _directories.dictionaryRoot.exists()) return;
+    final activeDirectory = p.normalize(p.dirname(active.path));
     await for (final dictionaryDirectory in _directories.dictionaryRoot.list(
       followLinks: false,
     )) {
@@ -484,11 +556,10 @@ class DictionaryInstaller {
         followLinks: false,
       )) {
         if (revisionDirectory is! Directory ||
-            activeDirectory != null &&
-                p.equals(
-                  p.normalize(revisionDirectory.path),
-                  activeDirectory,
-                )) {
+            p.equals(
+              p.normalize(revisionDirectory.path),
+              activeDirectory,
+            )) {
           continue;
         }
         try {

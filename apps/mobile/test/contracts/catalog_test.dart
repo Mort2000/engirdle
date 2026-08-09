@@ -43,13 +43,13 @@ void main() {
           'dictionaries': [
             {
               'dictionary_id': 'engirdle-en-zh',
-              'revision': 1,
-              'format_version': '1.0',
-              'schema_version': 1,
-              'display_name': 'Engirdle English–Chinese Offline Dictionary',
+              'revision': 2,
+              'format_version': '2.0',
+              'schema_version': 2,
+              'display_name': 'Engirdle OEWN / Chinese Open Wordnet Dictionary',
               'size': 1234,
               'sha256': 'a' * 64,
-              'url': '/dictionaries/engirdle-en-zh-r1-a1b2.dictpack',
+              'url': '/dictionaries/engirdle-en-zh-r2-a1b2.dictpack',
             },
           ],
         }, origin: origin);
@@ -57,10 +57,10 @@ void main() {
         expect(catalog.dictionaries, hasLength(1));
         final dictionary = catalog.dictionaries.single;
         expect(dictionary.dictionaryId, 'engirdle-en-zh');
-        expect(dictionary.revision, 1);
+        expect(dictionary.revision, 2);
         expect(
           dictionary.url.toString(),
-          'http://192.0.2.10:8766/dictionaries/engirdle-en-zh-r1-a1b2.dictpack',
+          'http://192.0.2.10:8766/dictionaries/engirdle-en-zh-r2-a1b2.dictpack',
         );
       },
     );
@@ -73,9 +73,9 @@ void main() {
         'dictionaries': [
           {
             'dictionary_id': 'engirdle-en-zh',
-            'revision': 1,
-            'format_version': '1.0',
-            'schema_version': 1,
+            'revision': 2,
+            'format_version': '2.0',
+            'schema_version': 2,
             'display_name': 'Dictionary',
             'size': 1,
             'sha256': 'a' * 64,

@@ -16,7 +16,7 @@ from engirdle_pc.shared.infrastructure.workspace import Workspace
 def main() -> None:
     parser = argparse.ArgumentParser(prog="engirdle-dictionary-builder")
     parser.add_argument("--oewn", required=True, type=Path)
-    parser.add_argument("--freedict", required=True, type=Path)
+    parser.add_argument("--omw-cmn", required=True, type=Path)
     parser.add_argument("--revision", required=True, type=int)
     parser.add_argument("--generated-at", required=True)
     parser.add_argument("--output", type=Path)
@@ -37,7 +37,7 @@ def main() -> None:
     artifact = DictionaryBuilder().build(
         DictionaryBuildRequest(
             oewn_archive=arguments.oewn,
-            freedict_archive=arguments.freedict,
+            omw_cmn_archive=arguments.omw_cmn,
             output=output,
             revision=arguments.revision,
             generated_at=arguments.generated_at,

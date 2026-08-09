@@ -2,7 +2,7 @@ import 'dart:convert';
 
 import 'package:sqlite3/sqlite3.dart';
 
-import '../../../contracts/dictionary_v1/manifest.dart';
+import '../../../contracts/dictionary_v2/manifest.dart';
 import '../domain/dictionary_models.dart';
 
 class DictionaryManifestDao {
@@ -94,6 +94,26 @@ class DictionaryManifestDao {
     );
   }
 
+  void removeInstallation(String dictionaryId, int revision) {
+    _db.execute('BEGIN IMMEDIATE');
+    try {
+      _db.execute(
+        'DELETE FROM dictionary_active '
+        'WHERE dictionary_id = ? AND revision = ?',
+        [dictionaryId, revision],
+      );
+      _db.execute(
+        'DELETE FROM dictionary_manifest '
+        'WHERE dictionary_id = ? AND revision = ?',
+        [dictionaryId, revision],
+      );
+      _db.execute('COMMIT');
+    } catch (_) {
+      _db.execute('ROLLBACK');
+      rethrow;
+    }
+  }
+
   DictionaryResource _resource(Row row) {
     final manifestJson = row['manifest_json'] as String;
     try {
@@ -105,13 +125,16 @@ class DictionaryManifestDao {
         manifestJson: manifestJson,
       );
     } catch (_) {
-      // One-time compatibility for pre-v2 development installs. The startup
-      // status will mark a missing/unusable database as corrupt; successful
-      // lookup remains possible until a formal package replaces it.
-      final metadata = jsonDecode(manifestJson);
-      final map = metadata is Map<String, Object?>
-          ? metadata
-          : const <String, Object?>{};
+      // Preserve only enough untrusted metadata to identify and remove an
+      // incompatible installation during startup recovery.
+      Map<String, Object?> map = const {};
+      try {
+        final metadata = jsonDecode(manifestJson);
+        if (metadata is Map<String, Object?>) map = metadata;
+      } catch (_) {
+        // Invalid metadata remains incompatible. Recovery can still validate
+        // its path from the trusted installation row.
+      }
       return DictionaryResource(
         dictionaryId: row['dictionary_id'] as String,
         revision: row['revision'] as int,
@@ -120,10 +143,10 @@ class DictionaryManifestDao {
         sha256: row['package_sha256'] as String,
         databaseSizeBytes: row['package_size_bytes'] as int,
         databaseSha256: row['package_sha256'] as String,
-        formatVersion: 'legacy',
-        schemaVersion: 0,
+        formatVersion: (map['format_version'] as String?) ?? 'legacy',
+        schemaVersion: (map['schema_version'] as int?) ?? 0,
         displayName: (map['display_name'] as String?) ?? 'Dictionary',
-        generatedAt: '',
+        generatedAt: (map['generated_at'] as String?) ?? '',
         builderName: 'legacy',
         builderVersion: 'unknown',
         normalizationVersion: 'legacy',

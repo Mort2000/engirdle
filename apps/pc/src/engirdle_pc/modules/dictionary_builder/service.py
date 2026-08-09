@@ -4,40 +4,44 @@ import json
 import os
 import sqlite3
 import tempfile
+from collections import defaultdict
 from dataclasses import asdict
 from pathlib import Path
 from zipfile import ZIP_DEFLATED, ZipFile, ZipInfo
 
 from engirdle_pc.bootstrap.config import Settings
 from engirdle_pc.modules.dictionary_builder.domain import (
+    ChineseLemma,
     DictionaryArtifact,
     DictionaryBuildRequest,
     DictionaryEntry,
     DictionaryForm,
+    ParsedChineseSource,
     ParsedDictionarySource,
+    SenseTranslation,
     SourceBuildSummary,
 )
 from engirdle_pc.modules.dictionary_builder.sources import (
-    FREEDICT_SOURCE_ID,
     OEWN_SOURCE_ID,
-    FreedictTeiSource,
+    OMW_CMN_SOURCE_ID,
     OewnLmfSource,
+    OmwCmnLmfSource,
     normalize,
 )
 from engirdle_pc.modules.dictionary_builder.validator import DictionaryPackValidator
 from engirdle_pc.shared.infrastructure.hashing import sha256_file
 
 DICTIONARY_ID = "engirdle-en-zh"
-SCHEMA_VERSION = 1
-BUILDER_VERSION = "1.0.0"
+SCHEMA_VERSION = 2
+BUILDER_VERSION = "2.0.0"
 
 _POS_RANK = {"noun": 0, "verb": 1, "adjective": 2, "adverb": 3, "other": 9}
 _MODIFICATIONS = [
     "Unicode NFC normalization, whitespace collapse and Unicode lowercase lookup keys.",
-    "Source-preserving sense rows; no cross-source sense merge.",
-    "Empty senses are filtered, duplicate translations are collapsed, and TEI markup is flattened.",
-    "OEWN explicit forms plus deterministic common English inflection rules are indexed.",
-    "Results are ordered by source_rank, pos_rank and source-local ord.",
+    "OEWN 2025 senses are the only entries and form index source.",
+    "Chinese Open Wordnet lemmas are joined to OEWN senses only by identical ILI.",
+    "Raw Chinese lemmas are retained; display lemmas remove only +的 and +地 markers.",
+    "Chinese display lemmas are ordered and deduplicated within each OEWN sense.",
 ]
 
 
@@ -45,15 +49,15 @@ class DictionaryBuilder:
     def __init__(
         self,
         oewn: OewnLmfSource | None = None,
-        freedict: FreedictTeiSource | None = None,
+        omw_cmn: OmwCmnLmfSource | None = None,
         validator: DictionaryPackValidator | None = None,
     ) -> None:
         self._oewn = oewn or OewnLmfSource()
-        self._freedict = freedict or FreedictTeiSource()
+        self._omw_cmn = omw_cmn or OmwCmnLmfSource()
         self._validator = validator or DictionaryPackValidator(
             Settings().contracts_dir,
             oewn_sha256=self._oewn.expected_sha256,
-            freedict_sha256=self._freedict.expected_sha256,
+            omw_cmn_sha256=self._omw_cmn.expected_sha256,
         )
 
     def build(self, request: DictionaryBuildRequest) -> DictionaryArtifact:
@@ -62,11 +66,12 @@ class DictionaryBuilder:
         if request.output.suffix != ".dictpack":
             raise ValueError("dictionary output must use the .dictpack extension")
         oewn = self._oewn.read(request.oewn_archive)
-        freedict = self._freedict.read(request.freedict_archive)
+        omw_cmn = self._omw_cmn.read(request.omw_cmn_archive)
+        translations = _align_translations(oewn, omw_cmn)
         with tempfile.TemporaryDirectory(prefix="engirdle_dictionary_") as temporary:
             database = Path(temporary) / "dictionary.db"
-            self._write_database(database, request.revision, oewn, freedict)
-            manifest = self._manifest(request, database, oewn, freedict)
+            self._write_database(database, request.revision, oewn, translations)
+            manifest = self._manifest(request, database, oewn, omw_cmn)
             self._write_package(request.output, database, manifest)
             try:
                 self._validator.validate(request.output)
@@ -86,9 +91,9 @@ class DictionaryBuilder:
                     counts=oewn.counts,
                 ),
                 SourceBuildSummary(
-                    source_id=FREEDICT_SOURCE_ID,
-                    input_sha256=sha256_file(request.freedict_archive),
-                    counts=freedict.counts,
+                    source_id=OMW_CMN_SOURCE_ID,
+                    input_sha256=sha256_file(request.omw_cmn_archive),
+                    counts=omw_cmn.counts,
                 ),
             ),
         )
@@ -98,23 +103,21 @@ class DictionaryBuilder:
         path: Path,
         revision: int,
         oewn: ParsedDictionarySource,
-        freedict: ParsedDictionarySource,
+        translations: tuple[SenseTranslation, ...],
     ) -> None:
         entries = sorted(
-            (*oewn.entries, *freedict.entries),
+            oewn.entries,
             key=lambda item: (
                 normalize(item.headword),
-                item.source_rank,
                 _POS_RANK[item.part_of_speech],
                 item.order,
                 item.sense_id,
             ),
         )
         forms = sorted(
-            {*oewn.forms, *freedict.forms},
+            set(oewn.forms),
             key=lambda item: (
                 normalize(item.form),
-                item.source_rank,
                 item.order,
                 normalize(item.lemma),
                 item.source_id,
@@ -122,6 +125,7 @@ class DictionaryBuilder:
         )
         connection = sqlite3.connect(path)
         try:
+            connection.execute("PRAGMA foreign_keys = ON")
             connection.executescript(
                 """
                 PRAGMA page_size = 4096;
@@ -132,15 +136,15 @@ class DictionaryBuilder:
                   normalized_headword TEXT NOT NULL,
                   pos TEXT NOT NULL,
                   sense_id TEXT PRIMARY KEY,
-                  gloss_en TEXT,
-                  gloss_zh TEXT,
+                  gloss_en TEXT NOT NULL,
                   pronunciation TEXT,
+                  synset_ili TEXT,
                   source_id TEXT NOT NULL,
                   source_name TEXT NOT NULL,
                   pos_rank INTEGER NOT NULL,
                   source_rank INTEGER NOT NULL,
                   ord INTEGER NOT NULL,
-                  CHECK (gloss_en IS NOT NULL OR gloss_zh IS NOT NULL)
+                  CHECK (NULLIF(TRIM(gloss_en), '') IS NOT NULL)
                 );
                 CREATE TABLE forms (
                   form TEXT NOT NULL,
@@ -152,6 +156,16 @@ class DictionaryBuilder:
                   ord INTEGER NOT NULL,
                   PRIMARY KEY (normalized_form, lemma, source_id, pos)
                 ) WITHOUT ROWID;
+                CREATE TABLE sense_translations (
+                  sense_id TEXT NOT NULL REFERENCES entries(sense_id),
+                  source_sense_id TEXT NOT NULL,
+                  raw_lemma TEXT NOT NULL,
+                  display_lemma TEXT NOT NULL,
+                  source_id TEXT NOT NULL,
+                  ord INTEGER NOT NULL,
+                  PRIMARY KEY (sense_id, source_sense_id),
+                  UNIQUE (sense_id, display_lemma)
+                ) WITHOUT ROWID;
                 CREATE TABLE dictionary_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
                 CREATE INDEX idx_entries_headword_order
                   ON entries(headword, source_rank, pos_rank, ord, sense_id);
@@ -159,6 +173,8 @@ class DictionaryBuilder:
                   ON entries(normalized_headword, source_rank, pos_rank, ord, sense_id);
                 CREATE INDEX idx_forms_normalized_order
                   ON forms(normalized_form, source_rank, ord, lemma);
+                CREATE INDEX idx_sense_translations_sense_order
+                  ON sense_translations(sense_id, ord, source_sense_id);
                 """
             )
             connection.executemany(
@@ -170,12 +186,17 @@ class DictionaryBuilder:
                 [_form_row(form) for form in forms],
             )
             connection.executemany(
+                "INSERT INTO sense_translations VALUES (?, ?, ?, ?, ?, ?)",
+                [_translation_row(translation) for translation in translations],
+            )
+            connection.executemany(
                 "INSERT INTO dictionary_meta VALUES (?, ?)",
                 (
                     ("dictionary_id", DICTIONARY_ID),
                     ("revision", str(revision)),
                     ("schema_version", str(SCHEMA_VERSION)),
                     ("normalization_version", "unicode-nfc-lower-v1"),
+                    ("translation_alignment", "exact-ili-v1"),
                 ),
             )
             connection.commit()
@@ -188,14 +209,14 @@ class DictionaryBuilder:
         request: DictionaryBuildRequest,
         database: Path,
         oewn: ParsedDictionarySource,
-        freedict: ParsedDictionarySource,
+        omw_cmn: ParsedChineseSource,
     ) -> dict[str, object]:
         return {
-            "format_version": "1.0",
+            "format_version": "2.0",
             "dictionary_id": DICTIONARY_ID,
             "revision": request.revision,
             "schema_version": SCHEMA_VERSION,
-            "display_name": "Engirdle English-Chinese Offline Dictionary",
+            "display_name": "Engirdle OEWN / Chinese Open Wordnet Dictionary",
             "generated_at": request.generated_at,
             "builder": {
                 "name": "engirdle-pc dictionary-builder",
@@ -242,47 +263,50 @@ class DictionaryBuilder:
                     ],
                     "counts": asdict(oewn.counts),
                     "extraction_note": (
-                        "Extract lemma, POS, namespace-qualified sense/synset identity, "
-                        "English definition and explicit/generated forms from the core "
-                        "2025 LMF release."
+                        "Extract OEWN lemma, POS, sense identity, ILI, English definition "
+                        "and explicit/generated forms from the core 2025 LMF release."
                     ),
                 },
                 {
-                    "source_id": FREEDICT_SOURCE_ID,
-                    "version": "2025.11.23",
-                    "display_name": "FreeDict English-Chinese",
-                    "direction": "en-zh",
+                    "source_id": OMW_CMN_SOURCE_ID,
+                    "version": "2.0",
+                    "display_name": "Chinese Open Wordnet 2.0",
+                    "direction": "zh",
                     "input": {
                         "url": (
-                            "https://download.freedict.org/dictionaries/eng-zho/2025.11.23/"
-                            "freedict-eng-zho-2025.11.23.src.tar.xz"
+                            "https://github.com/omwn/omw-data/releases/download/v2.0/"
+                            "omw-cmn-2.0.tar.xz"
                         ),
-                        "sha256": sha256_file(request.freedict_archive),
+                        "sha256": sha256_file(request.omw_cmn_archive),
                     },
                     "licenses": [
                         {
-                            "name": "Creative Commons Attribution-ShareAlike 3.0",
-                            "url": "https://creativecommons.org/licenses/by-sa/3.0/",
+                            "name": "Chinese Open Wordnet License",
+                            "url": "https://github.com/omwn/omw-data/blob/main/wns/cow/LICENSE",
                         }
                     ],
                     "attributions": [
-                        {"name": "FreeDict", "url": "https://freedict.org/"},
-                        {"name": "WikDict", "url": "https://www.wikdict.com/"},
-                        {"name": "DBnary", "url": "https://kaiko.getalp.org/about-dbnary/"},
-                        {"name": "Wiktionary", "url": "https://www.wiktionary.org/"},
+                        {
+                            "name": "Chinese Open Wordnet",
+                            "url": "https://bond-lab.github.io/cow/",
+                        },
+                        {
+                            "name": "Open Multilingual Wordnet",
+                            "url": "https://omwn.org/",
+                        },
                     ],
-                    "counts": asdict(freedict.counts),
+                    "counts": asdict(omw_cmn.counts),
                     "extraction_note": (
-                        "Flatten TEI markup; extract English headword, POS, pronunciation, "
-                        "optional definition and Chinese translations; remove empty senses "
-                        "and duplicate translations."
+                        "Attach only Chinese lemmas whose synset ILI exactly equals the "
+                        "OEWN sense synset ILI; retain raw values and normalize "
+                        "+的/+地 for display."
                     ),
                 },
             ],
             "modifications": _MODIFICATIONS,
             "license_files": [
                 "licenses/oewn-2025.txt",
-                "licenses/freedict-eng-zho-2025.11.23.txt",
+                "licenses/omw-cmn-2.0.txt",
             ],
         }
 
@@ -303,14 +327,41 @@ class DictionaryBuilder:
                 _write_zip_bytes(package, "manifest.json", manifest_bytes)
                 _write_zip_bytes(package, "dictionary.db", database.read_bytes())
                 _write_zip_bytes(package, "licenses/oewn-2025.txt", _oewn_license_notice())
-                _write_zip_bytes(
-                    package,
-                    "licenses/freedict-eng-zho-2025.11.23.txt",
-                    _freedict_license_notice(),
-                )
+                _write_zip_bytes(package, "licenses/omw-cmn-2.0.txt", _omw_cmn_license_notice())
             os.replace(temporary, output)
         finally:
             temporary.unlink(missing_ok=True)
+
+
+def _align_translations(
+    oewn: ParsedDictionarySource,
+    omw_cmn: ParsedChineseSource,
+) -> tuple[SenseTranslation, ...]:
+    by_ili: defaultdict[str, list[ChineseLemma]] = defaultdict(list)
+    for lemma in omw_cmn.lemmas:
+        by_ili[lemma.synset_ili].append(lemma)
+    translations: list[SenseTranslation] = []
+    for entry in oewn.entries:
+        if entry.synset_ili is None:
+            continue
+        seen_display: set[str] = set()
+        sense_order = 0
+        for lemma in by_ili.get(entry.synset_ili, []):
+            if lemma.display_lemma in seen_display:
+                continue
+            seen_display.add(lemma.display_lemma)
+            translations.append(
+                SenseTranslation(
+                    sense_id=entry.sense_id,
+                    source_sense_id=lemma.source_sense_id,
+                    raw_lemma=lemma.raw_lemma,
+                    display_lemma=lemma.display_lemma,
+                    source_id=lemma.source_id,
+                    order=sense_order,
+                )
+            )
+            sense_order += 1
+    return tuple(translations)
 
 
 def _entry_row(entry: DictionaryEntry) -> tuple[object, ...]:
@@ -320,8 +371,8 @@ def _entry_row(entry: DictionaryEntry) -> tuple[object, ...]:
         entry.part_of_speech,
         entry.sense_id,
         entry.gloss_en,
-        entry.gloss_zh,
         entry.pronunciation,
+        entry.synset_ili,
         entry.source_id,
         entry.source_name,
         _POS_RANK[entry.part_of_speech],
@@ -342,6 +393,17 @@ def _form_row(form: DictionaryForm) -> tuple[object, ...]:
     )
 
 
+def _translation_row(translation: SenseTranslation) -> tuple[object, ...]:
+    return (
+        translation.sense_id,
+        translation.source_sense_id,
+        translation.raw_lemma,
+        translation.display_lemma,
+        translation.source_id,
+        translation.order,
+    )
+
+
 def _write_zip_bytes(package: ZipFile, path: str, payload: bytes) -> None:
     info = ZipInfo(path, date_time=(1980, 1, 1, 0, 0, 0))
     info.compress_type = ZIP_DEFLATED
@@ -359,10 +421,35 @@ def _oewn_license_notice() -> bytes:
     )
 
 
-def _freedict_license_notice() -> bytes:
-    return (
-        b"FreeDict eng-zho 2025.11.23\n"
-        b"License: CC BY-SA 3.0 https://creativecommons.org/licenses/by-sa/3.0/\n"
-        b"Attribution: FreeDict, WikDict, DBnary and Wiktionary.\n"
-        b"Source: https://download.freedict.org/dictionaries/eng-zho/2025.11.23/\n"
-    )
+def _omw_cmn_license_notice() -> bytes:
+    return b"""Copyright: 2013, 2014 Francis Bond, Shan Wang
+
+Chinese Open WordNet
+
+This software and database is being provided to you, the LICENSEE
+under the following license.  By obtaining, using and/or copying this
+software and database, you agree that you have read, understood, and
+will comply with these terms and conditions:
+
+Permission to use, copy, modify and distribute this software and
+database and its documentation for any purpose and without fee or
+royalty is hereby granted, provided that you agree to comply with the
+following copyright notice and statements, including the disclaimer,
+and that the same appear on ALL copies of the software, database and
+documentation, including modifications that you make for internal use
+or for distribution.
+
+Chinese Open Wordnet Copyright 2013,2014 by Francis Bond and Shan
+Wang.  All rights reserved.
+
+THIS SOFTWARE AND DATABASE IS PROVIDED "AS IS" AND WE MAKE NO
+REPRESENTATIONS OR WARRANTIES, EXPRESS OR IMPLIED.  BY WAY OF EXAMPLE,
+BUT NOT LIMITATION, WE MAKE NO REPRESENTATIONS OR WARRANTIES OF
+MERCHANTABILITY OR FITNESS FOR ANY PARTICULAR PURPOSE OR THAT THE USE
+OF THE LICENSED SOFTWARE, DATABASE OR DOCUMENTATION WILL NOT INFRINGE
+ANY THIRD PARTY PATENTS, COPYRIGHTS, TRADEMARKS OR OTHER RIGHTS.
+
+Title to copyright in this software, database and any associated
+documentation shall at all times remain with the copyright holders and
+LICENSEE agrees to preserve same.
+"""

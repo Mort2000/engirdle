@@ -11,19 +11,19 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from engirdle_pc.modules.dictionary_builder.domain import (
+    ChineseLemma,
     DictionaryEntry,
     DictionaryForm,
+    ParsedChineseSource,
     ParsedDictionarySource,
     SourceCounts,
 )
 
 OEWN_SOURCE_ID = "oewn-2025"
-FREEDICT_SOURCE_ID = "freedict-eng-zho-2025.11.23"
+OMW_CMN_SOURCE_ID = "omw-cmn:2.0"
 OEWN_2025_SHA256 = "9ca6d1dcb75f822fdd66617f7d9da48142ace38dd544d6ad5e2feca1674ad3fe"
-FREEDICT_2025_11_23_SHA256 = "78f6909786861809886201827e5e3d55dbf8e12f753d7a7183e785dbc574de8b"
+OMW_CMN_2_0_SHA256 = "7d07af60a6ced0cedc4ca114d0b60a796d3f138df0f3be21f6322e53d004e91c"
 
-_XML_ID = "{http://www.w3.org/XML/1998/namespace}id"
-_XML_LANG = "{http://www.w3.org/XML/1998/namespace}lang"
 _WHITESPACE = re.compile(r"\s+")
 _POS_NAMES = {
     "n": "noun",
@@ -41,10 +41,10 @@ _POS_NAMES = {
 
 
 @dataclass(frozen=True)
-class _FreedictSenseRow:
-    node: ET.Element
-    gloss_en: str | None
-    gloss_zh: str | None
+class _OewnSynset:
+    part_of_speech: str
+    definition: str
+    ili: str | None
 
 
 class OewnLmfSource:
@@ -78,10 +78,11 @@ class OewnLmfSource:
             senses = list(_descendants(lexical_entry, "Sense"))
             accepted = 0
             for sense_order, sense in enumerate(senses):
-                synset_id = sense.attrib.get("synset", "")
-                synset = synsets.get(synset_id)
-                gloss = synset[1] if synset is not None else None
-                sense_pos = pos if pos != "other" else (synset[0] if synset else "other")
+                synset = synsets.get(sense.attrib.get("synset", ""))
+                gloss = synset.definition if synset is not None else None
+                sense_pos = pos if pos != "other" else (
+                    synset.part_of_speech if synset is not None else "other"
+                )
                 sense_id = sense.attrib.get("id", "")
                 if not lemma or not gloss or not sense_id:
                     continue
@@ -91,8 +92,8 @@ class OewnLmfSource:
                         part_of_speech=sense_pos,
                         sense_id=f"{OEWN_SOURCE_ID}/{sense_id}",
                         gloss_en=gloss,
-                        gloss_zh=None,
                         pronunciation=None,
+                        synset_ili=synset.ili if synset is not None else None,
                         source_id=OEWN_SOURCE_ID,
                         source_name="Open English WordNet 2025",
                         source_rank=0,
@@ -136,13 +137,17 @@ class OewnLmfSource:
             ),
         )
 
-    def _read_synsets(self, archive: Path) -> dict[str, tuple[str, str]]:
-        result: dict[str, tuple[str, str]] = {}
+    def _read_synsets(self, archive: Path) -> dict[str, _OewnSynset]:
+        result: dict[str, _OewnSynset] = {}
         for synset in self._elements(archive, "Synset"):
             synset_id = synset.attrib.get("id", "")
             definition = _first_text(synset, "Definition")
             if synset_id and definition:
-                result[synset_id] = (_pos(synset.attrib.get("partOfSpeech")), definition)
+                result[synset_id] = _OewnSynset(
+                    part_of_speech=_pos(synset.attrib.get("partOfSpeech")),
+                    definition=definition,
+                    ili=synset.attrib.get("ili") or None,
+                )
         return result
 
     @staticmethod
@@ -173,122 +178,140 @@ class OewnLmfSource:
                     element.clear()
 
 
-class FreedictTeiSource:
-    """Streaming reader for the fixed official FreeDict eng-zho TEI source tarball."""
+class OmwCmnLmfSource:
+    """Reader for the frozen Chinese Open Wordnet 2.0 WN-LMF archive."""
 
-    _MAX_TEI_BYTES = 256 * 1024 * 1024
+    _XML_PATH = "omw-cmn/omw-cmn.xml"
+    _LICENSE_PATH = "omw-cmn/LICENSE"
+    _MAX_XML_BYTES = 256 * 1024 * 1024
+    _MAX_LICENSE_BYTES = 1024 * 1024
 
-    def __init__(self, *, expected_sha256: str = FREEDICT_2025_11_23_SHA256) -> None:
+    def __init__(self, *, expected_sha256: str = OMW_CMN_2_0_SHA256) -> None:
         self._expected_sha256 = expected_sha256
 
     @property
     def expected_sha256(self) -> str:
         return self._expected_sha256
 
-    def read(self, archive: Path) -> ParsedDictionarySource:
-        if archive.name != "freedict-eng-zho-2025.11.23.src.tar.xz":
-            raise ValueError(
-                "FreeDict input must be the official eng-zho 2025.11.23 source package"
-            )
-        _require_snapshot(archive, self._expected_sha256, "FreeDict eng-zho 2025.11.23")
-        entries: list[DictionaryEntry] = []
-        forms: list[DictionaryForm] = []
+    def read(self, archive: Path) -> ParsedChineseSource:
+        if archive.name != "omw-cmn-2.0.tar.xz":
+            raise ValueError("Chinese Open Wordnet input must be the official 2.0 archive")
+        _require_snapshot(archive, self._expected_sha256, "Chinese Open Wordnet 2.0")
+        self._validate_archive(archive)
+        synset_ilis = self._read_synset_ilis(archive)
+        lemmas: list[ChineseLemma] = []
         original = 0
         filtered = 0
-        edition: str | None = None
-        with tarfile.open(archive, "r:xz") as tar:
-            candidates = [
-                member
-                for member in tar.getmembers()
-                if member.isfile() and member.name.endswith(".tei")
-            ]
-            if len(candidates) != 1 or candidates[0].size > self._MAX_TEI_BYTES:
-                raise ValueError("FreeDict source package must contain one bounded TEI file")
-            extracted = tar.extractfile(candidates[0])
-            if extracted is None:
-                raise ValueError("FreeDict TEI source is unreadable")
-            for _, entry_node in ET.iterparse(extracted, events=("end",)):
-                local_name = _local_name(entry_node.tag)
-                if local_name == "edition" and edition is None:
-                    edition = _text(entry_node)
-                if local_name != "entry":
+        for lexical_entry in self._elements(archive, "LexicalEntry"):
+            original += 1
+            lemma_node = _first_descendant(lexical_entry, "Lemma")
+            raw_lemma = _raw_written_form(lemma_node)
+            display_lemma = display_chinese_lemma(raw_lemma)
+            accepted = 0
+            for sense in _descendants(lexical_entry, "Sense"):
+                raw_sense_id = sense.attrib.get("id", "")
+                ili = synset_ilis.get(sense.attrib.get("synset", ""))
+                if not raw_lemma or not display_lemma or not raw_sense_id or not ili:
                     continue
-                original += 1
-                headword = _lemma_from_tei(entry_node)
-                entry_pos = _pos(_first_text(entry_node, "pos"))
-                pronunciation = _first_text(entry_node, "pron")
-                accepted = 0
-                sense_rows = list(_freedict_sense_rows(entry_node))
-                for sense_order, sense_row in enumerate(sense_rows):
-                    sense = sense_row.node
-                    gloss_en = sense_row.gloss_en
-                    gloss_zh = sense_row.gloss_zh
-                    if not headword or (not gloss_en and not gloss_zh):
-                        continue
-                    sense_pos = _pos(_first_text(sense, "pos"))
-                    if sense_pos == "other":
-                        sense_pos = entry_pos
-                    raw_id = sense.attrib.get(_XML_ID) or sense.attrib.get("id")
-                    if not raw_id:
-                        stable = "|".join(
-                            [headword, sense_pos, gloss_en or "", gloss_zh or "", str(sense_order)]
-                        )
-                        raw_id = hashlib.sha256(stable.encode()).hexdigest()[:20]
-                    entries.append(
-                        DictionaryEntry(
-                            headword=headword,
-                            part_of_speech=sense_pos,
-                            sense_id=f"{FREEDICT_SOURCE_ID}/{raw_id}",
-                            gloss_en=gloss_en,
-                            gloss_zh=gloss_zh,
-                            pronunciation=pronunciation,
-                            source_id=FREEDICT_SOURCE_ID,
-                            source_name="FreeDict English-Chinese 2025.11.23",
-                            source_rank=1,
-                            order=sense_order,
-                        )
+                lemmas.append(
+                    ChineseLemma(
+                        synset_ili=ili,
+                        source_sense_id=f"{OMW_CMN_SOURCE_ID}/{raw_sense_id}",
+                        raw_lemma=raw_lemma,
+                        display_lemma=display_lemma,
+                        source_id=OMW_CMN_SOURCE_ID,
+                        order=len(lemmas),
                     )
-                    accepted += 1
-                if not headword or accepted == 0:
-                    filtered += 1
-                    entry_node.clear()
-                    continue
-                inflected = {
-                    text
-                    for form_node in _descendants(entry_node, "form")
-                    if form_node.attrib.get("type") not in {None, "lemma"}
-                    for text in [_first_text(form_node, "orth")]
-                    if text and normalize(text) != normalize(headword)
-                }
-                for form_order, form in enumerate(
-                    sorted(inflected, key=lambda value: (normalize(value), value))
-                ):
-                    forms.append(
-                        DictionaryForm(
-                            form=form,
-                            lemma=headword,
-                            part_of_speech=entry_pos,
-                            source_id=FREEDICT_SOURCE_ID,
-                            source_rank=1,
-                            order=form_order,
-                        )
-                    )
-                entry_node.clear()
-        if edition != "2025.11.23":
-            raise ValueError("FreeDict internal edition is not the frozen 2025.11.23 release")
-        return ParsedDictionarySource(
-            entries=tuple(entries),
-            forms=tuple(forms),
+                )
+                accepted += 1
+            if accepted == 0:
+                filtered += 1
+        return ParsedChineseSource(
+            lemmas=tuple(lemmas),
             counts=SourceCounts(
                 original_headwords=original,
                 filtered_headwords=filtered,
-                final_headwords=len({normalize(entry.headword) for entry in entries}),
+                final_headwords=len({lemma.display_lemma for lemma in lemmas}),
             ),
         )
+
+    def _validate_archive(self, archive: Path) -> None:
+        with tarfile.open(archive, "r:xz") as package:
+            members = {member.name: member for member in package.getmembers() if member.isfile()}
+            xml = members.get(self._XML_PATH)
+            license_member = members.get(self._LICENSE_PATH)
+            if (
+                xml is None
+                or license_member is None
+                or xml.size > self._MAX_XML_BYTES
+                or license_member.size > self._MAX_LICENSE_BYTES
+            ):
+                raise ValueError("Chinese Open Wordnet archive layout is invalid")
+            license_stream = package.extractfile(license_member)
+            if license_stream is None or b"Chinese Open Wordnet Copyright 2013,2014" not in (
+                license_stream.read()
+            ):
+                raise ValueError("Chinese Open Wordnet license notice is missing")
+        found_lexicon = False
+        found_requires = False
+        for event, element in self._parse(archive, events=("start",)):
+            del event
+            local_name = _local_name(element.tag)
+            if local_name == "Lexicon":
+                found_lexicon = True
+                if (
+                    element.attrib.get("id") != "omw-cmn"
+                    or element.attrib.get("language") != "cmn-Hans"
+                    or element.attrib.get("version") != "2.0"
+                    or element.attrib.get("license") != "wordnet"
+                ):
+                    raise ValueError("Chinese Open Wordnet metadata is not the frozen 2.0 release")
+            elif local_name == "Requires":
+                found_requires = True
+                if (
+                    element.attrib.get("ref") != "omw-en"
+                    or element.attrib.get("version") != "2.0"
+                ):
+                    raise ValueError("Chinese Open Wordnet dependency metadata is invalid")
+                break
+        if not found_lexicon or not found_requires:
+            raise ValueError("Chinese Open Wordnet metadata is incomplete")
+
+    def _read_synset_ilis(self, archive: Path) -> dict[str, str]:
+        return {
+            synset_id: ili
+            for synset in self._elements(archive, "Synset")
+            if (synset_id := synset.attrib.get("id", ""))
+            and (ili := synset.attrib.get("ili", ""))
+        }
+
+    def _elements(self, archive: Path, wanted: str) -> Iterator[ET.Element]:
+        for _, element in self._parse(archive, events=("end",)):
+            if _local_name(element.tag) == wanted:
+                yield element
+                element.clear()
+
+    def _parse(
+        self,
+        archive: Path,
+        *,
+        events: tuple[str, ...],
+    ) -> Iterator[tuple[str, ET.Element]]:
+        with tarfile.open(archive, "r:xz") as package:
+            member = package.getmember(self._XML_PATH)
+            stream = package.extractfile(member)
+            if stream is None:
+                raise ValueError("Chinese Open Wordnet XML is unreadable")
+            yield from ET.iterparse(stream, events=events)
 
 
 def normalize(value: str) -> str:
     return _WHITESPACE.sub(" ", unicodedata.normalize("NFC", value).strip()).lower()
+
+
+def display_chinese_lemma(raw: str) -> str:
+    value = raw.replace("+的", "的").replace("+地", "地")
+    return _WHITESPACE.sub(" ", unicodedata.normalize("NFC", value).strip())
 
 
 def _local_name(tag: str) -> str:
@@ -313,78 +336,17 @@ def _first_text(element: ET.Element, name: str) -> str | None:
     return _text(node) if node is not None else None
 
 
+def _raw_written_form(element: ET.Element | None) -> str:
+    if element is None:
+        return ""
+    return element.attrib.get("writtenForm", "")
+
+
 def _written_form(element: ET.Element | None) -> str:
     if element is None:
         return ""
     raw = element.attrib.get("writtenForm") or _first_text(element, "FormRepresentation")
     return _WHITESPACE.sub(" ", (raw or "").replace("_", " ").strip())
-
-
-def _lemma_from_tei(entry: ET.Element) -> str:
-    lemma_forms = [
-        node
-        for node in _descendants(entry, "form")
-        if node.attrib.get("type") in {None, "lemma", "headword"}
-    ]
-    for form in lemma_forms:
-        orth = _first_text(form, "orth")
-        if orth:
-            return orth
-    return _first_text(entry, "orth") or ""
-
-
-def _freedict_sense_rows(
-    entry: ET.Element,
-) -> Iterator[_FreedictSenseRow]:
-    top_level = [node for node in entry if _local_name(node.tag) == "sense"]
-    for outer in top_level or [entry]:
-        outer_english, outer_chinese = _freedict_direct_glosses(outer)
-        children = [node for node in outer if _local_name(node.tag) == "sense"]
-        if not children:
-            yield _FreedictSenseRow(
-                node=outer,
-                gloss_en=_join_unique(outer_english),
-                gloss_zh=_join_unique(outer_chinese),
-            )
-            continue
-        for child in children:
-            child_english, child_chinese = _freedict_direct_glosses(child)
-            yield _FreedictSenseRow(
-                node=child,
-                gloss_en=_join_unique([*outer_english, *child_english]),
-                gloss_zh=_join_unique([*outer_chinese, *child_chinese]),
-            )
-
-
-def _freedict_direct_glosses(sense: ET.Element) -> tuple[list[str], list[str]]:
-    english: list[str] = []
-    chinese: list[str] = []
-    for node in _without_nested_senses(sense):
-        local = _local_name(node.tag)
-        if local not in {"def", "quote"}:
-            continue
-        value = _text(node)
-        if not value:
-            continue
-        language = (node.attrib.get(_XML_LANG) or node.attrib.get("lang") or "").lower()
-        if local == "def" and language not in {"zh", "zho", "chi"}:
-            english.append(value)
-        else:
-            chinese.append(value)
-    return english, chinese
-
-
-def _without_nested_senses(element: ET.Element) -> Iterator[ET.Element]:
-    for child in element:
-        if _local_name(child.tag) == "sense":
-            continue
-        yield child
-        yield from _without_nested_senses(child)
-
-
-def _join_unique(values: list[str]) -> str | None:
-    unique = list(dict.fromkeys(values))
-    return "; ".join(unique) if unique else None
 
 
 def _pos(raw: str | None) -> str:
@@ -416,9 +378,6 @@ def _generated_forms(
     if irregular_forms is not None:
         return set(irregular_forms)
     if has_explicit_forms:
-        # OEWN's explicit Form nodes encode spelling-sensitive inflections
-        # (for example stopped/stopping). Only add the spelling-safe present
-        # tense here so a generic suffix rule cannot reintroduce stoped/stoping.
         return {_third_person(lower)} if part_of_speech == "verb" else set()
     forms: set[str] = set()
     if part_of_speech == "noun":

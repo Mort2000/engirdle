@@ -77,18 +77,18 @@ def test_dictionary_sidecar_survives_catalog_regeneration_and_is_downloadable(
     settings = Settings(workspace=tmp_path / "workspace")
     dictionaries = settings.public_dir / "dictionaries"
     dictionaries.mkdir(parents=True)
-    package = dictionaries / "engirdle-en-zh-r1-a1b2.dictpack"
+    package = dictionaries / "engirdle-en-zh-r2-a1b2.dictpack"
     package.write_bytes(b"dictionary package")
     (settings.public_dir / "dictionary.json").write_text(
         """{
           "dictionary_id": "engirdle-en-zh",
-          "revision": 1,
-          "format_version": "1.0",
-          "schema_version": 1,
-          "display_name": "Engirdle English-Chinese Offline Dictionary",
+          "revision": 2,
+          "format_version": "2.0",
+          "schema_version": 2,
+          "display_name": "Engirdle OEWN / Chinese Open Wordnet Dictionary",
           "size": 18,
           "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-          "url": "/dictionaries/engirdle-en-zh-r1-a1b2.dictpack"
+          "url": "/dictionaries/engirdle-en-zh-r2-a1b2.dictpack"
         }""",
         encoding="utf-8",
     )

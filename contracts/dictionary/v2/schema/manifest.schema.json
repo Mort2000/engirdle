@@ -1,0 +1,145 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:engirdle:contracts:dictionary:v2:manifest",
+  "title": "Engirdle Dictionary Pack Manifest v2",
+  "type": "object",
+  "required": [
+    "format_version",
+    "dictionary_id",
+    "revision",
+    "schema_version",
+    "display_name",
+    "generated_at",
+    "builder",
+    "normalization",
+    "database",
+    "sources",
+    "modifications",
+    "license_files"
+  ],
+  "properties": {
+    "format_version": {"type": "string", "pattern": "^2\\.[0-9]+$"},
+    "dictionary_id": {"const": "engirdle-en-zh"},
+    "revision": {"$ref": "#/$defs/positiveInteger"},
+    "schema_version": {"const": 2},
+    "display_name": {"type": "string", "minLength": 1, "maxLength": 256},
+    "generated_at": {"type": "string", "format": "date-time"},
+    "builder": {
+      "type": "object",
+      "required": ["name", "version"],
+      "properties": {
+        "name": {"type": "string", "minLength": 1, "maxLength": 256},
+        "version": {"type": "string", "minLength": 1, "maxLength": 128}
+      },
+      "additionalProperties": true
+    },
+    "normalization": {
+      "type": "object",
+      "required": ["algorithm", "version"],
+      "properties": {
+        "algorithm": {"type": "string", "minLength": 1, "maxLength": 1024},
+        "version": {"const": "unicode-nfc-lower-v1"}
+      },
+      "additionalProperties": true
+    },
+    "database": {
+      "type": "object",
+      "required": ["path", "size", "sha256"],
+      "properties": {
+        "path": {"const": "dictionary.db"},
+        "size": {"type": "integer", "minimum": 1, "maximum": 536870912},
+        "sha256": {"$ref": "#/$defs/sha256"}
+      },
+      "additionalProperties": true
+    },
+    "sources": {
+      "type": "array",
+      "minItems": 2,
+      "maxItems": 2,
+      "items": {"$ref": "#/$defs/source"}
+    },
+    "modifications": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 64,
+      "items": {"type": "string", "minLength": 1, "maxLength": 4096}
+    },
+    "license_files": {
+      "type": "array",
+      "minItems": 2,
+      "maxItems": 16,
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "pattern": "^licenses/[A-Za-z0-9][A-Za-z0-9._-]*\\.txt$"
+      }
+    }
+  },
+  "additionalProperties": true,
+  "$defs": {
+    "positiveInteger": {"type": "integer", "minimum": 1, "maximum": 2147483647},
+    "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "namedUrl": {
+      "type": "object",
+      "required": ["name", "url"],
+      "properties": {
+        "name": {"type": "string", "minLength": 1, "maxLength": 256},
+        "url": {"type": "string", "format": "uri", "maxLength": 2048}
+      },
+      "additionalProperties": true
+    },
+    "source": {
+      "type": "object",
+      "required": [
+        "source_id",
+        "version",
+        "display_name",
+        "direction",
+        "input",
+        "licenses",
+        "attributions",
+        "counts",
+        "extraction_note"
+      ],
+      "properties": {
+        "source_id": {"enum": ["oewn-2025", "omw-cmn:2.0"]},
+        "version": {"type": "string", "minLength": 1, "maxLength": 128},
+        "display_name": {"type": "string", "minLength": 1, "maxLength": 256},
+        "direction": {"enum": ["en-en", "zh"]},
+        "input": {
+          "type": "object",
+          "required": ["url", "sha256"],
+          "properties": {
+            "url": {"type": "string", "format": "uri", "maxLength": 2048},
+            "sha256": {"$ref": "#/$defs/sha256"}
+          },
+          "additionalProperties": true
+        },
+        "licenses": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 8,
+          "items": {"$ref": "#/$defs/namedUrl"}
+        },
+        "attributions": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 16,
+          "items": {"$ref": "#/$defs/namedUrl"}
+        },
+        "counts": {
+          "type": "object",
+          "required": ["original_headwords", "filtered_headwords", "final_headwords"],
+          "properties": {
+            "original_headwords": {"type": "integer", "minimum": 0},
+            "filtered_headwords": {"type": "integer", "minimum": 0},
+            "final_headwords": {"type": "integer", "minimum": 0}
+          },
+          "additionalProperties": true
+        },
+        "extraction_note": {"type": "string", "minLength": 1, "maxLength": 4096}
+      },
+      "additionalProperties": true
+    }
+  }
+}

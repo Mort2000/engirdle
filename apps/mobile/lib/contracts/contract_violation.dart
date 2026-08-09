@@ -100,6 +100,7 @@ class JsonReader {
 }
 
 final _v1VersionPattern = RegExp(r'^1\.[0-9]+$');
+final _v2VersionPattern = RegExp(r'^2\.[0-9]+$');
 final _uuidPattern = RegExp(
     r'^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$');
 final _sha256Pattern = RegExp(r'^[0-9a-f]{64}$');
@@ -118,6 +119,14 @@ extension ContractScalars on JsonReader {
   String v1Version() {
     final s = asString();
     if (!_v1VersionPattern.hasMatch(s)) {
+      throw ContractViolation(path, 'unsupported major version "$s"');
+    }
+    return s;
+  }
+
+  String v2Version() {
+    final s = asString();
+    if (!_v2VersionPattern.hasMatch(s)) {
       throw ContractViolation(path, 'unsupported major version "$s"');
     }
     return s;

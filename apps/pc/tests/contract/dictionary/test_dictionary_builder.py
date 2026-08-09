@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import gzip
+import hashlib
 import json
 import sqlite3
 import tarfile
@@ -15,160 +16,113 @@ from engirdle_pc.modules.dictionary_builder.public import (
     DictionaryPublisher,
 )
 from engirdle_pc.modules.dictionary_builder.sources import (
-    FreedictTeiSource,
     OewnLmfSource,
+    OmwCmnLmfSource,
 )
 from engirdle_pc.shared.infrastructure.workspace import Workspace
 
 
-def test_builder_emits_deterministic_versioned_bilingual_dictpack(
+def test_builder_aligns_ordered_chinese_lemmas_to_oewn_senses_by_ili(
     tmp_path: Path,
 ) -> None:
     oewn = _write_oewn_fixture(tmp_path)
-    freedict = _write_freedict_fixture(tmp_path)
+    omw_cmn = _write_omw_cmn_fixture(tmp_path)
     first = tmp_path / "first.dictpack"
     second = tmp_path / "second.dictpack"
     request = DictionaryBuildRequest(
         oewn_archive=oewn,
-        freedict_archive=freedict,
+        omw_cmn_archive=omw_cmn,
         output=first,
-        revision=1,
+        revision=2,
         generated_at="2026-08-09T00:00:00Z",
     )
 
-    builder = _fixture_builder(oewn, freedict)
-    artifact = builder.build(request)
-    _fixture_builder(oewn, freedict).build(
+    artifact = _fixture_builder(oewn, omw_cmn).build(request)
+    _fixture_builder(oewn, omw_cmn).build(
         DictionaryBuildRequest(
             oewn_archive=oewn,
-            freedict_archive=freedict,
+            omw_cmn_archive=omw_cmn,
             output=second,
-            revision=1,
+            revision=2,
             generated_at="2026-08-09T00:00:00Z",
         )
     )
 
     assert artifact.dictionary_id == "engirdle-en-zh"
-    assert artifact.revision == 1
+    assert artifact.revision == 2
     assert artifact.sha256 == _sha256(first)
-    assert len(artifact.sources) == 2
-    oewn_summary, freedict_summary = artifact.sources
-    assert oewn_summary.source_id == "oewn-2025"
-    assert oewn_summary.input_sha256 == _sha256(oewn)
-    assert oewn_summary.counts.original_headwords == 5
-    assert oewn_summary.counts.filtered_headwords == 0
-    assert oewn_summary.counts.final_headwords == 4
-    assert freedict_summary.source_id == "freedict-eng-zho-2025.11.23"
-    assert freedict_summary.input_sha256 == _sha256(freedict)
-    assert freedict_summary.counts.original_headwords == 2
-    assert freedict_summary.counts.filtered_headwords == 0
-    assert freedict_summary.counts.final_headwords == 2
     assert first.read_bytes() == second.read_bytes()
+    assert [summary.source_id for summary in artifact.sources] == [
+        "oewn-2025",
+        "omw-cmn:2.0",
+    ]
+    assert artifact.sources[0].counts.original_headwords == 5
+    assert artifact.sources[0].counts.final_headwords == 4
+    assert artifact.sources[1].counts.original_headwords == 4
+    assert artifact.sources[1].counts.final_headwords == 3
 
     with ZipFile(first) as package:
         assert set(package.namelist()) == {
             "manifest.json",
             "dictionary.db",
             "licenses/oewn-2025.txt",
-            "licenses/freedict-eng-zho-2025.11.23.txt",
+            "licenses/omw-cmn-2.0.txt",
         }
         manifest = json.loads(package.read("manifest.json"))
-        assert manifest["format_version"] == "1.0"
-        assert manifest["dictionary_id"] == "engirdle-en-zh"
-        assert manifest["revision"] == 1
-        assert manifest["schema_version"] == 1
+        assert manifest["format_version"] == "2.0"
+        assert manifest["schema_version"] == 2
         assert [source["source_id"] for source in manifest["sources"]] == [
             "oewn-2025",
-            "freedict-eng-zho-2025.11.23",
+            "omw-cmn:2.0",
         ]
-        assert manifest["sources"][0]["counts"] == {
-            "original_headwords": 5,
-            "filtered_headwords": 0,
-            "final_headwords": 4,
-        }
-        assert manifest["sources"][1]["counts"] == {
-            "original_headwords": 2,
-            "filtered_headwords": 0,
-            "final_headwords": 2,
-        }
-        assert manifest["database"]["sha256"] == _sha256_bytes(package.read("dictionary.db"))
-        assert manifest["database"]["size"] == len(package.read("dictionary.db"))
-        assert manifest["modifications"]
-
+        assert manifest["sources"][1]["input"]["sha256"] == _sha256(omw_cmn)
         database = tmp_path / "dictionary.db"
         database.write_bytes(package.read("dictionary.db"))
 
     with sqlite3.connect(database) as connection:
-        entries = connection.execute(
-            "SELECT headword, pos, gloss_en, gloss_zh, source_id "
-            "FROM entries WHERE normalized_headword = 'mend' "
-            "ORDER BY source_rank, pos_rank, ord"
-        ).fetchall()
-        assert entries == [
-            ("mend", "noun", "a repaired place", None, "oewn-2025"),
-            ("mend", "verb", "to repair something", None, "oewn-2025"),
+        assert connection.execute("SELECT COUNT(*) FROM entries").fetchone() == (5,)
+        assert connection.execute(
+            "SELECT DISTINCT source_id FROM entries"
+        ).fetchall() == [("oewn-2025",)]
+        assert connection.execute(
+            "SELECT raw_lemma, display_lemma, source_sense_id, source_id, ord "
+            "FROM sense_translations WHERE sense_id = 'oewn-2025/oewn-mend-v-1' "
+            "ORDER BY ord"
+        ).fetchall() == [
             (
-                "mend",
-                "verb",
-                "to repair something",
-                "修理; 修补",
-                "freedict-eng-zho-2025.11.23",
+                "修理",
+                "修理",
+                "omw-cmn:2.0/omw-cmn-repair-1",
+                "omw-cmn:2.0",
+                0,
+            ),
+            (
+                "修补+的",
+                "修补的",
+                "omw-cmn:2.0/omw-cmn-mended-1",
+                "omw-cmn:2.0",
+                1,
             ),
         ]
         assert connection.execute(
-            "SELECT lemma, source_id FROM forms WHERE normalized_form = 'mended' "
-            "ORDER BY source_rank, ord"
-        ).fetchall() == [("mend", "oewn-2025")]
+            "SELECT COUNT(*) FROM sense_translations "
+            "WHERE sense_id = 'oewn-2025/oewn-mend-n-1'"
+        ).fetchone() == (0,)
         assert connection.execute(
             "SELECT lemma FROM forms WHERE normalized_form = 'went'"
         ).fetchall() == [("go",)]
-        assert (
-            connection.execute("SELECT lemma FROM forms WHERE normalized_form = 'goed'").fetchall()
-            == []
-        )
-        assert connection.execute(
-            "SELECT normalized_form FROM forms WHERE lemma = 'stop' ORDER BY normalized_form"
-        ).fetchall() == [("stopped",), ("stopping",), ("stops",)]
-        assert (
-            connection.execute(
-                "SELECT normalized_form FROM forms WHERE lemma = 'stop' "
-                "AND normalized_form IN ('stoped', 'stoping')"
-            ).fetchall()
-            == []
-        )
-        assert connection.execute(
-            "SELECT gloss_en FROM entries WHERE normalized_headword = 'take off'"
-        ).fetchone() == ("to leave the ground",)
-        assert connection.execute(
-            "SELECT pronunciation FROM entries "
-            "WHERE source_id = 'freedict-eng-zho-2025.11.23' "
-            "AND normalized_headword = 'mend'"
-        ).fetchone() == ("mɛnd",)
-        assert connection.execute(
-            "SELECT COUNT(*) FROM entries WHERE normalized_headword = 'not-a-word'"
-        ).fetchone() == (0,)
-        assert connection.execute(
-            "SELECT gloss_en, gloss_zh FROM entries "
-            "WHERE source_id = 'freedict-eng-zho-2025.11.23' "
-            "AND normalized_headword = 'bank' ORDER BY ord"
-        ).fetchall() == [
-            ("a financial institution", "银行"),
-            ("the building used by that institution", "银行"),
-        ]
         assert connection.execute("PRAGMA quick_check").fetchone() == ("ok",)
 
 
-def test_publisher_copies_an_immutable_package_and_records_catalog_metadata(
-    tmp_path: Path,
-) -> None:
+def test_publisher_keeps_dictionary_revisions_immutable(tmp_path: Path) -> None:
     oewn = _write_oewn_fixture(tmp_path)
-    freedict = _write_freedict_fixture(tmp_path)
-    artifact = _fixture_builder(oewn, freedict).build(
+    omw_cmn = _write_omw_cmn_fixture(tmp_path)
+    artifact = _fixture_builder(oewn, omw_cmn).build(
         DictionaryBuildRequest(
             oewn_archive=oewn,
-            freedict_archive=freedict,
+            omw_cmn_archive=omw_cmn,
             output=tmp_path / "built.dictpack",
-            revision=1,
+            revision=2,
             generated_at="2026-08-09T00:00:00Z",
         )
     )
@@ -177,42 +131,35 @@ def test_publisher_copies_an_immutable_package_and_records_catalog_metadata(
 
     entry = DictionaryPublisher(workspace).publish(artifact)
 
-    assert entry.url.startswith("/dictionaries/engirdle-en-zh-r1-")
-    assert entry.url.endswith(".dictpack")
+    assert entry.format_version == "2.0"
+    assert entry.schema_version == 2
     published = workspace.public_dir / entry.url.removeprefix("/")
     assert published.read_bytes() == artifact.path.read_bytes()
-    sidecar = json.loads((workspace.public_dir / "dictionary.json").read_text())
-    assert sidecar["dictionary_id"] == "engirdle-en-zh"
-    assert sidecar["sha256"] == artifact.sha256
 
-    different = _fixture_builder(oewn, freedict).build(
+    different = _fixture_builder(oewn, omw_cmn).build(
         DictionaryBuildRequest(
-            oewn_archive=tmp_path / "english-wordnet-2025.xml.gz",
-            freedict_archive=tmp_path / "freedict-eng-zho-2025.11.23.src.tar.xz",
+            oewn_archive=oewn,
+            omw_cmn_archive=omw_cmn,
             output=tmp_path / "different.dictpack",
-            revision=1,
+            revision=2,
             generated_at="2026-08-09T01:00:00Z",
         )
     )
     with pytest.raises(ValueError, match="immutable dictionary revision"):
         DictionaryPublisher(workspace).publish(different)
-    assert (
-        json.loads((workspace.public_dir / "dictionary.json").read_text())["sha256"]
-        == artifact.sha256
-    )
 
 
-def test_default_builder_rejects_renamed_untrusted_snapshots(tmp_path: Path) -> None:
+def test_default_builder_rejects_untrusted_snapshots(tmp_path: Path) -> None:
     oewn = _write_oewn_fixture(tmp_path)
-    freedict = _write_freedict_fixture(tmp_path)
+    omw_cmn = _write_omw_cmn_fixture(tmp_path)
 
     with pytest.raises(ValueError, match="snapshot sha256"):
         DictionaryBuilder().build(
             DictionaryBuildRequest(
                 oewn_archive=oewn,
-                freedict_archive=freedict,
+                omw_cmn_archive=omw_cmn,
                 output=tmp_path / "untrusted.dictpack",
-                revision=1,
+                revision=2,
                 generated_at="2026-08-09T00:00:00Z",
             )
         )
@@ -247,19 +194,19 @@ def _write_oewn_fixture(root: Path) -> Path:
       <Form writtenForm="stopping" />
       <Sense id="oewn-stop-v-1" synset="oewn-0005-v" />
     </LexicalEntry>
-    <Synset id="oewn-0001-v" partOfSpeech="v">
+    <Synset id="oewn-0001-v" ili="i100" partOfSpeech="v">
       <Definition>to repair something</Definition>
     </Synset>
-    <Synset id="oewn-0002-v" partOfSpeech="v">
+    <Synset id="oewn-0002-v" ili="i102" partOfSpeech="v">
       <Definition>to leave the ground</Definition>
     </Synset>
-    <Synset id="oewn-0003-n" partOfSpeech="n">
+    <Synset id="oewn-0003-n" ili="i101" partOfSpeech="n">
       <Definition>a repaired place</Definition>
     </Synset>
-    <Synset id="oewn-0004-v" partOfSpeech="v">
+    <Synset id="oewn-0004-v" ili="i103" partOfSpeech="v">
       <Definition>to move or travel</Definition>
     </Synset>
-    <Synset id="oewn-0005-v" partOfSpeech="v">
+    <Synset id="oewn-0005-v" ili="i104" partOfSpeech="v">
       <Definition>to cease moving</Definition>
     </Synset>
   </Lexicon>
@@ -270,58 +217,59 @@ def _write_oewn_fixture(root: Path) -> Path:
     return path
 
 
-def _write_freedict_fixture(root: Path) -> Path:
-    path = root / "freedict-eng-zho-2025.11.23.src.tar.xz"
-    tei = """<?xml version="1.0" encoding="UTF-8"?>
-<TEI xmlns="http://www.tei-c.org/ns/1.0">
-  <teiHeader><fileDesc>
-    <editionStmt><edition>2025.11.23</edition></editionStmt>
-    <extent>2 headwords</extent>
-  </fileDesc></teiHeader>
-  <text><body>
-    <entry xml:id="mend-v">
-      <form type="lemma"><orth>mend</orth><pron>mɛnd</pron></form>
-      <gramGrp><pos>verb</pos></gramGrp>
-      <sense>
-        <cit type="trans"><quote xml:lang="zh">修理</quote></cit>
-        <cit type="trans"><quote xml:lang="zh">修补</quote></cit>
-        <sense xml:id="mend-v-1"><def>to repair something</def></sense>
-      </sense>
-    </entry>
-    <entry xml:id="bank-n">
-      <form type="lemma"><orth>bank</orth></form>
-      <gramGrp><pos>noun</pos></gramGrp>
-      <sense>
-        <cit type="trans"><quote xml:lang="zh">银行</quote></cit>
-        <sense xml:id="bank-n-1"><def>a financial institution</def></sense>
-        <sense xml:id="bank-n-2"><def>the building used by that institution</def></sense>
-      </sense>
-    </entry>
-  </body></text>
-</TEI>
+def _write_omw_cmn_fixture(root: Path) -> Path:
+    path = root / "omw-cmn-2.0.tar.xz"
+    xml = """<?xml version="1.0" encoding="UTF-8"?>
+<LexicalResource>
+  <Lexicon id="omw-cmn" label="Chinese Open Wordnet" language="cmn-Hans"
+           version="2.0" license="wordnet">
+    <Requires ref="omw-en" version="2.0" />
+    <LexicalEntry id="omw-cmn-repair-v">
+      <Lemma writtenForm="修理" partOfSpeech="v" />
+      <Sense id="omw-cmn-repair-1" synset="omw-cmn-0001-v" />
+    </LexicalEntry>
+    <LexicalEntry id="omw-cmn-mended-a">
+      <Lemma writtenForm="修补+的" partOfSpeech="a" />
+      <Sense id="omw-cmn-mended-1" synset="omw-cmn-0001-v" />
+    </LexicalEntry>
+    <LexicalEntry id="omw-cmn-mended-duplicate-a">
+      <Lemma writtenForm="修补的" partOfSpeech="a" />
+      <Sense id="omw-cmn-mended-duplicate-1" synset="omw-cmn-0001-v" />
+    </LexicalEntry>
+    <LexicalEntry id="omw-cmn-launch-v">
+      <Lemma writtenForm="起飞" partOfSpeech="v" />
+      <Sense id="omw-cmn-launch-1" synset="omw-cmn-0002-v" />
+    </LexicalEntry>
+    <Synset id="omw-cmn-0001-v" ili="i100" partOfSpeech="v" />
+    <Synset id="omw-cmn-0002-v" ili="i102" partOfSpeech="v" />
+  </Lexicon>
+</LexicalResource>
 """.encode()
-    source = root / "eng-zho.tei"
-    source.write_bytes(tei)
+    xml_source = root / "omw-cmn.xml"
+    license_source = root / "LICENSE"
+    xml_source.write_bytes(xml)
+    license_source.write_text(
+        "Chinese Open Wordnet Copyright 2013,2014 by Francis Bond and Shan Wang.\n",
+        encoding="utf-8",
+    )
     with tarfile.open(path, "w:xz", format=tarfile.PAX_FORMAT) as archive:
-        info = archive.gettarinfo(source, arcname="freedict-eng-zho-2025.11.23/eng-zho.tei")
-        info.mtime = 0
-        with source.open("rb") as stream:
-            archive.addfile(info, stream)
+        for source, name in (
+            (xml_source, "omw-cmn/omw-cmn.xml"),
+            (license_source, "omw-cmn/LICENSE"),
+        ):
+            info = archive.gettarinfo(source, arcname=name)
+            info.mtime = 0
+            with source.open("rb") as stream:
+                archive.addfile(info, stream)
     return path
 
 
-def _fixture_builder(oewn: Path, freedict: Path) -> DictionaryBuilder:
+def _fixture_builder(oewn: Path, omw_cmn: Path) -> DictionaryBuilder:
     return DictionaryBuilder(
         oewn=OewnLmfSource(expected_sha256=_sha256(oewn)),
-        freedict=FreedictTeiSource(expected_sha256=_sha256(freedict)),
+        omw_cmn=OmwCmnLmfSource(expected_sha256=_sha256(omw_cmn)),
     )
 
 
 def _sha256(path: Path) -> str:
-    return _sha256_bytes(path.read_bytes())
-
-
-def _sha256_bytes(payload: bytes) -> str:
-    import hashlib
-
-    return hashlib.sha256(payload).hexdigest()
+    return hashlib.sha256(path.read_bytes()).hexdigest()

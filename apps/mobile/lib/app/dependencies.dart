@@ -23,6 +23,7 @@ import '../platform/database/app_database.dart';
 import '../platform/filesystem/app_directories.dart';
 import '../platform/http/lan_http_client.dart';
 import '../platform/logging/app_logger.dart';
+import '../platform/translation/local_text_translator.dart';
 
 /// Composition root (module architecture §6.1): the single place where
 /// adapters and services are wired. No feature builds global singletons.
@@ -40,6 +41,7 @@ class AppDependencies {
     required this.vocabulary,
     required this.preferences,
     required this.attribution,
+    required this.localTextTranslator,
   });
 
   final AppDatabase database;
@@ -54,6 +56,7 @@ class AppDependencies {
   final VocabularyService vocabulary;
   final PreferencesService preferences;
   final AttributionService attribution;
+  final LocalTextTranslator localTextTranslator;
 
   /// Builds the full graph. [driver], [sourcePort], [focusPort] and [httpClient]
   /// are injectable for tests; [database] lets tests use in-memory databases.
@@ -66,6 +69,8 @@ class AppDependencies {
     PlaybackSourcePort? sourcePort,
     required AudioFocusPort focusPort,
     LanHttpClient? httpClient,
+    LocalTextTranslator localTextTranslator =
+        const MethodChannelLocalTextTranslator(),
   }) async {
     await directories.ensureBaseLayout();
     final db = database ?? AppDatabase.open(directories.databaseFile.path);
@@ -133,6 +138,7 @@ class AppDependencies {
       vocabulary: vocabulary,
       preferences: preferences,
       attribution: attribution,
+      localTextTranslator: localTextTranslator,
     );
   }
 

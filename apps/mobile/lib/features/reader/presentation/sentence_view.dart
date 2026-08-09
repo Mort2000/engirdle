@@ -7,7 +7,7 @@ import '../../library/domain/installed_article.dart';
 ///
 /// - its own [SelectableText]: long-press starts a selection that can never
 ///   cross sentence boundaries (跨句选择 is an MVP exclusion);
-/// - custom context menu: 英英翻译 / 英中翻译 / 复制 (screen 09);
+/// - custom context menu: 词典 / 复制 / 本机翻译 (screen 09);
 /// - tap opens the sentence menu unless a selection is active (短按取消优先,
 ///   UX-A4): routed through [SelectableText.onTap], which fires after the
 ///   native selection collapse; the outer GestureDetector only covers the
@@ -21,6 +21,7 @@ class SentenceView extends StatefulWidget {
     required this.selectable,
     required this.onTap,
     required this.onLookup,
+    required this.onTranslate,
     required this.onSelectionChanged,
     this.onLongPressHint,
     super.key,
@@ -37,8 +38,8 @@ class SentenceView extends StatefulWidget {
   final bool selectable;
   final VoidCallback onTap;
 
-  /// (selectedText, preferChinese)
-  final void Function(String selection, bool preferChinese) onLookup;
+  final void Function(String selection) onLookup;
+  final void Function(String selection) onTranslate;
   final void Function(bool hasSelection) onSelectionChanged;
 
   /// zh-only long-press hint.
@@ -133,23 +134,23 @@ class SentenceViewState extends State<SentenceView> {
         : '';
     final items = [
       ContextMenuButtonItem(
-        label: '英英翻译',
+        label: '词典',
         onPressed: () {
           editableTextState.hideToolbar();
-          widget.onLookup(selected, false);
-        },
-      ),
-      ContextMenuButtonItem(
-        label: '英中翻译',
-        onPressed: () {
-          editableTextState.hideToolbar();
-          widget.onLookup(selected, true);
+          widget.onLookup(selected);
         },
       ),
       ContextMenuButtonItem(
         label: '复制',
         onPressed: () {
           editableTextState.copySelection(SelectionChangedCause.toolbar);
+        },
+      ),
+      ContextMenuButtonItem(
+        label: '本机翻译',
+        onPressed: () {
+          editableTextState.hideToolbar();
+          widget.onTranslate(selected);
         },
       ),
     ];
