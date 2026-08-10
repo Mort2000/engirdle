@@ -6,6 +6,20 @@ import 'package:flutter_test/flutter_test.dart';
 /// Pure interruption mapping (design §6.2): how native audio_session signals
 /// become domain AudioFocusEvents the coordinator reacts to.
 void main() {
+  test('exclusive focus uses Android transient-exclusive gain', () {
+    expect(
+      AudioSessionAdapter.mapFocusMode(AudioFocusMode.exclusive),
+      AndroidAudioFocusGainType.gainTransientExclusive,
+    );
+  });
+
+  test('standard focus uses Android long-lived gain', () {
+    expect(
+      AudioSessionAdapter.mapFocusMode(AudioFocusMode.standard),
+      AndroidAudioFocusGainType.gain,
+    );
+  });
+
   group('mapInterruption', () {
     test('begin + pause is a transient loss', () {
       expect(

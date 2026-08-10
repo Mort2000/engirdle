@@ -9,14 +9,18 @@ import '../application/playback_driver.dart';
 /// types stay behind this boundary (architecture §6.4).
 ///
 /// `handleInterruptions: false` turns off just_audio's built-in pause/resume so
-/// the coordinator owns interruption policy (design §6.2); audio-session
-/// activation and speech attributes stay with just_audio's defaults. The
-/// player's position/playing/processing/error signals are merged into a single
-/// [PlaybackDriverEvent] stream for the coordinator to reduce.
+/// the coordinator owns interruption policy (design §6.2).
+/// `handleAudioSessionActivation: false` also keeps focus acquisition in the
+/// coordinator, where a denied request is advisory rather than suppressing
+/// playback. The player's position/playing/processing/error signals are merged
+/// into a single [PlaybackDriverEvent] stream for the coordinator to reduce.
 class JustAudioDriver implements PlaybackDriver {
   JustAudioDriver({AppLogger? logger})
-      : _player = AudioPlayer(handleInterruptions: false),
-        _logger = logger ?? const AppLogger('playback');
+    : _player = AudioPlayer(
+        handleInterruptions: false,
+        handleAudioSessionActivation: false,
+      ),
+      _logger = logger ?? const AppLogger('playback');
 
   final AudioPlayer _player;
   final AppLogger _logger;
@@ -34,12 +38,10 @@ class JustAudioDriver implements PlaybackDriver {
     _processingSub = _player.processingStateStream.listen((state) {
       if (state == ProcessingState.completed) _events.add(DriverCompleted());
     });
-    _errorSub = _player.errorStream.listen(
-      (error) {
-        _logger.error('playback.driver_error', {'error': '$error'});
-        _events.add(DriverError(error));
-      },
-    );
+    _errorSub = _player.errorStream.listen((error) {
+      _logger.error('playback.driver_error', {'error': '$error'});
+      _events.add(DriverError(error));
+    });
     _positionSub = _player.positionStream.listen(
       (position) => _events.add(DriverPosition(position)),
     );

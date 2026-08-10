@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:engirdle_mobile/features/playback/application/audio_focus_port.dart';
 import 'package:engirdle_mobile/features/playback/application/playback_controller.dart';
 import 'package:engirdle_mobile/features/playback/application/playback_driver.dart';
+import 'package:engirdle_mobile/features/playback/application/playback_settings_port.dart';
 import 'package:engirdle_mobile/features/playback/domain/playback_models.dart';
 import 'package:engirdle_mobile/features/playback/domain/playback_source_port.dart';
 import 'package:engirdle_mobile/shared_kernel/content_identity.dart';
@@ -29,81 +30,95 @@ void main() {
     ),
   ];
 
-  PlaybackRequest sentence(String id) =>
-      PlaybackRequest(articleRef: ref, sentenceId: id, mode: PlaybackMode.sentence);
+  PlaybackRequest sentence(String id) => PlaybackRequest(
+    articleRef: ref,
+    sentenceId: id,
+    mode: PlaybackMode.sentence,
+  );
 
   late ControllableDriver driver;
   late FakeSourcePort source;
   late ControllableFocusPort focus;
+  late FakePlaybackSettingsPort settings;
   late PlaybackController controller;
 
   setUp(() {
     driver = ControllableDriver();
     source = FakeSourcePort(ranges: ranges);
     focus = ControllableFocusPort();
+    settings = FakePlaybackSettingsPort();
     controller = PlaybackController(
       driver: driver,
       sourcePort: source,
       focusPort: focus,
+      settingsPort: settings,
     );
   });
 
   tearDown(() => controller.dispose());
 
   group('start lifecycle', () {
-    test('a command goes preparing then playing as the driver accepts it',
-        () async {
-      driver.autoComplete = false;
-      final done = controller.start(sentence('s1'));
-      // acquire resolves on a microtask; the play call then parks.
-      await pumpEventQueue();
-      expect(controller.state.value.phase, PlaybackPhase.preparing);
-      expect(controller.state.value.mode, PlaybackMode.sentence);
-      expect(controller.state.value.currentSentenceId, 's1');
+    test(
+      'a command goes preparing then playing as the driver accepts it',
+      () async {
+        driver.autoComplete = false;
+        final done = controller.start(sentence('s1'));
+        // acquire resolves on a microtask; the play call then parks.
+        await pumpEventQueue();
+        expect(controller.state.value.phase, PlaybackPhase.preparing);
+        expect(controller.state.value.mode, PlaybackMode.sentence);
+        expect(controller.state.value.currentSentenceId, 's1');
 
-      driver.pendingPlayClips.single.complete();
-      await done;
-      expect(controller.state.value.phase, PlaybackPhase.playing);
-    });
+        driver.pendingPlayClips.single.complete();
+        await done;
+        expect(controller.state.value.phase, PlaybackPhase.playing);
+      },
+    );
 
-    test('a new start releases the previous lease and supersedes the session',
-        () async {
-      await controller.start(sentence('s1'));
-      expect(source.acquired.single, ref);
-      expect(source.released, isEmpty);
+    test(
+      'a new start releases the previous lease and supersedes the session',
+      () async {
+        await controller.start(sentence('s1'));
+        expect(source.acquired.single, ref);
+        expect(source.released, isEmpty);
 
-      await controller.start(sentence('s2'));
-      expect(source.acquired.length, 2);
-      // The first session's lease was released when the second began.
-      expect(source.released.length, 1);
-      expect(controller.state.value.currentSentenceId, 's2');
-    });
+        await controller.start(sentence('s2'));
+        expect(source.acquired.length, 2);
+        // The first session's lease was released when the second began.
+        expect(source.released.length, 1);
+        expect(controller.state.value.currentSentenceId, 's2');
+      },
+    );
 
-    test('stop releases the lease, the audio focus and returns to idle',
-        () async {
-      await controller.start(sentence('s1'));
-      await controller.stop();
-      expect(controller.state.value.phase, PlaybackPhase.idle);
-      expect(source.released.length, 1);
-      // Design §3.1: a user stop releases the audio focus.
-      expect(focus.releaseCount, 1);
-    });
+    test(
+      'stop releases the lease, the audio focus and returns to idle',
+      () async {
+        await controller.start(sentence('s1'));
+        await controller.stop();
+        expect(controller.state.value.phase, PlaybackPhase.idle);
+        expect(source.released.length, 1);
+        // Design §3.1: a user stop releases the audio focus.
+        expect(focus.releaseCount, 1);
+      },
+    );
 
-    test('the superseded lease stays pinned until the driver switches sources',
-        () async {
-      await controller.start(sentence('s1'));
-      driver.autoComplete = false;
-      final second = controller.start(sentence('s2'));
-      await pumpEventQueue(); // s2 past acquire → playClip parked
-      // The driver has not switched to the new source yet, so the old file
-      // must still be leased (design §6.3).
-      expect(source.released, isEmpty);
+    test(
+      'the superseded lease stays pinned until the driver switches sources',
+      () async {
+        await controller.start(sentence('s1'));
+        driver.autoComplete = false;
+        final second = controller.start(sentence('s2'));
+        await pumpEventQueue(); // s2 past acquire → playClip parked
+        // The driver has not switched to the new source yet, so the old file
+        // must still be leased (design §6.3).
+        expect(source.released, isEmpty);
 
-      driver.pendingPlayClips.single.complete();
-      await second;
-      expect(source.released.length, 1);
-      expect(controller.state.value.currentSentenceId, 's2');
-    });
+        driver.pendingPlayClips.single.complete();
+        await second;
+        expect(source.released.length, 1);
+        expect(controller.state.value.currentSentenceId, 's2');
+      },
+    );
 
     test('stop holds the lease until the driver stop completes', () async {
       await controller.start(sentence('s1'));
@@ -121,50 +136,58 @@ void main() {
     });
 
     test('a continuous request records its start sentence', () async {
-      await controller.start(PlaybackRequest(
-        articleRef: ref,
-        sentenceId: 's1',
-        mode: PlaybackMode.continuous,
-      ));
+      await controller.start(
+        PlaybackRequest(
+          articleRef: ref,
+          sentenceId: 's1',
+          mode: PlaybackMode.continuous,
+        ),
+      );
       expect(controller.state.value.mode, PlaybackMode.continuous);
       expect(controller.state.value.startLabel, '第 1 段第 1 句');
-      expect(controller.state.value.playableDuration,
-          const Duration(milliseconds: 2000));
+      expect(
+        controller.state.value.playableDuration,
+        const Duration(milliseconds: 2000),
+      );
     });
   });
 
   group('failure handling', () {
-    test('a failed command idles the session, fires an event, never rethrows',
-        () async {
-      driver.playClipError = StateError('decoder boom');
-      final events = <PlaybackEvent>[];
-      controller.events.listen(events.add);
+    test(
+      'a failed command idles the session, fires an event, never rethrows',
+      () async {
+        driver.playClipError = StateError('decoder boom');
+        final events = <PlaybackEvent>[];
+        controller.events.listen(events.add);
 
-      await controller.start(sentence('s1'));
-      await pumpEventQueue(); // broadcast event delivery is async
+        await controller.start(sentence('s1'));
+        await pumpEventQueue(); // broadcast event delivery is async
 
-      expect(controller.state.value.phase, PlaybackPhase.idle);
-      expect(driver.stopCalls, 1);
-      expect(events.single, isA<PlaybackFailed>());
-      // acquire pinned a lease before play; the failure must release it.
-      expect(source.released.length, 1);
-      // Design §3.1: an unrecoverable error releases the audio focus.
-      expect(focus.releaseCount, 1);
-    });
+        expect(controller.state.value.phase, PlaybackPhase.idle);
+        expect(driver.stopCalls, 1);
+        expect(events.single, isA<PlaybackFailed>());
+        // acquire pinned a lease before play; the failure must release it.
+        expect(source.released.length, 1);
+        // Design §3.1: an unrecoverable error releases the audio focus.
+        expect(focus.releaseCount, 1);
+      },
+    );
 
-    test('an acquire failure idles without pinning or releasing a lease',
-        () async {
-      source.acquireError = StateError('stale ref');
-      final events = <PlaybackEvent>[];
-      controller.events.listen(events.add);
+    test(
+      'an acquire failure idles without pinning or releasing a lease',
+      () async {
+        source.acquireError = StateError('stale ref');
+        final events = <PlaybackEvent>[];
+        controller.events.listen(events.add);
 
-      await controller.start(sentence('s1'));
-      await pumpEventQueue();
+        await controller.start(sentence('s1'));
+        await pumpEventQueue();
 
-      expect(controller.state.value.phase, PlaybackPhase.idle);
-      expect(source.released, isEmpty); // acquire threw before pinning
-      expect(events.single, isA<PlaybackFailed>());
-    });
+        expect(controller.state.value.phase, PlaybackPhase.idle);
+        expect(source.released, isEmpty); // acquire threw before pinning
+        expect(events.single, isA<PlaybackFailed>());
+      },
+    );
 
     test('a superseded command failure is dropped silently', () async {
       driver.autoComplete = false;
@@ -184,19 +207,21 @@ void main() {
   });
 
   group('completion routing', () {
-    test('completion of the settled session returns to idle and releases lease',
-        () async {
-      await controller.start(sentence('s1'));
-      expect(controller.state.value.phase, PlaybackPhase.playing);
+    test(
+      'completion of the settled session returns to idle and releases lease',
+      () async {
+        await controller.start(sentence('s1'));
+        expect(controller.state.value.phase, PlaybackPhase.playing);
 
-      driver.emitCompletion();
-      await pumpEventQueue();
+        driver.emitCompletion();
+        await pumpEventQueue();
 
-      expect(controller.state.value.phase, PlaybackPhase.idle);
-      expect(source.released.length, 1);
-      // Design §3.1: natural completion releases the audio focus.
-      expect(focus.releaseCount, 1);
-    });
+        expect(controller.state.value.phase, PlaybackPhase.idle);
+        expect(source.released.length, 1);
+        // Design §3.1: natural completion releases the audio focus.
+        expect(focus.releaseCount, 1);
+      },
+    );
 
     // Regression: the real driver resolves each command future at issue time
     // and reports completion as a separate event. If a change ever couples
@@ -265,6 +290,7 @@ void main() {
       expect(controller.state.value.phase, PlaybackPhase.paused);
       driver.autoComplete = false;
       final resuming = controller.resume();
+      await pumpEventQueue(); // focus acquired; resume is parked in the driver
       final stopping = controller.stop();
       driver.pendingStops.single.complete();
       await stopping;
@@ -275,6 +301,32 @@ void main() {
   });
 
   group('audio focus / interruption state machine', () {
+    test(
+      'exclusive focus denial is advisory and playback still starts',
+      () async {
+        focus.acquireResult = false;
+        settings.interruptBackgroundAudio = true;
+
+        await controller.start(sentence('s1'));
+
+        expect(focus.acquireModes, [AudioFocusMode.exclusive]);
+        expect(driver.playClipCalls, 1);
+        expect(controller.state.value.phase, PlaybackPhase.playing);
+      },
+    );
+
+    test(
+      'focus request errors are advisory and playback still starts',
+      () async {
+        focus.acquireError = StateError('platform focus unavailable');
+
+        await controller.start(sentence('s1'));
+
+        expect(driver.playClipCalls, 1);
+        expect(controller.state.value.phase, PlaybackPhase.playing);
+      },
+    );
+
     test('transient loss pauses and regain resumes', () async {
       await controller.start(sentence('s1'));
       focus.emit(TransientFocusLoss());
@@ -285,6 +337,25 @@ void main() {
       await pumpEventQueue();
       expect(controller.state.value.phase, PlaybackPhase.playing);
     });
+
+    test(
+      'focus regain reapplies a preference changed while interrupted',
+      () async {
+        await controller.start(sentence('s1'));
+        focus.emit(TransientFocusLoss());
+        await pumpEventQueue();
+        settings.interruptBackgroundAudio = false;
+
+        focus.emit(FocusRegained());
+        await pumpEventQueue();
+
+        expect(focus.acquireModes, [
+          AudioFocusMode.exclusive,
+          AudioFocusMode.standard,
+        ]);
+        expect(controller.state.value.phase, PlaybackPhase.playing);
+      },
+    );
 
     test('permanent loss never auto-resumes on regain', () async {
       await controller.start(sentence('s1'));
@@ -297,6 +368,25 @@ void main() {
       expect(controller.state.value.phase, PlaybackPhase.paused);
     });
 
+    test(
+      'explicit resume reapplies the latest best-effort focus preference',
+      () async {
+        await controller.start(sentence('s1'));
+        focus.emit(PermanentFocusLoss());
+        await pumpEventQueue();
+        settings.interruptBackgroundAudio = false;
+        focus.acquireResult = false;
+
+        await controller.resume();
+
+        expect(focus.acquireModes, [
+          AudioFocusMode.exclusive,
+          AudioFocusMode.standard,
+        ]);
+        expect(controller.state.value.phase, PlaybackPhase.playing);
+      },
+    );
+
     test('becoming noisy pauses and never auto-resumes', () async {
       await controller.start(sentence('s1'));
       focus.emit(BecomingNoisy());
@@ -308,43 +398,49 @@ void main() {
       expect(controller.state.value.phase, PlaybackPhase.paused);
     });
 
-    test('a user pause during a transient loss voids the recovery intent',
-        () async {
-      await controller.start(sentence('s1'));
-      focus.emit(TransientFocusLoss());
-      await pumpEventQueue();
-      expect(controller.state.value.phase, PlaybackPhase.paused);
+    test(
+      'a user pause during a transient loss voids the recovery intent',
+      () async {
+        await controller.start(sentence('s1'));
+        focus.emit(TransientFocusLoss());
+        await pumpEventQueue();
+        expect(controller.state.value.phase, PlaybackPhase.paused);
 
-      await controller.pause(); // explicit pause takes over
-      focus.emit(FocusRegained());
-      await pumpEventQueue();
-      expect(controller.state.value.phase, PlaybackPhase.paused);
-    });
+        await controller.pause(); // explicit pause takes over
+        focus.emit(FocusRegained());
+        await pumpEventQueue();
+        expect(controller.state.value.phase, PlaybackPhase.paused);
+      },
+    );
 
-    test('pause keeps the focus; only ending the session releases it',
-        () async {
-      await controller.start(sentence('s1'));
-      await controller.pause();
-      // A paused session stays resumable from the lock screen / headset, so
-      // the focus must not be abandoned on pause (design §6.2).
-      expect(focus.releaseCount, 0);
+    test(
+      'pause keeps the focus; only ending the session releases it',
+      () async {
+        await controller.start(sentence('s1'));
+        await controller.pause();
+        // A paused session stays resumable from the lock screen / headset, so
+        // the focus must not be abandoned on pause (design §6.2).
+        expect(focus.releaseCount, 0);
 
-      focus.emit(TransientFocusLoss());
-      await pumpEventQueue();
-      expect(focus.releaseCount, 0);
+        focus.emit(TransientFocusLoss());
+        await pumpEventQueue();
+        expect(focus.releaseCount, 0);
 
-      await controller.stop();
-      expect(focus.releaseCount, 1);
-    });
+        await controller.stop();
+        expect(focus.releaseCount, 1);
+      },
+    );
   });
 
   group('continuous highlight', () {
     test('position maps to the sounding sentence', () async {
-      await controller.start(PlaybackRequest(
-        articleRef: ref,
-        sentenceId: 's1',
-        mode: PlaybackMode.continuous,
-      ));
+      await controller.start(
+        PlaybackRequest(
+          articleRef: ref,
+          sentenceId: 's1',
+          mode: PlaybackMode.continuous,
+        ),
+      );
       driver.emitPosition(const Duration(milliseconds: 1200)); // within s2
       await pumpEventQueue();
       expect(controller.state.value.currentSentenceId, 's2');
@@ -363,6 +459,7 @@ class ControllableDriver implements PlaybackDriver {
 
   bool autoComplete = true;
   Object? playClipError;
+  int playClipCalls = 0;
   int stopCalls = 0;
 
   final pendingPlayClips = <Completer<void>>[];
@@ -381,6 +478,7 @@ class ControllableDriver implements PlaybackDriver {
     required Duration start,
     required Duration end,
   }) {
+    playClipCalls++;
     final error = playClipError;
     if (error != null) return Future.error(error);
     if (autoComplete) return Future.value();
@@ -460,6 +558,9 @@ class ControllableFocusPort implements AudioFocusPort {
   final _events = StreamController<AudioFocusEvent>.broadcast();
 
   int releaseCount = 0;
+  bool acquireResult = true;
+  Object? acquireError;
+  final acquireModes = <AudioFocusMode>[];
 
   void emit(AudioFocusEvent event) => _events.add(event);
 
@@ -467,5 +568,17 @@ class ControllableFocusPort implements AudioFocusPort {
   Stream<AudioFocusEvent> get events => _events.stream;
 
   @override
+  Future<bool> acquireFocus(AudioFocusMode mode) async {
+    acquireModes.add(mode);
+    if (acquireError != null) throw acquireError!;
+    return acquireResult;
+  }
+
+  @override
   Future<void> releaseFocus() async => releaseCount++;
+}
+
+class FakePlaybackSettingsPort implements PlaybackSettingsPort {
+  @override
+  bool interruptBackgroundAudio = true;
 }

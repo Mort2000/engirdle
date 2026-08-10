@@ -2,6 +2,7 @@ import 'package:engirdle_mobile/app/app.dart';
 import 'package:engirdle_mobile/app/dependencies.dart';
 import 'package:engirdle_mobile/features/dictionary/domain/dictionary_models.dart';
 import 'package:engirdle_mobile/features/preferences/presentation/typography_settings_page.dart';
+import 'package:engirdle_mobile/features/preferences/presentation/playback_settings_page.dart';
 import 'package:engirdle_mobile/features/dictionary/presentation/dictionary_resources_page.dart';
 import 'package:engirdle_mobile/features/vocabulary/presentation/vocab_book_page.dart';
 import 'package:engirdle_mobile/platform/http/lan_http_client.dart';
@@ -52,6 +53,25 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('排版与主题'), findsWidgets);
     expect(find.text('仅提供预设主题，不提供自定义取色器（MVP 排除项）。'), findsOneWidget);
+  });
+
+  testWidgets('playback settings toggle background music interruption', (
+    tester,
+  ) async {
+    await tester.pumpWidget(wrapTestWidget(deps, const PlaybackSettingsPage()));
+    await tester.pumpAndSettle();
+
+    expect(find.text('播放设置'), findsOneWidget);
+    expect(find.text('播放时打断背景音乐'), findsOneWidget);
+    expect(
+      tester.widget<SwitchListTile>(find.byType(SwitchListTile)).value,
+      isTrue,
+    );
+
+    await tester.tap(find.byType(SwitchListTile));
+    await tester.pump();
+
+    expect(deps.preferences.interruptBackgroundAudio, isFalse);
   });
 
   testWidgets(

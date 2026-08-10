@@ -6,9 +6,8 @@ import '../application/audio_focus_port.dart';
 
 /// Maps `audio_session`'s interruption / becoming-noisy / output-route signals
 /// into [AudioFocusEvent]s for the coordinator (design §6.2). The global
-/// session is configured for speech/audiobook; focus *activation* itself stays
-/// with just_audio's auto audio-session activation, while *release* is explicit:
-/// the coordinator calls [releaseFocus] when a session ends (design §3.1).
+/// session is configured for speech/audiobook; the coordinator explicitly
+/// acquires and releases focus so denied requests remain observable.
 /// This adapter only surfaces the events the coordinator must react to. No
 /// policy lives here — it is a pure translator, not a second state machine.
 class AudioSessionAdapter implements AudioFocusPort {
@@ -16,6 +15,7 @@ class AudioSessionAdapter implements AudioFocusPort {
 
   final AudioSession _session;
   final _events = StreamController<AudioFocusEvent>.broadcast();
+  AudioFocusMode? _activeMode;
   late final StreamSubscription<AudioInterruptionEvent> _interruption;
   late final StreamSubscription<void> _noisy;
   late final StreamSubscription<AudioDevicesChangedEvent> _devices;
@@ -34,6 +34,7 @@ class AudioSessionAdapter implements AudioFocusPort {
   void _wire() {
     _interruption = _session.interruptionEventStream.listen((event) {
       final mapped = mapInterruption(event);
+      if (mapped is PermanentFocusLoss) _activeMode = null;
       if (mapped != null) _events.add(mapped);
     });
     _noisy = _session.becomingNoisyEventStream.listen(
@@ -63,11 +64,43 @@ class AudioSessionAdapter implements AudioFocusPort {
     }
   }
 
+  /// Pure focus-policy mapping, kept testable without a platform channel.
+  static AndroidAudioFocusGainType mapFocusMode(AudioFocusMode mode) =>
+      switch (mode) {
+        AudioFocusMode.standard => AndroidAudioFocusGainType.gain,
+        AudioFocusMode.exclusive =>
+          AndroidAudioFocusGainType.gainTransientExclusive,
+      };
+
   @override
   Stream<AudioFocusEvent> get events => _events.stream;
 
   @override
-  Future<void> releaseFocus() => _session.setActive(false);
+  Future<bool> acquireFocus(AudioFocusMode mode) async {
+    if (_activeMode != null && _activeMode != mode) {
+      _activeMode = null;
+      await _session.setActive(false);
+    }
+    final acquired = await _session.setActive(
+      true,
+      androidAudioFocusGainType: mapFocusMode(mode),
+    );
+    if (acquired) {
+      _activeMode = mode;
+    } else {
+      _activeMode = null;
+      // audio_session 0.2.4 retains a denied native request until it is
+      // abandoned. Clear it so a later start/resume can make a fresh attempt.
+      await _session.setActive(false);
+    }
+    return acquired;
+  }
+
+  @override
+  Future<void> releaseFocus() async {
+    _activeMode = null;
+    await _session.setActive(false);
+  }
 
   Future<void> dispose() async {
     await releaseFocus();

@@ -5,6 +5,7 @@ import '../features/connection/presentation/connection_offline_page.dart';
 import '../features/connection/presentation/service_setup_page.dart';
 import '../features/dictionary/presentation/dictionary_resources_page.dart';
 import '../features/library/presentation/bookshelf_page.dart';
+import '../features/preferences/presentation/playback_settings_page.dart';
 import '../features/preferences/presentation/typography_settings_page.dart';
 import '../features/reader/presentation/reader_page.dart';
 import '../features/vocabulary/presentation/vocab_book_page.dart';
@@ -22,6 +23,7 @@ class AppRoutes {
   static const vocabulary = '/vocabulary';
   static const vocabularyDetail = '/vocabulary/detail';
   static const typography = '/typography';
+  static const playbackSettings = '/playback-settings';
   static const attribution = '/attribution';
   static const dictionaryResources = '/dictionary-resources';
 
@@ -47,6 +49,8 @@ class AppRoutes {
         );
       case typography:
         return _page(const TypographySettingsPage(), settings);
+      case playbackSettings:
+        return _page(const PlaybackSettingsPage(), settings);
       case attribution:
         return _page(
           AttributionPage(articleId: settings.arguments! as String),

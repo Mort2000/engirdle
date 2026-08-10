@@ -17,7 +17,7 @@ Future<void> main() async {
   // Configure the speech/audiobook audio session before building the graph so
   // the playback focus adapter observes interruptions/route changes from the
   // start (design §7.1). A failure here must not block app startup: playback
-  // still works without focus events (just_audio activates the session itself).
+  // still works without focus events; focus acquisition is best-effort.
   AudioFocusPort focusPort;
   try {
     focusPort = await AudioSessionAdapter.init();

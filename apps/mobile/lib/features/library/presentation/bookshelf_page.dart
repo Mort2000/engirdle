@@ -206,6 +206,8 @@ class _BookshelfPageState extends State<BookshelfPage> {
                   Navigator.of(context).pushNamed(AppRoutes.vocabulary);
                 case 'typography':
                   Navigator.of(context).pushNamed(AppRoutes.typography);
+                case 'playback':
+                  Navigator.of(context).pushNamed(AppRoutes.playbackSettings);
                 case 'offline':
                   Navigator.of(context).pushNamed(AppRoutes.connectionOffline);
                 case 'service':
@@ -223,6 +225,7 @@ class _BookshelfPageState extends State<BookshelfPage> {
             itemBuilder: (_) => const [
               PopupMenuItem(value: 'vocab', child: Text('生词本')),
               PopupMenuItem(value: 'typography', child: Text('排版与主题')),
+              PopupMenuItem(value: 'playback', child: Text('播放设置')),
               PopupMenuItem(value: 'offline', child: Text('连接与离线')),
               PopupMenuItem(value: 'service', child: Text('服务设置')),
               PopupMenuItem(value: 'dictionary', child: Text('词典资源')),

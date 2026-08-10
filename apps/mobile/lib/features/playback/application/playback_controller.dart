@@ -7,6 +7,7 @@ import '../domain/playback_models.dart';
 import '../domain/playback_source_port.dart';
 import 'audio_focus_port.dart';
 import 'playback_driver.dart';
+import 'playback_settings_port.dart';
 
 /// Owns the single playback session — the deep module's coordinator and the
 /// only state machine (design §4.2/§5.2). Reader, in-app bar and system-media
@@ -24,11 +25,13 @@ class PlaybackController {
     required PlaybackDriver driver,
     required PlaybackSourcePort sourcePort,
     required AudioFocusPort focusPort,
+    required PlaybackSettingsPort settingsPort,
     AppLogger? logger,
-  })  : _driver = driver,
-        _source = sourcePort,
-        _focus = focusPort,
-        _logger = logger ?? const AppLogger('playback') {
+  }) : _driver = driver,
+       _source = sourcePort,
+       _focus = focusPort,
+       _settings = settingsPort,
+       _logger = logger ?? const AppLogger('playback') {
     _driverSub = _driver.events.listen(_onDriverEvent);
     _focusSub = _focus.events.listen(_onFocusEvent);
   }
@@ -36,10 +39,12 @@ class PlaybackController {
   final PlaybackDriver _driver;
   final PlaybackSourcePort _source;
   final AudioFocusPort _focus;
+  final PlaybackSettingsPort _settings;
   final AppLogger _logger;
 
-  final ValueNotifier<PlaybackSnapshot> state =
-      ValueNotifier(const PlaybackSnapshot.idle());
+  final ValueNotifier<PlaybackSnapshot> state = ValueNotifier(
+    const PlaybackSnapshot.idle(),
+  );
 
   final _events = StreamController<PlaybackEvent>.broadcast();
   Stream<PlaybackEvent> get events => _events.stream;
@@ -76,6 +81,11 @@ class PlaybackController {
       if (range == null) {
         _source.release(lease);
         _fail(token, '该句子没有音频');
+        return;
+      }
+      await _acquireFocusBestEffort();
+      if (token != _token) {
+        _source.release(lease);
         return;
       }
       // Take over the session, but keep the superseded lease pinned until the
@@ -116,6 +126,8 @@ class PlaybackController {
     _recoverableFocusToken = null;
     if (state.value.phase != PlaybackPhase.paused) return;
     final token = _token;
+    await _acquireFocusBestEffort();
+    if (token != _token || state.value.phase != PlaybackPhase.paused) return;
     await _driver.resume();
     if (token != _token || state.value.phase != PlaybackPhase.paused) return;
     state.value = state.value.copyWith(phase: PlaybackPhase.playing);
@@ -139,7 +151,8 @@ class PlaybackController {
   /// Stops the active session iff it belongs to [articleId] — the prelude to a
   /// safe delete (design §6.3). No-op otherwise.
   Future<void> stopIfActive(String articleId) async {
-    if (state.value.isActive && state.value.articleRef?.articleId == articleId) {
+    if (state.value.isActive &&
+        state.value.articleRef?.articleId == articleId) {
       await stop();
     }
   }
@@ -215,8 +228,7 @@ class PlaybackController {
       phase: PlaybackPhase.preparing,
       currentSentenceId: range.sentenceId,
       currentLabel: range.label,
-      startLabel:
-          request.mode == PlaybackMode.continuous ? range.label : null,
+      startLabel: request.mode == PlaybackMode.continuous ? range.label : null,
       sentenceOrdinal: ordinal,
       position: Duration.zero,
       playableDuration: request.mode == PlaybackMode.continuous
@@ -310,9 +322,28 @@ class PlaybackController {
   Future<void> _systemResume() async {
     if (state.value.phase != PlaybackPhase.paused) return;
     final token = _token;
+    await _acquireFocusBestEffort();
+    if (token != _token || state.value.phase != PlaybackPhase.paused) return;
     await _driver.resume();
     if (token != _token || state.value.phase != PlaybackPhase.paused) return;
     _recoverableFocusToken = null;
     state.value = state.value.copyWith(phase: PlaybackPhase.playing);
+  }
+
+  Future<void> _acquireFocusBestEffort() async {
+    final mode = _settings.interruptBackgroundAudio
+        ? AudioFocusMode.exclusive
+        : AudioFocusMode.standard;
+    try {
+      final acquired = await _focus.acquireFocus(mode);
+      if (!acquired) {
+        _logger.warn('playback.audio_focus_denied', {'mode': mode.name});
+      }
+    } on Object catch (error) {
+      _logger.warn('playback.audio_focus_failed', {
+        'mode': mode.name,
+        'error': '$error',
+      });
+    }
   }
 }

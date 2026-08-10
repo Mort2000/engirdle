@@ -304,6 +304,8 @@ class _ReaderPageState extends State<ReaderPage> {
               switch (value) {
                 case 'typography':
                   Navigator.of(context).pushNamed(AppRoutes.typography);
+                case 'playback':
+                  Navigator.of(context).pushNamed(AppRoutes.playbackSettings);
                 case 'attribution':
                   Navigator.of(context).pushNamed(
                     AppRoutes.attribution,
@@ -317,6 +319,7 @@ class _ReaderPageState extends State<ReaderPage> {
             },
             itemBuilder: (_) => const [
               PopupMenuItem(value: 'typography', child: Text('排版与主题')),
+              PopupMenuItem(value: 'playback', child: Text('播放设置')),
               PopupMenuItem(value: 'attribution', child: Text('归属信息')),
               PopupMenuItem(value: 'dictionary', child: Text('词典资源')),
             ],

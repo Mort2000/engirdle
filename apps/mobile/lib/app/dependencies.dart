@@ -104,6 +104,7 @@ class AppDependencies {
       directories: directories,
       logger: const AppLogger('importer'),
     );
+    final preferences = PreferencesService(dao: preferencesDao);
     final playback = PlaybackController(
       driver: driver ?? JustAudioDriver(),
       sourcePort:
@@ -113,13 +114,13 @@ class AppDependencies {
             registry: leaseRegistry,
           ),
       focusPort: focusPort,
+      settingsPort: preferences,
     );
     final dictionary = DictionaryService(
       manifestDao: dictionaryManifestDao,
       directories: directories,
     );
     final vocabulary = VocabularyService(dao: vocabularyDao);
-    final preferences = PreferencesService(dao: preferencesDao);
     final attribution = AttributionService(
       library: library,
       dictionary: dictionary,

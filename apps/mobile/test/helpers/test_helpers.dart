@@ -110,6 +110,8 @@ class FakeAudioFocusPort implements AudioFocusPort {
   @override
   Stream<AudioFocusEvent> get events => const Stream<AudioFocusEvent>.empty();
   @override
+  Future<bool> acquireFocus(AudioFocusMode mode) async => true;
+  @override
   Future<void> releaseFocus() async {}
 }
 
