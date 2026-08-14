@@ -15,6 +15,7 @@
 | [mvp/mvp_design.md](./mvp/mvp_design.md) | MVP 如何实现、组件怎样协作、协议如何定义 | 技术设计基线 |
 | [mvp/mvp_module_architecture.md](./mvp/mvp_module_architecture.md) | 前后端模块怎样划分、源码与测试目录怎样组织 | 工程架构基线候选 |
 | [mvp/mvp_feasibility.md](./mvp/mvp_feasibility.md) | 方案是否合理可行、风险是什么、先验证什么 | 评审与决策依据 |
+| [mvp/markdown_article_processing_design.md](./mvp/markdown_article_processing_design.md) | Markdown 如何解析、翻译/TTS 怎样分流、移动端如何渲染 | 专项实现方案候选 |
 | [roadmap.md](./roadmap.md) | MVP 之后可能向哪里演进 | 非承诺性路线图 |
 | [ux_review_notes.md](./ux_review_notes.md) | Android 设计稿 UX 评审发现了什么、哪些暂缓 | 评审记录（非基线） |
 
