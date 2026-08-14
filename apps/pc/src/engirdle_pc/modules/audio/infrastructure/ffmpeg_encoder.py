@@ -40,7 +40,7 @@ class FfmpegAudioEncoder:
                 "-i",
                 str(wav_path),
                 "-af",
-                "loudnorm=I=-18:TP=-3:LRA=11",
+                "loudnorm=I=-14:TP=-1:LRA=11",
                 "-c:a",
                 "aac",
                 "-profile:a",

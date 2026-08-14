@@ -54,8 +54,8 @@ class ProductionService:
             anchor_sha256=voice.anchor_sha256,
             audio_codec="aac-lc",
             audio_bitrate_kbps=64,
-            audio_loudness_target_lufs=-18.0,
-            audio_true_peak_dbfs=-3.0,
+            audio_loudness_target_lufs=-14.0,
+            audio_true_peak_dbfs=-1.0,
             audio_loudness_range_lu=11.0,
         )
         return self._repository.create(revision.article_id, revision.revision, config)

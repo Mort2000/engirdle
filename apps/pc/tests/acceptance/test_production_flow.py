@@ -109,8 +109,8 @@ def test_user_can_produce_review_and_publish_an_article(
             "bitrate_kbps": 64,
             "sample_rate_hz": 24000,
             "channels": 1,
-            "loudness_target_lufs": -18.0,
-            "true_peak_dbfs": -3.0,
+            "loudness_target_lufs": -14.0,
+            "true_peak_dbfs": -1.0,
             "loudness_range_lu": 11.0,
         }
         assert (
