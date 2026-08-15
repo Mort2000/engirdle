@@ -12,6 +12,11 @@
 **/dist/
 **/build/
 
+# Admin frontend (Vite) local outputs; node_modules and the hatch build cache
+# (admin_frontend/.build-cache.json, see design §10) stay out of the tree.
+apps/pc/admin_frontend/node_modules/
+apps/pc/admin_frontend/.build-cache.json
+
 # Local secrets — never committed (e.g. DEEPSEEK_API_KEY for manual testing).
 .env
 **/.env
