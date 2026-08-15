@@ -312,13 +312,16 @@ class SecureZipReader {
   }
 
   /// Rejects non-regular-file entries via Unix mode bits (when present).
+  /// Archives that declare permission bits without file-type bits (e.g.
+  /// Python zipfile writestr default 0o600) are accepted: only an explicit
+  /// non-regular type — link, directory, device — rejects.
   void _checkEntryType(int externalAttributes, String path) {
     final unixMode = (externalAttributes >> 16) & 0xFFFF;
     if (unixMode == 0) return; // DOS-origin archive; nothing declared.
     const typeMask = 0xF000;
     const regularFile = 0x8000;
     final type = unixMode & typeMask;
-    if (type != regularFile) {
+    if (type != 0 && type != regularFile) {
       throw _format('non-regular file entry rejected', path);
     }
   }

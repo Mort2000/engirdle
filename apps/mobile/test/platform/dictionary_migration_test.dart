@@ -54,6 +54,57 @@ void main() {
       legacy.execute(
         'CREATE INDEX idx_vocabulary_created ON vocabulary(created_at DESC)',
       );
+      // The real v1 schema also owns the library tables; the v3→v4 step
+      // alters blocks/sentences, so the forged legacy database must carry
+      // them for the migration chain to replay.
+      legacy.execute('''
+      CREATE TABLE articles (
+        article_id TEXT PRIMARY KEY,
+        title TEXT NOT NULL,
+        author TEXT,
+        source_display_name TEXT,
+        source_url TEXT,
+        revision INTEGER NOT NULL,
+        artifact_revision INTEGER NOT NULL,
+        package_id TEXT NOT NULL,
+        format_version TEXT NOT NULL,
+        duration_ms INTEGER NOT NULL,
+        audio_codec TEXT NOT NULL,
+        sample_rate_hz INTEGER NOT NULL,
+        channels INTEGER NOT NULL,
+        size_bytes INTEGER NOT NULL,
+        sha256 TEXT NOT NULL,
+        installed_at TEXT NOT NULL,
+        manifest_json TEXT NOT NULL,
+        attribution_json TEXT NOT NULL
+      )
+    ''');
+      legacy.execute('''
+      CREATE TABLE blocks (
+        article_id TEXT NOT NULL REFERENCES articles(article_id) ON DELETE CASCADE,
+        block_id TEXT NOT NULL,
+        kind TEXT NOT NULL,
+        ord INTEGER NOT NULL,
+        PRIMARY KEY (article_id, block_id)
+      )
+    ''');
+      legacy.execute('''
+      CREATE TABLE sentences (
+        article_id TEXT NOT NULL,
+        block_id TEXT NOT NULL,
+        sentence_id TEXT NOT NULL,
+        ord INTEGER NOT NULL,
+        text TEXT NOT NULL,
+        translation_zh TEXT,
+        audio_start_ms INTEGER,
+        audio_end_ms INTEGER,
+        audio_start_sample INTEGER,
+        audio_end_sample INTEGER,
+        PRIMARY KEY (article_id, sentence_id),
+        FOREIGN KEY (article_id, block_id)
+          REFERENCES blocks(article_id, block_id) ON DELETE CASCADE
+      )
+    ''');
       legacy.execute(
         'INSERT INTO vocabulary VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
         [

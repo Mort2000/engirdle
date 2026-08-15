@@ -4,6 +4,7 @@ import '../contract_violation.dart';
 class ReadpackManifest {
   const ReadpackManifest({
     required this.formatVersion,
+    required this.requiredCapabilities,
     required this.packageId,
     required this.createdAt,
     required this.articleId,
@@ -15,6 +16,12 @@ class ReadpackManifest {
   });
 
   final String formatVersion;
+
+  /// `required_capabilities`, parsed with the schema array rules (≤ 8 unique
+  /// lowercase tokens). Which capabilities a given minor may declare is a
+  /// cross-file semantic rule, checked by the validator — not this parser.
+  final List<String> requiredCapabilities;
+
   final String packageId;
   final String createdAt;
   final String articleId;
@@ -26,15 +33,34 @@ class ReadpackManifest {
 
   /// Parses and strictly validates against the v1 manifest schema plus the
   /// compatibility rules (COMPATIBILITY.md): unknown optional fields are
-  /// ignored, `required_capabilities` must be absent or empty.
+  /// ignored; `required_capabilities` follows the schema array rules and
+  /// which tokens a minor may declare is left to the cross-file validator.
   static ReadpackManifest parse(Object? json) {
     final r = JsonReader(json, 'manifest');
     r['format'].mustEqual('readpack', 'format');
     final formatVersion = r['format_version'].v1Version();
 
-    // v1.0 defines no non-ignorable capabilities (contracts/README.md): the
-    // schema caps the array at 0 items, so any entry rejects right here.
-    r.optional('required_capabilities')?.asArray(maxItems: 0);
+    // v1.1 opens the capability array to ≤ 8 unique tokens
+    // (`^[a-z][a-z0-9-]*$`, 1-64 chars). Which tokens a given minor may
+    // declare is a semantic rule: v1.0 must stay empty, v1.1 must declare
+    // `markdown-blocks`, unknown tokens always reject — all in the
+    // cross-file validator, where manifest and article can be compared.
+    final capabilities = <String>[];
+    final capabilityReaders =
+        r.optional('required_capabilities')?.asArray(maxItems: 8) ??
+            const <JsonReader>[];
+    for (var i = 0; i < capabilityReaders.length; i++) {
+      final capability = capabilityReaders[i].asString(
+        minLength: 1,
+        maxLength: 64,
+        pattern: RegExp(r'^[a-z][a-z0-9-]*$'),
+      );
+      if (capabilities.contains(capability)) {
+        throw ContractViolation('manifest.required_capabilities[$i]',
+            'duplicate capability "$capability"');
+      }
+      capabilities.add(capability);
+    }
 
     final article = r['article'];
     final files = r['files'].asArray(minItems: 3, maxItems: 3);
@@ -118,6 +144,7 @@ class ReadpackManifest {
 
     return ReadpackManifest(
       formatVersion: formatVersion,
+      requiredCapabilities: capabilities,
       packageId: r['package_id'].uuid(),
       createdAt: r['created_at'].dateTime(),
       articleId: article['id'].uuid(),

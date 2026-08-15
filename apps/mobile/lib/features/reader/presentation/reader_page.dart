@@ -12,6 +12,7 @@ import '../../dictionary/domain/dictionary_models.dart';
 import '../../dictionary/presentation/dictionary_sheet.dart';
 import '../../library/domain/installed_article.dart';
 import '../../playback/domain/playback_models.dart';
+import 'content_block_view.dart';
 import 'sentence_view.dart';
 import 'sheets.dart';
 
@@ -343,9 +344,9 @@ class _ReaderPageState extends State<ReaderPage> {
                 theme: theme,
                 zhTitle: _zhTitleFallback(content.article.title),
               ),
-              for (var b = 0; b < content.blocks.length; b++)
-                _BlockView(
-                  block: content.blocks[b],
+              for (final block in content.blocks)
+                ContentBlockView(
+                  block: block,
                   mode: _mode,
                   textStyle: textStyle,
                   zhStyle: zhStyle,
@@ -421,119 +422,6 @@ class _Header extends StatelessWidget {
   static String _duration(int ms) {
     final totalSeconds = ms ~/ 1000;
     return '${totalSeconds ~/ 60}:${(totalSeconds % 60).toString().padLeft(2, '0')}';
-  }
-}
-
-class _BlockView extends StatelessWidget {
-  const _BlockView({
-    required this.block,
-    required this.mode,
-    required this.textStyle,
-    required this.zhStyle,
-    required this.currentSentenceId,
-    required this.viewKeys,
-    required this.onSentenceTap,
-    required this.onLookup,
-    required this.onTranslate,
-    required this.onSelectionChanged,
-    required this.onZhLongPress,
-  });
-
-  final InstalledBlock block;
-  final ReadingMode mode;
-  final TextStyle textStyle;
-  final TextStyle zhStyle;
-  final String? currentSentenceId;
-  final Map<String, GlobalKey<SentenceViewState>> viewKeys;
-  final void Function(InstalledSentence) onSentenceTap;
-  final void Function(InstalledSentence, String) onLookup;
-  final void Function(InstalledSentence, String) onTranslate;
-  final void Function(InstalledSentence, bool) onSelectionChanged;
-  final VoidCallback onZhLongPress;
-
-  @override
-  Widget build(BuildContext context) {
-    final palette = PaletteScope.of(context);
-    final children = <Widget>[];
-    for (var s = 0; s < block.sentences.length; s++) {
-      final sentence = block.sentences[s];
-      final playing = sentence.sentenceId == currentSentenceId;
-      switch (mode) {
-        case ReadingMode.enOnly:
-          children.add(
-            SentenceView(
-              key: viewKeys[sentence.sentenceId],
-              sentence: sentence,
-              text: sentence.text,
-              style: textStyle,
-              playing: playing,
-              selectable: true,
-              onTap: () => onSentenceTap(sentence),
-              onLookup: (selection) => onLookup(sentence, selection),
-              onTranslate: (selection) => onTranslate(sentence, selection),
-              onSelectionChanged: (hasSelection) =>
-                  onSelectionChanged(sentence, hasSelection),
-            ),
-          );
-        case ReadingMode.bilingual:
-          children
-            ..add(
-              SentenceView(
-                key: viewKeys[sentence.sentenceId],
-                sentence: sentence,
-                text: sentence.text,
-                style: textStyle,
-                playing: playing,
-                selectable: true,
-                onTap: () => onSentenceTap(sentence),
-                onLookup: (selection) => onLookup(sentence, selection),
-                onTranslate: (selection) => onTranslate(sentence, selection),
-                onSelectionChanged: (hasSelection) =>
-                    onSelectionChanged(sentence, hasSelection),
-              ),
-            )
-            ..add(
-              Container(
-                width: double.infinity,
-                margin: const EdgeInsets.only(top: 4, bottom: 8),
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 10,
-                  vertical: 6,
-                ),
-                decoration: BoxDecoration(
-                  color: palette.paper2,
-                  borderRadius: BorderRadius.circular(9),
-                ),
-                child: Text(sentence.translationZh ?? '', style: zhStyle),
-              ),
-            );
-        case ReadingMode.zhOnly:
-          children.add(
-            SentenceView(
-              key: viewKeys[sentence.sentenceId],
-              sentence: sentence,
-              text: sentence.translationZh ?? '',
-              // Serif stays in zh-only too (design reader typography): the
-              // base textStyle already carries the user's font preference.
-              style: textStyle,
-              playing: playing,
-              selectable: false,
-              onTap: () => onSentenceTap(sentence),
-              onLookup: (_) {},
-              onTranslate: (_) {},
-              onSelectionChanged: (_) {},
-              onLongPressHint: onZhLongPress,
-            ),
-          );
-      }
-    }
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 11),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: children,
-      ),
-    );
   }
 }
 

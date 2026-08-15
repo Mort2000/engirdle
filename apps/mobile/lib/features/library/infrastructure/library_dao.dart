@@ -1,5 +1,8 @@
+import 'dart:convert';
+
 import 'package:sqlite3/sqlite3.dart';
 
+import '../../../contracts/contract_violation.dart';
 import '../../../contracts/readpack_v1/article.dart';
 import '../../../contracts/readpack_v1/manifest.dart';
 import '../domain/installed_article.dart';
@@ -7,6 +10,22 @@ import '../domain/installed_article.dart';
 /// DAO for library-owned tables: articles, blocks, sentences and
 /// article_reading_mode. Raw JSON (manifest/attribution) is kept verbatim
 /// for the attribution page; structured content is normalized into tables.
+///
+/// The v1.1 block payload (heading/list/quote styling, table cells, code
+/// bodies) and the sentence render runs live in JSON columns — JSON exists
+/// only at this seam. Shapes:
+///
+///   blocks.payload_json:
+///     text:    {"level":2} / {"list_kind":"bullet","list_depth":1,
+///              "list_ordinal":3} / {"quote_depth":2} / {}
+///     table:   {"alignments":["default"],"header":[cell],"rows":[[cell]],
+///              "translation_zh":{"cell-id":"译文"}}
+///     code:    {"language":"python","code":"..."}
+///     divider: {}
+///   sentences.render_json: [{"kind":"plain","text":"...","href":"..."}]
+///
+/// The empty string (the v4 column default for legacy rows) decodes as a
+/// plain paragraph and a single plain run respectively.
 class LibraryDao {
   const LibraryDao(this._db);
 
@@ -47,12 +66,13 @@ class LibraryDao {
 
   List<InstalledBlock> getBlocks(String articleId) {
     final blockRows = _db.select(
-      'SELECT block_id, kind, ord FROM blocks WHERE article_id = ? ORDER BY ord',
+      'SELECT block_id, kind, ord, payload_json FROM blocks '
+      'WHERE article_id = ? ORDER BY ord',
       [articleId],
     );
     final sentenceRows = _db.select(
       'SELECT block_id, sentence_id, ord, text, translation_zh, '
-      'audio_start_ms, audio_end_ms FROM sentences '
+      'audio_start_ms, audio_end_ms, render_json FROM sentences '
       'WHERE article_id = ? ORDER BY ord',
       [articleId],
     );
@@ -64,6 +84,8 @@ class LibraryDao {
               blockId: row['block_id'] as String,
               order: row['ord'] as int,
               text: row['text'] as String,
+              runs: decodeRuns(row['render_json'] as String,
+                  fallbackText: row['text'] as String),
               translationZh: row['translation_zh'] as String?,
               audioStartMs: row['audio_start_ms'] as int?,
               audioEndMs: row['audio_end_ms'] as int?,
@@ -72,14 +94,203 @@ class LibraryDao {
     }
     return [
       for (final row in blockRows)
-        InstalledBlock(
+        _decodeBlock(
           blockId: row['block_id'] as String,
           kind: row['kind'] as String,
           order: row['ord'] as int,
-          sentences: byBlock[row['block_id']] ?? const [],
+          payloadJson: row['payload_json'] as String,
+          sentences: byBlock[row['block_id'] as String] ?? const [],
         ),
     ];
   }
+
+  /// Rebuilds a typed block from the stored kind + payload. Legacy rows
+  /// (payload '') and unrecognized kinds degrade to plain paragraphs so a
+  /// pre-v4 article keeps rendering.
+  static InstalledBlock _decodeBlock({
+    required String blockId,
+    required String kind,
+    required int order,
+    required String payloadJson,
+    required List<InstalledSentence> sentences,
+  }) {
+    // Legacy v3 rows carry the empty-string default: treat them as an empty
+    // payload object so every field read below is a plain absent-optional.
+    final payload =
+        payloadJson.isEmpty ? <String, Object?>{} : jsonDecode(payloadJson);
+    final r = JsonReader(payload, 'blocks($blockId).payload_json');
+    switch (kind) {
+      case 'heading':
+        return InstalledTextBlock(
+          blockId: blockId,
+          order: order,
+          kind: ArticleTextKind.heading,
+          level: r.optional('level')?.asInt(min: 1, max: 6) ?? 1,
+          sentences: sentences,
+        );
+      case 'list_item':
+        final listKind = switch (r.optional('list_kind')?.asString()) {
+          'ordered' => ArticleListKind.ordered,
+          _ => ArticleListKind.bullet,
+        };
+        return InstalledTextBlock(
+          blockId: blockId,
+          order: order,
+          kind: ArticleTextKind.listItem,
+          listKind: listKind,
+          listDepth: r.optional('list_depth')?.asInt(min: 0, max: 4) ?? 0,
+          listOrdinal: r.optional('list_ordinal')?.asInt(min: 0),
+          sentences: sentences,
+        );
+      case 'quote':
+        return InstalledTextBlock(
+          blockId: blockId,
+          order: order,
+          kind: ArticleTextKind.quote,
+          quoteDepth: r.optional('quote_depth')?.asInt(min: 1, max: 4) ?? 1,
+          sentences: sentences,
+        );
+      case 'table':
+        final alignmentReaders =
+            r.optional('alignments')?.asArray() ?? const <JsonReader>[];
+        final alignments = [
+          for (final ar in alignmentReaders)
+            TableAlignmentWire.fromWire(ar.asString()) ??
+                TableAlignment.inherit,
+        ];
+        final headerReaders =
+            r.optional('header')?.asArray() ?? const <JsonReader>[];
+        final header = [
+          for (final cr in headerReaders) _decodeCell(cr),
+        ];
+        final rowReaders =
+            r.optional('rows')?.asArray() ?? const <JsonReader>[];
+        final rows = [
+          for (final rowReader in rowReaders)
+            [
+              for (final cr in rowReader.asArray()) _decodeCell(cr),
+            ],
+        ];
+        final translation = <String, String>{};
+        final translationReader = r.optional('translation_zh');
+        if (translationReader != null) {
+          for (final entry in translationReader.asObject().entries) {
+            if (entry.value is String) {
+              translation[entry.key] = entry.value as String;
+            }
+          }
+        }
+        return InstalledTableBlock(
+          blockId: blockId,
+          order: order,
+          alignments: alignments,
+          header: header,
+          rows: rows,
+          translationById: translation,
+        );
+      case 'code':
+        return InstalledCodeBlock(
+          blockId: blockId,
+          order: order,
+          language: r.optional('language')?.asStringOrNull(
+                minLength: 1,
+                maxLength: 64,
+              ),
+          code: r['code'].asString(),
+        );
+      case 'divider':
+        return InstalledDividerBlock(blockId: blockId, order: order);
+      case 'paragraph':
+      default:
+        return InstalledTextBlock(
+          blockId: blockId,
+          order: order,
+          kind: ArticleTextKind.paragraph,
+          sentences: sentences,
+        );
+    }
+  }
+
+  static InstalledTableCell _decodeCell(JsonReader cr) {
+    final runReaders = cr.optional('runs')?.asArray() ?? const [];
+    return InstalledTableCell(
+      cellId: cr['cell_id'].asString(),
+      text: cr['text'].asString(),
+      runs: [
+        for (final rr in runReaders)
+          ArticleRun(
+            kind: ArticleRunKind.fromWire(rr['kind'].asString()) ??
+                ArticleRunKind.plain,
+            text: rr['text'].asString(),
+            href: rr.optional('href')?.asStringOrNull(),
+          ),
+      ],
+    );
+  }
+
+  /// Sentence render runs; the legacy empty column decodes as one plain run
+  /// of the whole sentence text (v1.0 normalization).
+  static List<ArticleRun> decodeRuns(String renderJson,
+      {required String fallbackText}) {
+    if (renderJson.isEmpty) {
+      return [ArticleRun(kind: ArticleRunKind.plain, text: fallbackText)];
+    }
+    final readers = JsonReader(jsonDecode(renderJson), 'render_json')
+        .asArray(maxItems: 2048);
+    if (readers.isEmpty) {
+      return [ArticleRun(kind: ArticleRunKind.plain, text: fallbackText)];
+    }
+    return [
+      for (final rr in readers)
+        ArticleRun(
+          kind: ArticleRunKind.fromWire(rr['kind'].asString()) ??
+              ArticleRunKind.plain,
+          text: rr['text'].asString(),
+          href: rr.optional('href')?.asStringOrNull(),
+        ),
+    ];
+  }
+
+  static String encodeRuns(List<ArticleRun> runs) => jsonEncode([
+        for (final run in runs)
+          {
+            'kind': run.kind.wire,
+            'text': run.text,
+            if (run.href != null) 'href': run.href,
+          },
+      ]);
+
+  static String _encodeTextPayload(ParsedTextBlock block) => jsonEncode({
+        if (block.level != null) 'level': block.level,
+        if (block.listKind != null)
+          'list_kind': block.listKind!.name,
+        if (block.kind == ArticleTextKind.listItem) 'list_depth': block.listDepth,
+        if (block.listOrdinal != null) 'list_ordinal': block.listOrdinal,
+        if (block.kind == ArticleTextKind.quote) 'quote_depth': block.quoteDepth,
+      });
+
+  static Map<String, Object?> _encodeCell(ParsedTableCell cell) => {
+        'cell_id': cell.cellId,
+        'text': cell.text,
+        'runs': [
+          for (final run in cell.runs)
+            {
+              'kind': run.kind.wire,
+              'text': run.text,
+              if (run.href != null) 'href': run.href,
+            },
+        ],
+      };
+
+  static String _encodeTablePayload(ParsedTableBlock block) => jsonEncode({
+        'alignments': [for (final a in block.alignments) a.wire],
+        'header': [for (final cell in block.header) _encodeCell(cell)],
+        'rows': [
+          for (final row in block.rows)
+            [for (final cell in row) _encodeCell(cell)],
+        ],
+        'translation_zh': block.translationById,
+      });
 
   ReadingMode? getReadingMode(String articleId) {
     final rows = _db.select(
@@ -157,19 +368,20 @@ class LibraryDao {
       }
       final blocks = [...content.blocks]..sort((a, b) => a.order - b.order);
       for (final block in blocks) {
+        final described = _describe(block);
         _db.execute(
-          'INSERT INTO blocks (article_id, block_id, kind, ord) '
-          'VALUES (?, ?, ?, ?)',
-          [articleId, block.blockId, block.kind, block.order],
+          'INSERT INTO blocks (article_id, block_id, kind, ord, payload_json) '
+          'VALUES (?, ?, ?, ?, ?)',
+          [articleId, block.blockId, described.kind, block.order, described.payload],
         );
-        final sentences = [...block.sentences]
-          ..sort((a, b) => a.order - b.order);
+        if (block is! ParsedTextBlock) continue;
+        final sentences = [...block.sentences]..sort((a, b) => a.order - b.order);
         for (final sentence in sentences) {
           _db.execute(
             'INSERT INTO sentences (article_id, block_id, sentence_id, ord, '
             'text, translation_zh, audio_start_ms, audio_end_ms, '
-            'audio_start_sample, audio_end_sample) '
-            'VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+            'audio_start_sample, audio_end_sample, render_json) '
+            'VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
             [
               articleId,
               block.blockId,
@@ -181,6 +393,7 @@ class LibraryDao {
               sentence.audioEndMs,
               sentence.audioStartSample,
               sentence.audioEndSample,
+              encodeRuns(sentence.runs),
             ],
           );
         }
@@ -196,6 +409,30 @@ class LibraryDao {
       rethrow;
     }
   }
+
+  /// Wire kind + payload JSON for one parsed block.
+  static ({String kind, String payload}) _describe(ParsedBlock block) {
+    switch (block) {
+      case ParsedTextBlock():
+        return (kind: block.kind.wire, payload: _encodeTextPayload(block));
+      case ParsedTableBlock():
+        return (kind: 'table', payload: _encodeTablePayload(block));
+      case ParsedCodeBlock():
+        return (
+          kind: 'code',
+          payload: jsonEncode({
+            if (block.language != null) 'language': block.language,
+            'code': block.code,
+          }),
+        );
+      case ParsedDividerBlock():
+        return (kind: 'divider', payload: '{}');
+    }
+  }
+
+  /// Exposed for tests: the wire kind and payload JSON for a parsed block.
+  static ({String kind, String payload}) describeBlock(ParsedBlock block) =>
+      _describe(block);
 
   void deleteArticle(String articleId) {
     _db.execute('BEGIN IMMEDIATE');

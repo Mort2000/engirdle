@@ -48,10 +48,13 @@ class JsonReader {
   String asString({int? minLength, int? maxLength, RegExp? pattern}) {
     if (value is! String) throw _error('expected string');
     final s = value! as String;
-    if (minLength != null && s.length < minLength) {
+    // JSON Schema length constraints count Unicode codepoints, so measure
+    // runes — a UTF-16 surrogate pair (emoji etc.) is ONE character, not two.
+    final codePoints = s.runes.length;
+    if (minLength != null && codePoints < minLength) {
       throw _error('string shorter than $minLength');
     }
-    if (maxLength != null && s.length > maxLength) {
+    if (maxLength != null && codePoints > maxLength) {
       throw _error('string longer than $maxLength');
     }
     if (pattern != null && !pattern.hasMatch(s)) {

@@ -221,6 +221,15 @@ const kMigrations = <List<String>>[
     'DROP TABLE vocabulary_legacy',
     'CREATE INDEX idx_vocabulary_created ON vocabulary(created_at DESC)',
   ],
+  // v3 → v4: readpack v1.1 markdown-blocks. Blocks gain a typed JSON payload
+  // (heading level, list/quote styling, table cells, code body) and sentences
+  // gain inline render runs. Both columns carry explicit defaults so legacy
+  // rows keep validating: an empty payload decodes as a plain paragraph and
+  // an empty render list as a single plain run.
+  [
+    "ALTER TABLE blocks ADD COLUMN payload_json TEXT NOT NULL DEFAULT ''",
+    "ALTER TABLE sentences ADD COLUMN render_json TEXT NOT NULL DEFAULT ''",
+  ],
 ];
 
 /// Applies pending migrations inside a single transaction.
