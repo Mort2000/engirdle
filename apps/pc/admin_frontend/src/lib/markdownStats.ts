@@ -13,12 +13,12 @@ export interface MarkdownStats {
   sentences: number
 }
 
-const WORD_PATTERN = /[\p{L}\p{N}]+(?:['’\-][\p{L}\p{N}]+)*/gu
+const WORD_PATTERN = /[\p{L}\p{N}]+(?:['’-][\p{L}\p{N}]+)*/gu
 const SENTENCE_TERMINATOR = /[.!?…]+[”"’)»]?/g
 const FENCED_CODE = /```[^\n]*\n[\s\S]*?(?:```|$)/g
 
 /** Markdown 结构符号（标题/列表/表格/强调/链接语法等）按空格处理。 */
-const MARKDOWN_SYNTAX = /[|#*_>~`\[\]()!:-]/g
+const MARKDOWN_SYNTAX = /[|#*_>~`[\]()!:-]/g
 
 function stripNonProse(markdown: string): string {
   return markdown.replace(FENCED_CODE, " ").replace(MARKDOWN_SYNTAX, " ")

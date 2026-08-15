@@ -128,8 +128,9 @@ function stripAttributes(document: Document): void {
     if (element.tagName === "TD" || element.tagName === "TH") {
       const style = element.getAttribute("style") ?? ""
       const match = style.match(/text-align:\s*(left|center|right)/i)
-      if (match && !element.hasAttribute("align")) {
-        element.setAttribute("align", match[1].toLowerCase())
+      const alignment = match?.[1]
+      if (alignment && !element.hasAttribute("align")) {
+        element.setAttribute("align", alignment.toLowerCase())
       }
     }
     const kept = keptAttributesFor(element.tagName.toLowerCase())
@@ -198,7 +199,8 @@ function createTurndownService(): TurndownService {
   // gfm 插件的删除线是单波浪号；管线解析器（markdown-it strikethrough）
   // 只接受 `~~text~~`，这里覆盖为 GFM 双波浪号。
   turndown.addRule("strikethrough", {
-    filter: ["del", "s", "strike"],
+    filter: (node) =>
+      ["del", "s", "strike"].includes(node.tagName.toLowerCase()),
     replacement: (content) => `~~${content}~~`,
   })
   // img 显式规则：`![alt](src)` 保留 alt（设计 §7.2 图片策略）。
@@ -206,7 +208,7 @@ function createTurndownService(): TurndownService {
     filter: "img",
     replacement: (_content, node) => {
       const image = node as HTMLImageElement
-      const alt = (image.getAttribute("alt") ?? "").replace(/[\[\]]/g, "")
+      const alt = (image.getAttribute("alt") ?? "").replace(/[[\]]/g, "")
       return `![${alt}](${image.getAttribute("src") ?? ""})`
     },
   })

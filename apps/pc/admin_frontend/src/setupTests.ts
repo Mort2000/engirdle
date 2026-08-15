@@ -13,7 +13,8 @@ afterEach(() => {
 // getClientRects/getBoundingClientRect（真实浏览器均提供）。这里按
 // CodeMirror 官方测试口径补零值实现，仅影响测试环境的几何测量。
 if (!Range.prototype.getClientRects) {
-  Range.prototype.getClientRects = () => []
+  Range.prototype.getClientRects = () =>
+    ({ length: 0, item: () => null }) as unknown as DOMRectList
 }
 if (!Range.prototype.getBoundingClientRect) {
   Range.prototype.getBoundingClientRect = () =>
