@@ -1,6 +1,10 @@
 # components/markdown/
 
-Markdown 录入组件（后续阶段填充，设计 §7）：
+Markdown 录入组件（设计 §7）：
 
-- CodeMirror 6 编辑器（`@uiw/react-codemirror` + `@lezer/markdown` GFM 扩展），主题随亮/暗联动。
-- 富文本粘贴转换（turndown + turndown-plugin-gfm，纯函数位于 `lib/paste.ts`）。
+- `MarkdownEditor.tsx` — CodeMirror 6 编辑器（`@uiw/react-codemirror` +
+  `@codemirror/lang-markdown`，base `markdownLanguage` 内建 GFM 扩展），
+  粘贴接管（§7.2：富文本自动转 Markdown，失败回退纯文本）与
+  字数/句数统计（`lib/markdownStats`）。
+- `editorTheme.ts` — 编辑器主题与 GFM token 高亮，颜色全部引用 §6.2
+  token 的 CSS 变量，随亮暗主题自动联动；字号/行高按正文阅读优化。
