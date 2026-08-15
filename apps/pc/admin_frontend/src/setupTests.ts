@@ -20,3 +20,19 @@ if (!Range.prototype.getBoundingClientRect) {
   Range.prototype.getBoundingClientRect = () =>
     DOMRect.fromRect({ x: 0, y: 0, width: 0, height: 0 }) as DOMRect
 }
+
+// jsdom 缺少指针捕获与滚动 API：Radix Select 的触发器在 pointerDown 时
+// 调用 hasPointerCapture/releasePointerCapture，内容定位依赖
+// scrollIntoView（Radix 官方测试指引的补丁口径）。
+if (!Element.prototype.hasPointerCapture) {
+  Element.prototype.hasPointerCapture = () => false
+}
+if (!Element.prototype.releasePointerCapture) {
+  Element.prototype.releasePointerCapture = () => undefined
+}
+if (!Element.prototype.setPointerCapture) {
+  Element.prototype.setPointerCapture = () => undefined
+}
+if (!Element.prototype.scrollIntoView) {
+  Element.prototype.scrollIntoView = () => undefined
+}
