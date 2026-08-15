@@ -5,6 +5,7 @@ export function JobsListPage() {
     <PagePlaceholder
       title="任务列表"
       description="近期构建任务列表（新增独立列表页，现状仅嵌在工作台，后续阶段接入）。"
+      breadcrumbs={[{ label: "工作台", to: "/" }, { label: "任务" }]}
     />
   )
 }

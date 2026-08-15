@@ -32,4 +32,12 @@ export default tseslint.config(
       "react-refresh/only-export-components": "off",
     },
   },
+  {
+    // 自建 ThemeProvider（设计 §6.2）：Provider 组件与 useTheme hook
+    // 同文件导出，同上不适用 fast-refresh 导出约束。
+    files: ["src/lib/theme.tsx"],
+    rules: {
+      "react-refresh/only-export-components": "off",
+    },
+  },
 )
