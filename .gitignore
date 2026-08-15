@@ -16,6 +16,9 @@
 # (admin_frontend/.build-cache.json, see design §10) stay out of the tree.
 apps/pc/admin_frontend/node_modules/
 apps/pc/admin_frontend/.build-cache.json
+# openapi.json is a regenerated intermediate (scripts/export_openapi.py);
+# the committed contract artifact is src/api/types.generated.ts.
+apps/pc/admin_frontend/openapi.json
 
 # Local secrets — never committed (e.g. DEEPSEEK_API_KEY for manual testing).
 .env

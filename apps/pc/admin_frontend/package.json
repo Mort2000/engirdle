@@ -12,7 +12,8 @@
     "lint": "eslint .",
     "typecheck": "tsc --noEmit -p tsconfig.app.json && tsc --noEmit -p tsconfig.node.json",
     "test": "vitest run",
-    "gen:api": "openapi-typescript ./openapi.json -o src/api/types.generated.ts"
+    "gen:openapi": "cd .. && uv run python scripts/export_openapi.py",
+    "gen:api": "npm run gen:openapi && openapi-typescript ./openapi.json -o src/api/types.generated.ts"
   },
   "dependencies": {
     "@hookform/resolvers": "^5.0.0",
