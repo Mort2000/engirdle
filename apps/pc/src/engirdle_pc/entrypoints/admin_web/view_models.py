@@ -9,7 +9,12 @@ from engirdle_pc.modules.packaging.public import PackageArtifact
 from engirdle_pc.modules.production.public import BuildJob
 from engirdle_pc.modules.publishing.public import PublishedPackage, PublisherStatus
 from engirdle_pc.modules.speech.public import AnchorBatch, VoiceProfile
-from engirdle_pc.modules.translation.public import ReviewedTranslation
+from engirdle_pc.modules.translation.public import (
+    ReviewedUnit,
+    SentenceUnitTranslation,
+    TableUnitTranslation,
+    UnitKind,
+)
 
 
 @dataclass(frozen=True)
@@ -59,6 +64,18 @@ class TranslationView:
     sentence_id: str
     source_text: str
     published_text: str
+
+
+@dataclass(frozen=True)
+class TableTranslationCellView:
+    cell_id: str
+    text_zh: str
+
+
+@dataclass(frozen=True)
+class TableTranslationView:
+    block_id: str
+    cells: tuple[TableTranslationCellView, ...]
 
 
 @dataclass(frozen=True)
@@ -227,17 +244,48 @@ def job_view(job: BuildJob) -> JobView:
 
 
 def translation_views(
-    translations: tuple[ReviewedTranslation, ...],
+    translations: tuple[ReviewedUnit, ...],
     source_by_id: Mapping[str, str],
 ) -> tuple[TranslationView, ...]:
-    return tuple(
-        TranslationView(
-            sentence_id=item.sentence_id,
-            source_text=source_by_id[item.sentence_id],
-            published_text=item.published_text,
-        )
-        for item in translations
-    )
+    """Flatten sentence units for the review list; tables are separate views."""
+    views: list[TranslationView] = []
+    for unit in translations:
+        published = unit.published
+        if unit.unit_kind is UnitKind.SENTENCE and isinstance(
+            published, SentenceUnitTranslation
+        ):
+            for entry in published.translations:
+                views.append(
+                    TranslationView(
+                        sentence_id=entry.sentence_id,
+                        source_text=source_by_id.get(entry.sentence_id, ""),
+                        published_text=entry.text_zh,
+                    )
+                )
+    return tuple(views)
+
+
+def table_translation_views(
+    translations: tuple[ReviewedUnit, ...],
+) -> tuple[TableTranslationView, ...]:
+    views: list[TableTranslationView] = []
+    for unit in translations:
+        published = unit.published
+        if unit.unit_kind is UnitKind.TABLE and isinstance(
+            published, TableUnitTranslation
+        ):
+            views.append(
+                TableTranslationView(
+                    block_id=unit.unit_id,
+                    cells=tuple(
+                        TableTranslationCellView(
+                            cell_id=cell.cell_id, text_zh=cell.text_zh
+                        )
+                        for cell in published.cells
+                    ),
+                )
+            )
+    return tuple(views)
 
 
 def audio_review_view(

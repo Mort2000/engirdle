@@ -1,9 +1,9 @@
 from __future__ import annotations
 
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Sequence
 from contextlib import asynccontextmanager
 from pathlib import Path as FilePath
-from typing import Annotated
+from typing import Annotated, Literal
 
 from fastapi import FastAPI, HTTPException, Path, status
 from fastapi.staticfiles import StaticFiles
@@ -12,13 +12,25 @@ from pydantic import AnyHttpUrl, BaseModel, ConfigDict, Field
 from engirdle_pc.bootstrap.container import Container
 from engirdle_pc.modules.content.public import (
     ArticleRevision,
-    BlockKind,
+    CodeBlock,
     ContentNotFound,
+    DividerBlock,
     EditedBlock,
+    EditedCodeBlock,
+    EditedDividerBlock,
     EditedSentence,
+    EditedTableBlock,
+    EditedTextBlock,
     ImmutableRevision,
     InvalidContent,
+    ListKind,
     NewArticle,
+    TableAlignment,
+    TableBlock,
+    TableCell,
+    TextBlock,
+    TextBlockStyle,
+    UnsupportedMarkdown,
 )
 from engirdle_pc.modules.production.public import (
     BuildJob,
@@ -34,6 +46,13 @@ from engirdle_pc.modules.speech.public import (
     VoiceIntegrityError,
     VoiceProfile,
     VoiceProfileNotConfigured,
+)
+from engirdle_pc.modules.translation.public import (
+    InvalidTranslationEdit,
+    SentenceUnitTranslation,
+    TableShapeMismatch,
+    TableTranslatedCell,
+    TableUnitTranslation,
 )
 
 
@@ -55,14 +74,97 @@ class EditSentenceRequest(RequestModel):
     text: str = Field(min_length=1, max_length=20_000)
 
 
-class EditBlockRequest(RequestModel):
-    block_id: str | None = None
-    kind: BlockKind
+class _EditTextBlockBase(RequestModel):
+    """Shared text-kind fields: identity plus the sentence list."""
+
+    block_id: str | None = Field(default=None, min_length=1, max_length=128)
     sentences: list[EditSentenceRequest] = Field(min_length=1)
 
 
+class EditParagraphBlockRequest(_EditTextBlockBase):
+    """Paragraph edit: sentences only — no kind-specific style payload."""
+
+    kind: Literal["paragraph"]
+
+
+class EditHeadingBlockRequest(_EditTextBlockBase):
+    """Heading edit: a required 1-6 level."""
+
+    kind: Literal["heading"]
+    level: int = Field(ge=1, le=6)
+
+
+class EditListItemBlockRequest(_EditTextBlockBase):
+    """List-item edit: a required list kind plus depth/ordinal."""
+
+    kind: Literal["list_item"]
+    list_kind: ListKind
+    list_depth: int = Field(default=0, ge=0, le=4)
+    list_ordinal: int | None = Field(default=None, ge=0, le=2_147_483_647)
+
+
+class EditQuoteBlockRequest(_EditTextBlockBase):
+    """Quote edit: an optional depth (single level by default)."""
+
+    kind: Literal["quote"]
+    quote_depth: int = Field(default=1, ge=1, le=4)
+
+
+class EditTableBlockRequest(RequestModel):
+    """Table structure edit: alignments plus the plain-text grid."""
+
+    kind: Literal["table"]
+    block_id: str | None = Field(default=None, min_length=1, max_length=128)
+    alignments: list[TableAlignment] = Field(min_length=1)
+    header: list[str] = Field(min_length=1)
+    rows: list[list[str]] = Field(default_factory=list)
+
+
+class EditCodeBlockRequest(RequestModel):
+    """Code structure edit: a non-empty body plus optional language."""
+
+    kind: Literal["code"]
+    block_id: str | None = Field(default=None, min_length=1, max_length=128)
+    language: str | None = Field(default=None, min_length=1, max_length=64)
+    code: str = Field(min_length=1)
+
+
+class EditDividerBlockRequest(RequestModel):
+    """Divider structure edit: nothing beyond identity."""
+
+    kind: Literal["divider"]
+    block_id: str | None = Field(default=None, min_length=1, max_length=128)
+
+
+# The discriminated structure-edit request (design §11.2): 'kind' selects the
+# legal payload and `extra="forbid"` rejects any field the kind does not
+# carry, so a payload cannot silently drop mistyped fields on the floor (and
+# required kind payloads — heading level, list kind — fail as 422 here
+# rather than as a domain error later).
+EditedBlockRequest = Annotated[
+    EditParagraphBlockRequest
+    | EditHeadingBlockRequest
+    | EditListItemBlockRequest
+    | EditQuoteBlockRequest
+    | EditTableBlockRequest
+    | EditCodeBlockRequest
+    | EditDividerBlockRequest,
+    Field(discriminator="kind"),
+]
+
+
+class EditTableTranslationRequest(RequestModel):
+    """Whole-table manual correction (design §8.4: save a complete table)."""
+
+    class Cell(RequestModel):
+        cell_id: str = Field(min_length=1, max_length=128)
+        text_zh: str = Field(min_length=1, max_length=40_000)
+
+    cells: list[EditTableTranslationRequest.Cell] = Field(min_length=1)
+
+
 class EditStructureRequest(RequestModel):
-    blocks: list[EditBlockRequest] = Field(min_length=1)
+    blocks: list[EditedBlockRequest] = Field(min_length=1)
 
 
 class EditTranslationRequest(RequestModel):
@@ -98,8 +200,27 @@ def create_admin_app(container: Container) -> FastAPI:
 
         return JSONResponse(status_code=404, content={"detail": str(error)})
 
+    @app.exception_handler(UnsupportedMarkdown)
+    async def unsupported_markdown_handler(_request: object, error: Exception) -> object:
+        from fastapi.responses import JSONResponse
+
+        return JSONResponse(
+            status_code=422,
+            content={"detail": str(error), "code": "unsupported_markdown"},
+        )
+
     @app.exception_handler(InvalidContent)
     async def invalid_content_handler(_request: object, error: InvalidContent) -> object:
+        from fastapi.responses import JSONResponse
+
+        code = getattr(error, "code", "invalid_content")
+        return JSONResponse(
+            status_code=422, content={"detail": str(error), "code": code}
+        )
+
+    @app.exception_handler(InvalidTranslationEdit)
+    @app.exception_handler(TableShapeMismatch)
+    async def invalid_translation_handler(_request: object, error: Exception) -> object:
         from fastapi.responses import JSONResponse
 
         return JSONResponse(status_code=422, content={"detail": str(error)})
@@ -228,19 +349,7 @@ def create_admin_app(container: Container) -> FastAPI:
         updated = container.content.edit_structure(
             article_id,
             revision,
-            tuple(
-                EditedBlock(
-                    block_id=block.block_id,
-                    kind=block.kind,
-                    sentences=tuple(
-                        EditedSentence(
-                            sentence_id=sentence.sentence_id, text=sentence.text
-                        )
-                        for sentence in block.sentences
-                    ),
-                )
-                for block in request.blocks
-            ),
+            edited_blocks_from_request(request.blocks),
         )
         return _revision_payload(updated)
 
@@ -278,23 +387,76 @@ def create_admin_app(container: Container) -> FastAPI:
 
     @app.get("/api/jobs/{job_id}/translations")
     def list_translations(job_id: str) -> list[dict[str, object]]:
+        """Sentence results and whole-table results, typed by unit kind.
+
+        Code blocks never appear here: they have no translation unit
+        (design §8.4).
+        """
         job = container.production.get(job_id)
         revision = container.content.get(job.article_id, job.revision)
         source_by_id = {
             sentence.sentence_id: sentence.text
             for block in revision.blocks
+            if hasattr(block, "sentences")
             for sentence in block.sentences
         }
-        return [
-            {
-                "sentence_id": item.sentence_id,
-                "source_text": source_by_id[item.sentence_id],
-                "generated_text": item.generated_text,
-                "edited_text": item.edited_text,
-                "published_text": item.published_text,
-            }
-            for item in container.translations.list_for_job(job_id)
-        ]
+        payloads: list[dict[str, object]] = []
+        for unit in container.translations.list_for_job(job_id):
+            generated = unit.generated
+            edited = unit.edited
+            if isinstance(generated, SentenceUnitTranslation):
+                # Generated and edited values stay separate columns: an
+                # edited sentence keeps its machine translation visible next
+                # to the human correction (design §8.4).
+                edited_texts = (
+                    {
+                        entry.sentence_id: entry.text_zh
+                        for entry in edited.translations
+                    }
+                    if isinstance(edited, SentenceUnitTranslation)
+                    else {}
+                )
+                for entry in generated.translations:
+                    payloads.append(
+                        {
+                            "unit_kind": "sentence",
+                            "unit_id": unit.unit_id,
+                            "sentence_id": entry.sentence_id,
+                            "source_text": source_by_id.get(entry.sentence_id, ""),
+                            "generated_text": entry.text_zh,
+                            "edited_text": edited_texts.get(entry.sentence_id),
+                            "published_text": edited_texts.get(
+                                entry.sentence_id, entry.text_zh
+                            ),
+                        }
+                    )
+            elif isinstance(generated, TableUnitTranslation):
+                edited_cells = (
+                    {
+                        cell.cell_id: cell.text_zh
+                        for cell in edited.cells
+                    }
+                    if isinstance(edited, TableUnitTranslation)
+                    else {}
+                )
+                payloads.append(
+                    {
+                        "unit_kind": "table",
+                        "unit_id": unit.unit_id,
+                        "cells": [
+                            {
+                                "cell_id": cell.cell_id,
+                                "generated_text": cell.text_zh,
+                                "edited_text": edited_cells.get(cell.cell_id),
+                                "published_text": edited_cells.get(
+                                    cell.cell_id, cell.text_zh
+                                ),
+                            }
+                            for cell in generated.cells
+                        ],
+                    }
+                )
+        return payloads
 
     @app.put("/api/jobs/{job_id}/translations/{sentence_id}")
     def edit_translation(
@@ -302,16 +464,49 @@ def create_admin_app(container: Container) -> FastAPI:
     ) -> dict[str, str]:
         container.production.require_review(job_id)
         try:
-            container.translations.edit(job_id, sentence_id, request.text_zh)
+            container.translations.edit_sentence(job_id, sentence_id, request.text_zh)
         except KeyError as error:
             raise HTTPException(status_code=404, detail=str(error)) from error
         return {"sentence_id": sentence_id, "text_zh": request.text_zh.strip()}
 
+    @app.put("/api/jobs/{job_id}/table-translations/{block_id}")
+    def edit_table_translation(
+        job_id: str, block_id: str, request: EditTableTranslationRequest
+    ) -> dict[str, object]:
+        """Save a complete manual table correction.
+
+        Shape validation, empty-text checks and persistence live in the
+        translation service; this layer only translates the request.
+        """
+        container.production.require_review(job_id)
+        try:
+            edited = container.translations.edit_table_cells(
+                job_id,
+                block_id,
+                tuple(
+                    TableTranslatedCell(cell_id=cell.cell_id, text_zh=cell.text_zh)
+                    for cell in request.cells
+                ),
+            )
+        except KeyError as error:
+            raise HTTPException(status_code=404, detail=str(error)) from error
+        return {
+            "block_id": block_id,
+            "cells": [
+                {"cell_id": cell.cell_id, "text_zh": cell.text_zh}
+                for cell in edited.cells
+            ],
+        }
+
     @app.get("/api/jobs/{job_id}/audio")
     def get_audio_review(job_id: str) -> dict[str, object]:
+        """Audio review lists ONLY narration-plan sentences (design §11.3).
+
+        Tables, code blocks and dividers never show up as missing audio.
+        """
         job = container.production.require_audio_ready(job_id)
-        revision = container.content.get(job.article_id, job.revision)
-        review = container.audio.review(job_id, _sentence_ids(revision))
+        plan = container.content.processing_plan(job.article_id, job.revision)
+        review = container.audio.review(job_id, plan.narration.sentence_ids)
         output = review.output
         return {
             "url": f"/api/jobs/{job_id}/audio/file",
@@ -462,31 +657,138 @@ def _revision_payload(revision: ArticleRevision) -> dict[str, object]:
             "url": revision.source.url,
             "license_name": revision.source.license_name,
         },
-        "blocks": [
+        "blocks": [_block_view(block) for block in revision.blocks],
+    }
+
+
+def _block_view(
+    block: TextBlock | TableBlock | CodeBlock | DividerBlock,
+) -> dict[str, object]:
+    payload: dict[str, object] = {
+        "block_id": block.block_id,
+        "kind": block.kind.value,
+        "order": block.order,
+    }
+    if isinstance(block, TextBlock):
+        payload["style"] = block.style.value
+        if block.heading_level is not None:
+            payload["level"] = block.heading_level
+        if block.list_kind is not None:
+            payload["list_kind"] = block.list_kind.value
+            payload["list_depth"] = block.list_depth
+            payload["list_ordinal"] = block.list_ordinal
+        if block.quote_depth:
+            payload["quote_depth"] = block.quote_depth
+        payload["sentences"] = [
             {
-                "block_id": block.block_id,
-                "kind": block.kind.value,
-                "order": block.order,
-                "sentences": [
-                    {
-                        "sentence_id": sentence.sentence_id,
-                        "order": sentence.order,
-                        "text": sentence.text,
-                    }
-                    for sentence in block.sentences
+                "sentence_id": sentence.sentence_id,
+                "order": sentence.order,
+                "text": sentence.text,
+                "runs": [
+                    {"kind": run.kind.value, "text": run.text, "href": run.href}
+                    for run in sentence.runs
                 ],
             }
-            for block in revision.blocks
+            for sentence in block.sentences
+        ]
+    elif isinstance(block, TableBlock):
+        payload["alignments"] = [item.value for item in block.alignments]
+        payload["header"] = [_cell_view(cell) for cell in block.header]
+        payload["rows"] = [
+            [_cell_view(cell) for cell in row] for row in block.rows
+        ]
+    elif isinstance(block, CodeBlock):
+        payload["language"] = block.language
+        payload["code"] = block.code
+    return payload
+
+
+def _cell_view(cell: TableCell) -> dict[str, object]:
+    return {
+        "cell_id": cell.cell_id,
+        "text": cell.plain_text,
+        "runs": [
+            {"kind": run.kind.value, "text": run.text, "href": run.href}
+            for run in cell.runs
         ],
     }
 
 
-def _sentence_ids(revision: ArticleRevision) -> tuple[str, ...]:
-    return tuple(
-        sentence.sentence_id
-        for block in revision.blocks
-        for sentence in block.sentences
-    )
+TextBlockRequest = (
+    EditParagraphBlockRequest
+    | EditHeadingBlockRequest
+    | EditListItemBlockRequest
+    | EditQuoteBlockRequest
+)
+EditedBlockRequestType = (
+    TextBlockRequest
+    | EditTableBlockRequest
+    | EditCodeBlockRequest
+    | EditDividerBlockRequest
+)
+
+
+def edited_blocks_from_request(
+    blocks: Sequence[EditedBlockRequestType],
+) -> tuple[EditedBlock, ...]:
+    """Map discriminated edit requests onto the typed Edited union."""
+    return tuple(_edited_block(block) for block in blocks)
+
+
+def _edited_block(block: EditedBlockRequestType) -> EditedBlock:
+    """Map a discriminated request onto the typed Edited union."""
+    if isinstance(
+        block,
+        (
+            EditParagraphBlockRequest,
+            EditHeadingBlockRequest,
+            EditListItemBlockRequest,
+            EditQuoteBlockRequest,
+        ),
+    ):
+        return EditedTextBlock(
+            block_id=block.block_id,
+            style=TextBlockStyle(block.kind),
+            sentences=tuple(
+                EditedSentence(sentence_id=item.sentence_id, text=item.text)
+                for item in block.sentences
+            ),
+            heading_level=(
+                block.level if isinstance(block, EditHeadingBlockRequest) else None
+            ),
+            list_kind=(
+                block.list_kind
+                if isinstance(block, EditListItemBlockRequest)
+                else None
+            ),
+            list_depth=(
+                block.list_depth
+                if isinstance(block, EditListItemBlockRequest)
+                else 0
+            ),
+            list_ordinal=(
+                block.list_ordinal
+                if isinstance(block, EditListItemBlockRequest)
+                else None
+            ),
+            quote_depth=(
+                block.quote_depth
+                if isinstance(block, EditQuoteBlockRequest)
+                else 0
+            ),
+        )
+    if isinstance(block, EditTableBlockRequest):
+        return EditedTableBlock(
+            block_id=block.block_id,
+            alignments=tuple(block.alignments),
+            header=tuple(block.header),
+            rows=tuple(tuple(row) for row in block.rows),
+        )
+    if isinstance(block, EditCodeBlockRequest):
+        return EditedCodeBlock(
+            block_id=block.block_id, code=block.code, language=block.language
+        )
+    return EditedDividerBlock(block_id=block.block_id)
 
 
 def _voice_profile_payload(profile: VoiceProfile) -> dict[str, object]:

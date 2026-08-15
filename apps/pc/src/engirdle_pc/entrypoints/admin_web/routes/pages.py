@@ -9,7 +9,7 @@ from fastapi.responses import RedirectResponse
 from fastapi.templating import Jinja2Templates
 
 from engirdle_pc.bootstrap.container import Container
-from engirdle_pc.entrypoints.admin_web.app import EditStructureRequest
+from engirdle_pc.entrypoints.admin_web.app import EditStructureRequest, edited_blocks_from_request
 from engirdle_pc.entrypoints.admin_web.view_models import (
     anchor_batch_view,
     article_view,
@@ -18,15 +18,19 @@ from engirdle_pc.entrypoints.admin_web.view_models import (
     job_view,
     published_view,
     publisher_view,
+    table_translation_views,
     translation_views,
     voice_profile_view,
 )
 from engirdle_pc.modules.content.public import (
     ArticleRevision,
-    EditedBlock,
-    EditedSentence,
+    CodeBlock,
     NewArticle,
+    ProcessingPlan,
+    TableBlock,
+    TextBlock,
 )
+from engirdle_pc.modules.translation.public import TableTranslatedCell
 
 _TEMPLATES = Jinja2Templates(directory=Path(__file__).resolve().parents[1] / "templates")
 
@@ -148,13 +152,27 @@ def create_pages_router(container: Container) -> APIRouter:
     def article_structure(
         request: Request, article_id: str, revision_number: int
     ) -> object:
-        revision = container.content.get(article_id, revision_number)
+        """Structure confirmation page (design §11.1).
+
+        Shows the raw markdown, the typed structure tree, parse warnings and
+        the DERIVED translate/narrate flags per block — read-only, never a
+        checkbox, so manual toggling cannot contradict the protocol.
+        """
+        report = container.content.structure_report(article_id, revision_number)
+        revision, warnings, plan = report.revision, report.warnings, report.plan
         return _TEMPLATES.TemplateResponse(
             request=request,
             name="article_structure.html",
             context={
                 "article": article_view(revision),
                 "structure_json": _structure_json(revision),
+                "structure_tree": _structure_tree(revision, plan),
+                "preview_blocks": _preview_blocks(revision),
+                "warnings": tuple(
+                    {"code": warning.code, "message": warning.message}
+                    for warning in warnings
+                ),
+                "processing_counts": _processing_counts(plan),
             },
         )
 
@@ -170,19 +188,7 @@ def create_pages_router(container: Container) -> APIRouter:
         container.content.edit_structure(
             article_id,
             revision_number,
-            tuple(
-                EditedBlock(
-                    block_id=block.block_id,
-                    kind=block.kind,
-                    sentences=tuple(
-                        EditedSentence(
-                            sentence_id=sentence.sentence_id, text=sentence.text
-                        )
-                        for sentence in block.sentences
-                    ),
-                )
-                for block in request.blocks
-            ),
+            edited_blocks_from_request(request.blocks),
         )
         return RedirectResponse(
             f"/articles/{article_id}/revisions/{revision_number}", status_code=303
@@ -218,16 +224,18 @@ def create_pages_router(container: Container) -> APIRouter:
         job = container.production.get(job_id)
         translation_entities = container.translations.list_for_job(job_id)
         revision = container.content.get(job.article_id, job.revision)
+        plan = container.content.processing_plan(job.article_id, job.revision)
         source_by_id = {
             sentence.sentence_id: sentence.text
             for block in revision.blocks
+            if isinstance(block, TextBlock)
             for sentence in block.sentences
         }
         audio_review = None
         if container.production.audio_is_ready(job_id):
             audio_entity = container.audio.review(
                 job_id,
-                tuple(source_by_id),
+                plan.narration.sentence_ids,
             )
             audio_review = audio_review_view(audio_entity, source_by_id)
         return _TEMPLATES.TemplateResponse(
@@ -238,7 +246,9 @@ def create_pages_router(container: Container) -> APIRouter:
                 "translations": translation_views(
                     translation_entities, source_by_id
                 ),
+                "table_translations": table_translation_views(translation_entities),
                 "audio_review": audio_review,
+                "processing_counts": _processing_counts(plan),
             },
         )
 
@@ -249,7 +259,37 @@ def create_pages_router(container: Container) -> APIRouter:
         text_zh: Annotated[str, Form()],
     ) -> RedirectResponse:
         container.production.require_review(job_id)
-        container.translations.edit(job_id, sentence_id, text_zh)
+        container.translations.edit_sentence(job_id, sentence_id, text_zh)
+        return RedirectResponse(f"/jobs/{job_id}", status_code=303)
+
+    @router.post("/jobs/{job_id}/table-translations/{block_id}")
+    async def save_table_translation(
+        request: Request, job_id: str, block_id: str
+    ) -> RedirectResponse:
+        """Whole-table manual correction from the review page (design §8.4).
+
+        The form posts one hidden cell_id plus one textarea per cell; the
+        service re-checks the exact cell identity sequence before persisting.
+        """
+        form = await request.form()
+        cell_ids = form.getlist("cell_id")
+        texts = form.getlist("text_zh")
+        if not cell_ids or len(cell_ids) != len(texts):
+            raise HTTPException(
+                status_code=422, detail="表格修正需要每个 cell 的完整文本"
+            )
+        container.production.require_review(job_id)
+        try:
+            container.translations.edit_table_cells(
+                job_id,
+                block_id,
+                tuple(
+                    TableTranslatedCell(cell_id=str(cell_id), text_zh=str(text))
+                    for cell_id, text in zip(cell_ids, texts, strict=True)
+                ),
+            )
+        except KeyError as error:
+            raise HTTPException(status_code=404, detail=str(error)) from error
         return RedirectResponse(f"/jobs/{job_id}", status_code=303)
 
     @router.post("/jobs/{job_id}/retry")
@@ -344,15 +384,143 @@ DEFAULT_ANCHOR_TEXT = (
 
 
 def _structure_json(revision: ArticleRevision) -> str:
-    blocks = [
-        {
+    """Editor payload mirroring the typed union (design §11.2).
+
+    The whole-page JSON textarea stays, but the model is the discriminated
+    union: each block carries its kind-specific editable payload.
+    """
+    blocks = []
+    for block in revision.blocks:
+        entry: dict[str, object] = {
             "block_id": block.block_id,
             "kind": block.kind.value,
-            "sentences": [
+        }
+        if isinstance(block, TextBlock):
+            if block.heading_level is not None:
+                entry["level"] = block.heading_level
+            if block.list_kind is not None:
+                entry["list_kind"] = block.list_kind.value
+                entry["list_depth"] = block.list_depth
+                if block.list_ordinal is not None:
+                    entry["list_ordinal"] = block.list_ordinal
+            if block.quote_depth:
+                entry["quote_depth"] = block.quote_depth
+            entry["sentences"] = [
                 {"sentence_id": sentence.sentence_id, "text": sentence.text}
                 for sentence in block.sentences
-            ],
-        }
-        for block in revision.blocks
-    ]
+            ]
+        elif isinstance(block, TableBlock):
+            entry["alignments"] = [item.value for item in block.alignments]
+            entry["header"] = [cell.plain_text for cell in block.header]
+            entry["rows"] = [
+                [cell.plain_text for cell in row] for row in block.rows
+            ]
+        elif isinstance(block, CodeBlock):
+            entry["language"] = block.language
+            entry["code"] = block.code
+        blocks.append(entry)
     return json.dumps(blocks, ensure_ascii=False, indent=2)
+
+
+def _preview_blocks(revision: ArticleRevision) -> tuple[dict[str, object], ...]:
+    """Escaped-by-Jinja preview model approximating the mobile semantics.
+
+    The template renders these dicts with ordinary (auto-escaped) Jinja loops —
+    no raw HTML is ever assembled in Python, so preview content can never
+    inject markup.
+    """
+    preview: list[dict[str, object]] = []
+    for block in revision.blocks:
+        if isinstance(block, TextBlock):
+            preview.append(
+                {
+                    "type": "text",
+                    "kind": block.kind.value,
+                    "level": block.heading_level,
+                    "list_depth": block.list_depth,
+                    "list_kind": (
+                        block.list_kind.value if block.list_kind else None
+                    ),
+                    "list_ordinal": block.list_ordinal,
+                    "quote_depth": block.quote_depth,
+                    "sentences": [
+                        {"text": sentence.text}
+                        for sentence in block.sentences
+                    ],
+                }
+            )
+        elif isinstance(block, TableBlock):
+            preview.append(
+                {
+                    "type": "table",
+                    "alignments": [item.value for item in block.alignments],
+                    "header": [cell.plain_text for cell in block.header],
+                    "rows": [
+                        [cell.plain_text for cell in row] for row in block.rows
+                    ],
+                }
+            )
+        elif isinstance(block, CodeBlock):
+            preview.append(
+                {"type": "code", "language": block.language, "code": block.code}
+            )
+        else:
+            preview.append({"type": "divider"})
+    return tuple(preview)
+
+
+def _structure_tree(
+    revision: ArticleRevision, plan: ProcessingPlan
+) -> tuple[dict[str, object], ...]:
+    """Read-only per-block summary with DERIVED processing flags (§11.1)."""
+    translate_ids = {unit.unit_id for unit in plan.translation.units}
+    narrate_ids = {unit.source_block_id for unit in plan.narration.units}
+    tree: list[dict[str, object]] = []
+    for block in revision.blocks:
+        entry: dict[str, object] = {
+            "block_id": block.block_id,
+            "kind": block.kind.value,
+            "translates": block.block_id in translate_ids,
+            "narrates": block.block_id in narrate_ids,
+        }
+        if isinstance(block, TextBlock):
+            entry["summary"] = block.sentences[0].text[:80]
+            entry["sentence_count"] = len(block.sentences)
+            if block.heading_level is not None:
+                entry["detail"] = f"level {block.heading_level}"
+            elif block.list_kind is not None:
+                entry["detail"] = (
+                    f"{block.list_kind.value} list, depth {block.list_depth}"
+                )
+            elif block.quote_depth:
+                entry["detail"] = f"quote depth {block.quote_depth}"
+        elif isinstance(block, TableBlock):
+            entry["summary"] = " / ".join(
+                cell.plain_text for cell in block.header[:4]
+            )
+            entry["detail"] = f"{len(block.header)} columns x {len(block.rows)} rows"
+        elif isinstance(block, CodeBlock):
+            entry["summary"] = (block.language or "plain") + " code block"
+            entry["detail"] = f"{len(block.code)} characters"
+        else:
+            entry["summary"] = "thematic break"
+            entry["detail"] = ""
+        tree.append(entry)
+    return tuple(tree)
+
+
+def _processing_counts(plan: ProcessingPlan) -> dict[str, int]:
+    """Processing counters for the review header (design §11.3)."""
+    code_blocks = sum(
+        1 for block in plan.render.blocks if isinstance(block, CodeBlock)
+    )
+    narratable = len(plan.narration.units)
+    translated_sentences = sum(
+        len(unit.sentences) for unit in plan.translation.sentence_units
+    )
+    return {
+        "translated_sentences": translated_sentences,
+        "translated_tables": len(plan.translation.table_units),
+        "skipped_code_blocks": code_blocks,
+        "narrated_sentences": narratable,
+    }
