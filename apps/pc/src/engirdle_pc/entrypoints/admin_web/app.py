@@ -10,6 +10,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import AnyHttpUrl, BaseModel, ConfigDict, Field
 
 from engirdle_pc.bootstrap.container import Container
+from engirdle_pc.entrypoints.admin_web.progress import JobProgress, derive_job_progress
 from engirdle_pc.modules.content.public import (
     ArticleRevision,
     CodeBlock,
@@ -25,6 +26,7 @@ from engirdle_pc.modules.content.public import (
     InvalidContent,
     ListKind,
     NewArticle,
+    ProcessingPlan,
     TableAlignment,
     TableBlock,
     TableCell,
@@ -32,11 +34,14 @@ from engirdle_pc.modules.content.public import (
     TextBlockStyle,
     UnsupportedMarkdown,
 )
+from engirdle_pc.modules.packaging.public import PackageArtifact
 from engirdle_pc.modules.production.public import (
     BuildJob,
     InvalidJobState,
     JobNotFound,
+    ProductionCheckpoint,
 )
+from engirdle_pc.modules.publishing.public import PublishedPackage
 from engirdle_pc.modules.speech.public import (
     AnchorBatch,
     InvalidAnchorRequest,
@@ -331,6 +336,59 @@ def create_admin_app(container: Container) -> FastAPI:
     def get_article(article_id: str, revision: int) -> dict[str, object]:
         return _revision_payload(container.content.get(article_id, revision))
 
+    @app.get("/api/articles/{article_id}/revisions/{revision}/structure-report")
+    def get_structure_report(article_id: str, revision: int) -> dict[str, object]:
+        """Parse warnings, derived structure tree and processing counters.
+
+        Replaces the server-side assembly of the old Jinja structure page
+        (design §8.5): the SPA renders the same read-only information from
+        this JSON payload.
+        """
+        report = container.content.structure_report(article_id, revision)
+        return {
+            "article_id": report.revision.article_id,
+            "revision": report.revision.revision,
+            "warnings": [
+                {"code": warning.code, "message": warning.message}
+                for warning in report.warnings
+            ],
+            "structure_tree": structure_tree_payload(report.revision, report.plan),
+            "processing_counts": processing_counts_payload(report.plan),
+        }
+
+    @app.get("/api/dashboard/summary")
+    def dashboard_summary() -> dict[str, object]:
+        """Workbench aggregate in a single round trip (design §8.5).
+
+        Semantically mirrors the old Jinja dashboard assembly: latest
+        revisions, recent jobs (with derived progress), current publications,
+        artifacts, publisher state and the verification-mode badge inputs.
+        """
+        articles = container.content.list_latest()
+        return {
+            "articles": [_article_summary_payload(article) for article in articles],
+            "jobs": [
+                _job_detail_payload(container, job)
+                for job in container.production.list_recent()
+            ],
+            "published": [
+                _published_payload(package)
+                for package in container.publishing.list_current()
+            ],
+            "artifacts": [
+                _artifact_payload(artifact)
+                for artifact in container.local_library.list_artifacts(
+                    tuple(article.article_id for article in articles)
+                )
+            ],
+            "publisher": _publisher_status_payload(container),
+            "catalog_available": container.publisher_queries.catalog_path.is_file(),
+            "verification_mode": (
+                container.translations.name == "stub"
+                or container.speech.name == "stub"
+            ),
+        }
+
     @app.delete("/api/articles/{article_id}")
     def delete_article(article_id: str, confirmation: str) -> dict[str, str]:
         try:
@@ -375,11 +433,14 @@ def create_admin_app(container: Container) -> FastAPI:
 
     @app.get("/api/jobs")
     def list_jobs() -> list[dict[str, object]]:
-        return [_job_payload(job) for job in container.production.list_recent()]
+        return [
+            _job_detail_payload(container, job)
+            for job in container.production.list_recent()
+        ]
 
     @app.get("/api/jobs/{job_id}")
     def get_job(job_id: str) -> dict[str, object]:
-        return _job_payload(container.production.get(job_id))
+        return _job_detail_payload(container, container.production.get(job_id))
 
     @app.post("/api/jobs/{job_id}/retry", status_code=status.HTTP_202_ACCEPTED)
     def retry_job(job_id: str) -> dict[str, object]:
@@ -846,6 +907,122 @@ def _publisher_status_payload(container: Container) -> dict[str, object]:
         "last_exit_code": publisher.last_exit_code,
         "authentication": "none",
         "trusted_network_only": True,
+    }
+
+
+def _job_progress(container: Container, job: BuildJob) -> JobProgress:
+    """Derive display progress from persisted state (design §8.1)."""
+    return derive_job_progress(
+        job,
+        ProductionCheckpoint.from_json(job.checkpoint_json),
+        container.content.processing_plan(job.article_id, job.revision),
+    )
+
+
+def _job_detail_payload(container: Container, job: BuildJob) -> dict[str, object]:
+    """The job payload plus its derived progress (REST and SSE isomorphic)."""
+    payload = _job_payload(job)
+    payload["progress"] = _job_progress(container, job).to_payload()
+    return payload
+
+
+def structure_tree_payload(
+    revision: ArticleRevision, plan: ProcessingPlan
+) -> list[dict[str, object]]:
+    """Read-only per-block summary with DERIVED processing flags (§11.1).
+
+    Shared by the structure-report API and the legacy Jinja page: the
+    translate/narrate routing is a projection of the plan, never a manual
+    toggle, so UIs cannot contradict the pipeline protocol.
+    """
+    translate_ids = {unit.unit_id for unit in plan.translation.units}
+    narrate_ids = {unit.source_block_id for unit in plan.narration.units}
+    tree: list[dict[str, object]] = []
+    for block in revision.blocks:
+        entry: dict[str, object] = {
+            "block_id": block.block_id,
+            "kind": block.kind.value,
+            "translates": block.block_id in translate_ids,
+            "narrates": block.block_id in narrate_ids,
+        }
+        if isinstance(block, TextBlock):
+            entry["summary"] = block.sentences[0].text[:80]
+            entry["sentence_count"] = len(block.sentences)
+            if block.heading_level is not None:
+                entry["detail"] = f"level {block.heading_level}"
+            elif block.list_kind is not None:
+                entry["detail"] = f"{block.list_kind.value} list, depth {block.list_depth}"
+            elif block.quote_depth:
+                entry["detail"] = f"quote depth {block.quote_depth}"
+        elif isinstance(block, TableBlock):
+            entry["summary"] = " / ".join(
+                cell.plain_text for cell in block.header[:4]
+            )
+            entry["detail"] = f"{len(block.header)} columns x {len(block.rows)} rows"
+        elif isinstance(block, CodeBlock):
+            entry["summary"] = (block.language or "plain") + " code block"
+            entry["detail"] = f"{len(block.code)} characters"
+        else:
+            entry["summary"] = "thematic break"
+            entry["detail"] = ""
+        tree.append(entry)
+    return tree
+
+
+def processing_counts_payload(plan: ProcessingPlan) -> dict[str, int]:
+    """Processing counters for the review header (design §11.3)."""
+    code_blocks = sum(
+        1 for block in plan.render.blocks if isinstance(block, CodeBlock)
+    )
+    return {
+        "translated_sentences": sum(
+            len(unit.sentences) for unit in plan.translation.sentence_units
+        ),
+        "translated_tables": len(plan.translation.table_units),
+        "skipped_code_blocks": code_blocks,
+        "narrated_sentences": len(plan.narration.units),
+    }
+
+
+def _article_summary_payload(revision: ArticleRevision) -> dict[str, object]:
+    return {
+        "article_id": revision.article_id,
+        "revision": revision.revision,
+        "title": revision.title,
+        "status": revision.status.value,
+        "source": {
+            "author": revision.source.author,
+            "display_name": revision.source.display_name,
+            "url": revision.source.url,
+            "license_name": revision.source.license_name,
+        },
+    }
+
+
+def _published_payload(package: PublishedPackage) -> dict[str, object]:
+    return {
+        "package_id": package.package_id,
+        "article_id": package.article_id,
+        "revision": package.revision,
+        "artifact_revision": package.artifact_revision,
+        "title": package.title,
+        "opaque_name": package.opaque_name,
+        "size": package.size,
+        "sha256": package.sha256,
+        "published_at": package.published_at,
+    }
+
+
+def _artifact_payload(artifact: PackageArtifact) -> dict[str, object]:
+    return {
+        "package_id": artifact.package_id,
+        "article_id": artifact.article_id,
+        "revision": artifact.revision,
+        "artifact_revision": artifact.artifact_revision,
+        "size": artifact.size,
+        "sha256": artifact.sha256,
+        "state": artifact.state,
+        "created_at": artifact.created_at,
     }
 
 

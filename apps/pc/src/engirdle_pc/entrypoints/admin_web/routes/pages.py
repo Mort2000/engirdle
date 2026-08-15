@@ -9,7 +9,12 @@ from fastapi.responses import RedirectResponse
 from fastapi.templating import Jinja2Templates
 
 from engirdle_pc.bootstrap.container import Container
-from engirdle_pc.entrypoints.admin_web.app import EditStructureRequest, edited_blocks_from_request
+from engirdle_pc.entrypoints.admin_web.app import (
+    EditStructureRequest,
+    edited_blocks_from_request,
+    processing_counts_payload,
+    structure_tree_payload,
+)
 from engirdle_pc.entrypoints.admin_web.view_models import (
     anchor_batch_view,
     article_view,
@@ -26,7 +31,6 @@ from engirdle_pc.modules.content.public import (
     ArticleRevision,
     CodeBlock,
     NewArticle,
-    ProcessingPlan,
     TableBlock,
     TextBlock,
 )
@@ -166,13 +170,13 @@ def create_pages_router(container: Container) -> APIRouter:
             context={
                 "article": article_view(revision),
                 "structure_json": _structure_json(revision),
-                "structure_tree": _structure_tree(revision, plan),
+                "structure_tree": structure_tree_payload(revision, plan),
                 "preview_blocks": _preview_blocks(revision),
                 "warnings": tuple(
                     {"code": warning.code, "message": warning.message}
                     for warning in warnings
                 ),
-                "processing_counts": _processing_counts(plan),
+                "processing_counts": processing_counts_payload(plan),
             },
         )
 
@@ -248,7 +252,7 @@ def create_pages_router(container: Container) -> APIRouter:
                 ),
                 "table_translations": table_translation_views(translation_entities),
                 "audio_review": audio_review,
-                "processing_counts": _processing_counts(plan),
+                "processing_counts": processing_counts_payload(plan),
             },
         )
 
@@ -467,60 +471,3 @@ def _preview_blocks(revision: ArticleRevision) -> tuple[dict[str, object], ...]:
         else:
             preview.append({"type": "divider"})
     return tuple(preview)
-
-
-def _structure_tree(
-    revision: ArticleRevision, plan: ProcessingPlan
-) -> tuple[dict[str, object], ...]:
-    """Read-only per-block summary with DERIVED processing flags (§11.1)."""
-    translate_ids = {unit.unit_id for unit in plan.translation.units}
-    narrate_ids = {unit.source_block_id for unit in plan.narration.units}
-    tree: list[dict[str, object]] = []
-    for block in revision.blocks:
-        entry: dict[str, object] = {
-            "block_id": block.block_id,
-            "kind": block.kind.value,
-            "translates": block.block_id in translate_ids,
-            "narrates": block.block_id in narrate_ids,
-        }
-        if isinstance(block, TextBlock):
-            entry["summary"] = block.sentences[0].text[:80]
-            entry["sentence_count"] = len(block.sentences)
-            if block.heading_level is not None:
-                entry["detail"] = f"level {block.heading_level}"
-            elif block.list_kind is not None:
-                entry["detail"] = (
-                    f"{block.list_kind.value} list, depth {block.list_depth}"
-                )
-            elif block.quote_depth:
-                entry["detail"] = f"quote depth {block.quote_depth}"
-        elif isinstance(block, TableBlock):
-            entry["summary"] = " / ".join(
-                cell.plain_text for cell in block.header[:4]
-            )
-            entry["detail"] = f"{len(block.header)} columns x {len(block.rows)} rows"
-        elif isinstance(block, CodeBlock):
-            entry["summary"] = (block.language or "plain") + " code block"
-            entry["detail"] = f"{len(block.code)} characters"
-        else:
-            entry["summary"] = "thematic break"
-            entry["detail"] = ""
-        tree.append(entry)
-    return tuple(tree)
-
-
-def _processing_counts(plan: ProcessingPlan) -> dict[str, int]:
-    """Processing counters for the review header (design §11.3)."""
-    code_blocks = sum(
-        1 for block in plan.render.blocks if isinstance(block, CodeBlock)
-    )
-    narratable = len(plan.narration.units)
-    translated_sentences = sum(
-        len(unit.sentences) for unit in plan.translation.sentence_units
-    )
-    return {
-        "translated_sentences": translated_sentences,
-        "translated_tables": len(plan.translation.table_units),
-        "skipped_code_blocks": code_blocks,
-        "narrated_sentences": narratable,
-    }
