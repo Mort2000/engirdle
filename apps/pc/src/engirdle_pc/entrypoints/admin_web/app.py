@@ -5,11 +5,17 @@ from contextlib import asynccontextmanager
 from pathlib import Path as FilePath
 from typing import Annotated, Literal
 
+import anyio
 from fastapi import FastAPI, HTTPException, Path, status
 from fastapi.staticfiles import StaticFiles
 from pydantic import AnyHttpUrl, BaseModel, ConfigDict, Field
+from sse_starlette import EventSourceResponse, ServerSentEvent
 
 from engirdle_pc.bootstrap.container import Container
+from engirdle_pc.entrypoints.admin_web.events import (
+    JobEventBroker,
+    JobEventState,
+)
 from engirdle_pc.entrypoints.admin_web.progress import JobProgress, derive_job_progress
 from engirdle_pc.modules.content.public import (
     ArticleRevision,
@@ -188,7 +194,9 @@ class ConfirmVoiceProfileRequest(RequestModel):
     voice_profile_id: str | None = Field(default=None, min_length=1, max_length=128)
 
 
-def create_admin_app(container: Container) -> FastAPI:
+def create_admin_app(
+    container: Container, *, event_poll_interval: float = 1.0
+) -> FastAPI:
     @asynccontextmanager
     async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
         yield
@@ -197,6 +205,19 @@ def create_admin_app(container: Container) -> FastAPI:
     app = FastAPI(title="Engirdle PC Admin", version="0.1.0", lifespan=lifespan)
     resource_root = FilePath(__file__).resolve().parent
     app.mount("/static", StaticFiles(directory=resource_root / "static"), name="static")
+
+    def _read_job_event_state(job_id: str) -> JobEventState:
+        """Load a job's full state for SSE diffing (runs on the thread pool)."""
+        job = container.production.get(job_id)
+        progress = _job_progress(container, job).to_payload()
+        payload = _job_payload(job)
+        payload["progress"] = progress
+        return JobEventState(job=payload, progress=progress, status=job.status)
+
+    job_events = JobEventBroker(
+        _read_job_event_state, poll_interval=event_poll_interval
+    )
+    app.state.job_events = job_events
 
     @app.exception_handler(ContentNotFound)
     @app.exception_handler(JobNotFound)
@@ -441,6 +462,25 @@ def create_admin_app(container: Container) -> FastAPI:
     @app.get("/api/jobs/{job_id}")
     def get_job(job_id: str) -> dict[str, object]:
         return _job_detail_payload(container, container.production.get(job_id))
+
+    @app.get("/api/jobs/{job_id}/events")
+    async def stream_job_events(job_id: str) -> EventSourceResponse:
+        """Live job progress over SSE (design §8.2/§8.3).
+
+        The state is read once up front so an unknown job answers with a
+        clean 404 before any event-stream byte is written; the shared
+        per-job poller then broadcasts progress/status changes until the
+        job reaches a terminal status, when the stream closes normally.
+        """
+        snapshot = await anyio.to_thread.run_sync(_read_job_event_state, job_id)
+
+        async def events() -> AsyncIterator[ServerSentEvent]:
+            async for event in job_events.subscribe(job_id, snapshot):
+                yield ServerSentEvent(
+                    data=event.data, event=event.event, id=str(event.id)
+                )
+
+        return EventSourceResponse(events(), ping=15)
 
     @app.post("/api/jobs/{job_id}/retry", status_code=status.HTTP_202_ACCEPTED)
     def retry_job(job_id: str) -> dict[str, object]:
