@@ -4,12 +4,28 @@ import json
 from collections.abc import Mapping
 
 from engirdle_pc.modules.audio.public import AudioService, SentenceTiming
-from engirdle_pc.modules.content.public import ArticleRevision, ContentService
+from engirdle_pc.modules.content.public import (
+    ArticleRevision,
+    CodeBlock,
+    ContentService,
+    DividerBlock,
+    InlineRun,
+    ProcessingPlan,
+    TableBlock,
+    TableCell,
+    TextBlock,
+)
+from engirdle_pc.modules.content.public import (
+    Block as RenderBlock,
+)
 from engirdle_pc.modules.packaging.application.contracts import (
+    MARKDOWN_BLOCKS_CAPABILITY,
     ArticleBlock,
     ArticlePayload,
+    ArticleRun,
     ArticleSentence,
     ArticleSource,
+    ArticleTableCell,
     AttributionArticle,
     AttributionPayload,
     AttributionResource,
@@ -36,7 +52,7 @@ from engirdle_pc.modules.packaging.application.ports import (
     PackageWriter,
 )
 from engirdle_pc.modules.production.public import BuildJob, JobStatus
-from engirdle_pc.modules.translation.public import TranslationService
+from engirdle_pc.modules.translation.public import TableUnitTranslation, TranslationService
 from engirdle_pc.shared.application.runtime import Clock, IdentifierGenerator
 from engirdle_pc.shared.domain.hashing import sha256_bytes
 from engirdle_pc.shared.domain.time import isoformat_utc
@@ -65,26 +81,48 @@ class PackagingService:
         if job.status is not JobStatus.REVIEW_REQUIRED:
             raise ValueError("only a reviewed production job can be packaged")
         revision = self._content.get(job.article_id, job.revision)
-        translations = {
-            item.sentence_id: item.published_text
-            for item in self._translations.list_for_job(job.job_id)
-        }
+        plan = self._content.processing_plan(job.article_id, job.revision)
+        sentence_translations = self._translations.sentence_translations(job.job_id)
+        table_translations = self._translations.table_translations(job.job_id)
         audio = self._audio.get(job.job_id)
         timings = {timing.sentence_id: timing for timing in audio.timings}
-        expected_ids = {
-            sentence.sentence_id
-            for block in revision.blocks
-            for sentence in block.sentences
+        # Split validation sets (design §8.7): the packager verifies results
+        # against the plan's projections; it never re-decides eligibility.
+        expected_sentence_ids = set(plan.narration.sentence_ids)
+        expected_table_ids = {
+            unit.block_id for unit in plan.translation.table_units
         }
-        if set(translations) != expected_ids or set(timings) != expected_ids:
-            raise ValueError("reviewed translation and audio IDs must match the frozen structure")
+        if set(sentence_translations) != expected_sentence_ids:
+            raise ValueError(
+                "reviewed sentence translations must match the narratable sentences"
+            )
+        if set(table_translations) != expected_table_ids:
+            raise ValueError(
+                "reviewed table translations must match the table blocks"
+            )
+        if set(timings) != expected_sentence_ids:
+            raise ValueError(
+                "audio timing IDs must match the narration plan"
+            )
+        unprocessed_ids = {
+            block.block_id
+            for block in plan.render.blocks
+            if isinstance(block, (CodeBlock, DividerBlock))
+        }
+        leaked = unprocessed_ids & (set(sentence_translations) | set(timings))
+        if leaked:
+            raise ValueError(
+                f"non-processing blocks must not carry results: {sorted(leaked)}"
+            )
 
         artifact_revision = self._artifacts.next_artifact_revision(
             job.article_id, job.revision
         )
         package_id = self._identifiers.new()
         created_at = isoformat_utc(self._clock.now())
-        article_payload = _article_payload(revision, translations, timings)
+        article_payload = _article_payload(
+            revision, plan, sentence_translations, table_translations, timings
+        )
         attribution_payload = _attribution_payload(revision, job, audio.encoder_version)
         article_bytes = _json_bytes(article_payload)
         attribution_bytes = _json_bytes(attribution_payload)
@@ -102,6 +140,8 @@ class PackagingService:
         manifest = Manifest(
             package_id=package_id,
             created_at=created_at,
+            format_version="1.1",
+            required_capabilities=[MARKDOWN_BLOCKS_CAPABILITY],
             article=ManifestArticle(
                 id=job.article_id,
                 revision=job.revision,
@@ -112,6 +152,7 @@ class PackagingService:
             pipeline=PipelineMetadata(
                 version=job.config.pipeline_version,
                 segmenter=job.config.segmenter,
+                parser=job.config.markdown_parser,
                 translation=TranslationPipeline(
                     provider=job.config.translation_provider,
                     model=job.config.translation_model,
@@ -186,10 +227,14 @@ class PackagingService:
 
 def _article_payload(
     revision: ArticleRevision,
-    translations: Mapping[str, str],
+    plan: ProcessingPlan,
+    sentence_translations: Mapping[str, str],
+    table_translations: Mapping[str, TableUnitTranslation],
     timings: Mapping[str, SentenceTiming],
 ) -> ArticlePayload:
     return ArticlePayload(
+        format_version="1.1",
+        required_capabilities=[MARKDOWN_BLOCKS_CAPABILITY],
         article_id=revision.article_id,
         revision=revision.revision,
         title=revision.title,
@@ -202,27 +247,88 @@ def _article_payload(
         normalized_sha256=revision.normalized_sha256,
         structure_sha256=revision.structure_sha256,
         blocks=[
-            ArticleBlock(
-                block_id=block.block_id,
-                kind=block.kind.value,
-                order=block.order,
-                sentences=[
-                    ArticleSentence(
-                        sentence_id=sentence.sentence_id,
-                        order=sentence.order,
-                        text=sentence.text,
-                        translation_zh=translations[sentence.sentence_id],
-                        audio_start_sample=timings[sentence.sentence_id].start_sample,
-                        audio_end_sample=timings[sentence.sentence_id].end_sample,
-                        audio_start_ms=timings[sentence.sentence_id].start_ms,
-                        audio_end_ms=timings[sentence.sentence_id].end_ms,
-                    )
-                    for sentence in block.sentences
-                ],
+            _block_payload(
+                block,
+                sentence_translations,
+                table_translations,
+                timings,
             )
-            for block in revision.blocks
+            for block in plan.render.blocks
         ],
     )
+
+
+def _block_payload(
+    block: RenderBlock,
+    sentence_translations: Mapping[str, str],
+    table_translations: Mapping[str, TableUnitTranslation],
+    timings: Mapping[str, SentenceTiming],
+) -> ArticleBlock:
+    if isinstance(block, TextBlock):
+        return ArticleBlock(
+            block_id=block.block_id,
+            kind=block.kind.value,
+            order=block.order,
+            level=block.heading_level,
+            list_kind=(
+                block.list_kind.value if block.list_kind is not None else None
+            ),
+            list_depth=block.list_depth,
+            list_ordinal=block.list_ordinal,
+            quote_depth=block.quote_depth,
+            sentences=[
+                ArticleSentence(
+                    sentence_id=sentence.sentence_id,
+                    order=sentence.order,
+                    text=sentence.text,
+                    translation_zh=sentence_translations[sentence.sentence_id],
+                    audio_start_sample=timings[sentence.sentence_id].start_sample,
+                    audio_end_sample=timings[sentence.sentence_id].end_sample,
+                    audio_start_ms=timings[sentence.sentence_id].start_ms,
+                    audio_end_ms=timings[sentence.sentence_id].end_ms,
+                    runs=[_run_payload(run) for run in sentence.runs],
+                )
+                for sentence in block.sentences
+            ],
+        )
+    if isinstance(block, TableBlock):
+        translation = table_translations[block.block_id]
+        translated_by_cell = {
+            cell.cell_id: cell.text_zh for cell in translation.cells
+        }
+        cells = [*block.header, *(c for row in block.rows for c in row)]
+        return ArticleBlock(
+            block_id=block.block_id,
+            kind="table",
+            order=block.order,
+            alignments=[alignment.value for alignment in block.alignments],
+            header=[_cell_payload(cell) for cell in block.header],
+            rows=[[_cell_payload(cell) for cell in row] for row in block.rows],
+            translation_zh={
+                cell.cell_id: translated_by_cell[cell.cell_id] for cell in cells
+            },
+        )
+    if isinstance(block, CodeBlock):
+        return ArticleBlock(
+            block_id=block.block_id,
+            kind="code",
+            order=block.order,
+            language=block.language,
+            code=block.code,
+        )
+    return ArticleBlock(block_id=block.block_id, kind="divider", order=block.order)
+
+
+def _cell_payload(cell: TableCell) -> ArticleTableCell:
+    return ArticleTableCell(
+        cell_id=cell.cell_id,
+        text=cell.plain_text,
+        runs=[_run_payload(run) for run in cell.runs],
+    )
+
+
+def _run_payload(run: InlineRun) -> ArticleRun:
+    return ArticleRun(kind=run.kind.value, text=run.text, href=run.href)
 
 
 def _attribution_payload(
@@ -328,6 +434,43 @@ def _attribution_payload(
     )
 
 
+# Fields the wire schema REQUIRES per kind even when empty: a header-only
+# table legitimately serializes "rows": [], and dropping the key would make a
+# PC-built package fail its own schema (the empty value is the value).
+_REQUIRED_WHEN_EMPTY: dict[str, set[str]] = {
+    "table": {"alignments", "header", "rows"},
+}
+
+
+def _strip_absent_fields(block: object) -> object:
+    """Drop absent-valued fields from one wire block so it stays kind-specific.
+
+    The block union's optional fields default to empty collections (or 0 for
+    quote_depth/list_depth); emitting them for other kinds would put another
+    kind's payload on the wire and collide with the discriminated-union
+    schema rules. Nothing semantic is lost: absence equals the default for
+    every such field. Fields a kind REQUIRES stay even when empty (a
+    header-only table keeps "rows": []). Applied ONLY to article blocks —
+    attribution resources legitimately carry required-but-empty arrays such
+    as 'hashes'.
+    """
+    if not isinstance(block, dict):
+        return block
+    keep_when_empty = _REQUIRED_WHEN_EMPTY.get(str(block.get("kind")), set())
+    result: dict[str, object] = {}
+    for key, item in block.items():
+        if item in ([], {}) and key not in keep_when_empty:
+            continue
+        if key in {"quote_depth", "list_depth"} and item == 0:
+            continue
+        result[key] = (
+            [_strip_absent_fields(child) for child in item]
+            if isinstance(item, list)
+            else item
+        )
+    return result
+
+
 def _payload_file(path: str, media_type: str, content: bytes) -> PayloadFile:
     return PayloadFile(
         path=path,
@@ -343,4 +486,5 @@ def _json_bytes(model: object) -> bytes:
         # The v1 contract requires all three source display keys, with JSON null
         # representing an explicitly unavailable value.
         payload["source"] = model.source.model_dump(mode="json", exclude_none=False)
+        payload["blocks"] = [_strip_absent_fields(block) for block in payload["blocks"]]
     return (json.dumps(payload, ensure_ascii=False, indent=2) + "\n").encode("utf-8")

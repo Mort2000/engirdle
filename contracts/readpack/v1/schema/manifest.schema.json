@@ -18,9 +18,14 @@
     "format_version": {"$ref": "#/$defs/v1Version"},
     "required_capabilities": {
       "type": "array",
-      "maxItems": 0,
+      "maxItems": 8,
       "uniqueItems": true,
-      "items": {"type": "string", "minLength": 1, "maxLength": 128}
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 64,
+        "pattern": "^[a-z][a-z0-9-]*$"
+      }
     },
     "package_id": {"$ref": "#/$defs/uuid"},
     "created_at": {"type": "string", "format": "date-time"},
@@ -69,6 +74,7 @@
       "properties": {
         "version": {"$ref": "#/$defs/semanticVersion"},
         "segmenter": {"$ref": "#/$defs/revisionedIdentifier"},
+        "parser": {"$ref": "#/$defs/revisionedIdentifier"},
         "translation": {
           "type": "object",
           "required": ["provider", "model", "thinking", "reasoning_effort", "prompt"],

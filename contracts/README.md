@@ -29,7 +29,7 @@ JSON 文件必须是无 BOM 的 UTF-8。SHA-256 始终对存储或传输的原�
 
 - `format_version` 使用 `major.minor`。v1 实现必须接受自己已实现的 `1.x` 次版本，并拒绝其他主版本。
 - Schema 允许未知 JSON 属性；消费者必须忽略它们，不得据此改变既有语义。
-- Readpack manifest 的 `required_capabilities` 列出不可忽略的能力。v1.0 未定义任何此类能力，因此非空列表必须被 v1.0 实现拒绝。
+- Readpack manifest 的 `required_capabilities` 列出不可忽略的能力。v1.0 未定义任何此类能力，因此非空列表必须被 v1.0 实现拒绝。v1.1 定义 `markdown-blocks`（类型化标题/表格/代码/分隔线块与行内 runs）；实现必须只接受自己认识的能力，未知能力在提交导入前拒绝。
 - 增加可忽略字段只增加 minor；删除字段、改变已有语义、必需文件、ID 规则或签名模型必须增加 major。
 
 变更契约时，必须在同一变更中更新 schema、兼容性说明、有效/无效 fixtures 以及 PC/Flutter 契约测试。

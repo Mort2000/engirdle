@@ -59,6 +59,8 @@ class AudioEncodingPipeline(ContractModel):
 class PipelineMetadata(ContractModel):
     version: str
     segmenter: str
+    # Markdown parser identity (design §8.1); absent in pre-markdown packages.
+    parser: str | None = None
     translation: TranslationPipeline
     tts: TtsPipeline
     audio_encoding: AudioEncodingPipeline
@@ -66,7 +68,7 @@ class PipelineMetadata(ContractModel):
 
 class Manifest(ContractModel):
     format: Literal["readpack"] = "readpack"
-    format_version: Literal["1.0"] = "1.0"
+    format_version: Literal["1.0", "1.1"] = "1.0"
     required_capabilities: list[str] = []
     package_id: str
     created_at: str
@@ -76,10 +78,32 @@ class Manifest(ContractModel):
     pipeline: PipelineMetadata
 
 
+# The capability every markdown-block package must declare (design §9.1). Old
+# v1.0-only clients reject it explicitly instead of mis-rendering tables/code.
+MARKDOWN_BLOCKS_CAPABILITY = "markdown-blocks"
+
+
 class ArticleSource(ContractModel):
     display_name: str | None
     url: str | None
     author: str | None
+
+
+class ArticleRun(ContractModel):
+    """One inline run of a v1.1 sentence or table cell (design §9.2)."""
+
+    kind: Literal[
+        "plain",
+        "emphasis",
+        "strong",
+        "strikethrough",
+        "code",
+        "link",
+        "image",
+        "hard_break",
+    ]
+    text: str
+    href: str | None = None
 
 
 class ArticleSentence(ContractModel):
@@ -91,18 +115,51 @@ class ArticleSentence(ContractModel):
     audio_end_sample: int
     audio_start_ms: int
     audio_end_ms: int
+    # v1.1: non-empty run projection for rich rendering. Absent in v1.0.
+    runs: list[ArticleRun] = []
+
+
+class ArticleTableCell(ContractModel):
+    cell_id: str
+    text: str
+    runs: list[ArticleRun] = []
 
 
 class ArticleBlock(ContractModel):
+    """The v1.1 block discriminated union (design §9.2).
+
+    'kind' decides which fields are legal; the semantic validator rejects a
+    block whose kind and payload disagree (invalid_markdown_block).
+    """
+
     block_id: str
-    kind: str
+    kind: Literal[
+        "paragraph", "list_item", "quote", "heading", "table", "code", "divider"
+    ]
     order: int
-    sentences: list[ArticleSentence]
+    sentences: list[ArticleSentence] = []
+    # heading
+    level: int | None = None
+    # list_item
+    list_kind: Literal["bullet", "ordered"] | None = None
+    list_depth: int = 0
+    list_ordinal: int | None = None
+    # quote
+    quote_depth: int = 0
+    # table
+    alignments: list[Literal["default", "left", "center", "right"]] = []
+    header: list[ArticleTableCell] = []
+    rows: list[list[ArticleTableCell]] = []
+    translation_zh: dict[str, str] | None = None
+    # code
+    language: str | None = None
+    code: str | None = None
 
 
 class ArticlePayload(ContractModel):
     format: Literal["readpack-article"] = "readpack-article"
-    format_version: Literal["1.0"] = "1.0"
+    format_version: Literal["1.0", "1.1"] = "1.0"
+    required_capabilities: list[str] = []
     article_id: str
     revision: int
     title: str
