@@ -1,19 +1,21 @@
-"""DeepSeek translation adapter.
+"""DeepSeek translation adapter (unit protocol v2, design §8.2/§8.3).
 
-Implements the ``TranslationAdapter`` protocol with the simplified protocol
-(design §4.4, as refined): no round-zero acknowledgement; each block is sent as
-a bare JSON array of its English sentences and the model returns a same-length
-JSON array of Simplified Chinese translations. The full logical session
-(system + complete-article context + accepted block turns) is replayed on every
-request so terminology stays consistent, with no sliding window or downgrade.
+Implements the TranslationAdapter protocol over the ProcessingPlan unit
+projection: sentence batches stay bare JSON arrays; one table is exactly one
+structured request whose reply must preserve block identity, shape and cell
+IDs. Inline code literals and link URIs are protected client-side by stable
+placeholders and restored after validation, so they never appear in any
+request, history, journal or retry log.
 
-State is reconstructed from a durable per-checkpoint journal, so a worker can
-resume a translation session even across a process restart (lease recovery).
+The full logical session (system + code-free complete-article context +
+accepted unit turns) is replayed on every request so terminology stays
+consistent, with no sliding window or downgrade. State is reconstructed from
+a durable per-checkpoint journal, so a worker can resume a translation
+session even across a process restart (lease recovery).
 """
 
 from __future__ import annotations
 
-import json
 import logging
 import time
 from collections.abc import Callable
@@ -22,19 +24,32 @@ from typing import Any, TypeVar
 
 from pydantic import ValidationError
 
-from engirdle_pc.modules.content.public import ArticleRevision, Block
+from engirdle_pc.modules.content.domain.entities import ArticleRevision
+from engirdle_pc.modules.content.domain.plan import (
+    ProcessingPlan,
+    SentenceBatchUnit,
+    TableUnit,
+)
 from engirdle_pc.modules.translation.application.dto import (
     PROMPT_VERSION,
     REASONING_EFFORT,
     THINKING_MODE,
-    build_block_request,
     build_source_context,
     build_system_prompt,
+    build_unit_request,
+    parse_table_response,
     parse_translation_list,
+    unit_protected_map,
 )
-from engirdle_pc.modules.translation.application.ports import (
+from engirdle_pc.modules.translation.application.ports import TranslationUnit
+from engirdle_pc.modules.translation.application.units import (
+    AcceptedTranslation,
+    ProtectedTokenMap,
     SentenceTranslation,
-    TranslationBatch,
+    SentenceUnitTranslation,
+    TableTranslatedCell,
+    TableUnitTranslation,
+    verify_protected_tokens,
 )
 from engirdle_pc.modules.translation.infrastructure.chat_client import (
     OFFICIAL_ENDPOINT,
@@ -116,57 +131,53 @@ class DeepSeekTranslationAdapter:
         self._sleeper = sleeper
         self._prompt_version = prompt_version
 
-    def begin(self, revision: ArticleRevision) -> str:
+    def begin(self, revision: ArticleRevision, plan: ProcessingPlan) -> str:
         """Initialize a durable session journal and return its checkpoint id.
 
-        Deliberately makes no network call: the complete-article context is sent
-        as part of the first ``translate_block`` request.
+        Deliberately makes no network call: the code-free context is sent as
+        part of the first 'translate_unit' request.
         """
         checkpoint_id = self._identifiers.new()
         TranslationSessionJournal.create(
             directory=self._session_dir,
             checkpoint_id=checkpoint_id,
-            source_sha256=sha256_text(build_source_context(revision)),
+            source_sha256=sha256_text(build_source_context(revision, plan)),
             prompt_version=self._prompt_version,
         )
         return checkpoint_id
 
-    def translate_block(
-        self, revision: ArticleRevision, block: Block, checkpoint_id: str
-    ) -> TranslationBatch:
+    def translate_unit(
+        self,
+        revision: ArticleRevision,
+        plan: ProcessingPlan,
+        unit: TranslationUnit,
+        checkpoint_id: str,
+    ) -> AcceptedTranslation:
         journal = self._load_journal(checkpoint_id)
-        self._verify_journal_freshness(journal, revision)
-        messages = self._build_messages(revision, block, journal)
+        self._verify_journal_freshness(journal, revision, plan)
+        protected_map = unit_protected_map(unit)
+        request = build_unit_request(unit)
+        messages = self._build_messages(revision, plan, unit, journal, request)
         client = self._require_client()
 
-        def attempt() -> tuple[CompletionResult, list[str]]:
+        def attempt() -> tuple[CompletionResult, AcceptedTranslation]:
             # Validation runs inside the retry loop so a transiently malformed
-            # model response (wrong length, fenced, object-wrapped) gets the same
-            # bounded retry budget as transport errors, instead of failing the
-            # job on the first flaky reply.
+            # model response (wrong length, fenced, shape-damaged table) gets
+            # the same bounded retry budget as transport errors.
             result = client.create_chat_completion(
                 model=self.model,
                 messages=messages,
                 extra_body=self._extra_body(),
                 timeout=self._timeout,
             )
-            return result, self._validate(result, block)
+            return result, self._validate(result, unit, protected_map)
 
-        result, translations = self._retry_request(attempt)
-        # Persist only validated translations; a protocol failure must not pollute
-        # the accepted history that subsequent blocks (or a retry) will replay.
-        journal.accept_block(block.block_id, translations)
-        self._log_usage(block, result)
-        return TranslationBatch(
-            block_id=block.block_id,
-            translations=tuple(
-                SentenceTranslation(
-                    sentence_id=sentence.sentence_id, text_zh=translations[index]
-                )
-                for index, sentence in enumerate(block.sentences)
-            ),
-            request_id=result.request_id,
-        )
+        result, validated = self._retry_request(attempt)
+        # Persist only the validated reply; a protocol failure must not pollute
+        # the accepted history that subsequent units (or a retry) will replay.
+        journal.accept_unit(unit.unit_id, result.content)
+        self._log_usage(unit, result)
+        return validated
 
     def verify_access(self) -> None:
         """Confirm the key works AND the configured model is served by the provider."""
@@ -195,14 +206,17 @@ class DeepSeekTranslationAdapter:
         return journal
 
     def _verify_journal_freshness(
-        self, journal: TranslationSessionJournal, revision: ArticleRevision
+        self,
+        journal: TranslationSessionJournal,
+        revision: ArticleRevision,
+        plan: ProcessingPlan,
     ) -> None:
         """Reject a journal that does not match this revision / prompt version.
 
         Guards against checkpoint_id reuse across revisions or a stale journal
         left by an older prompt version after an upgrade.
         """
-        expected_source_sha256 = sha256_text(build_source_context(revision))
+        expected_source_sha256 = sha256_text(build_source_context(revision, plan))
         if (
             journal.source_sha256 != expected_source_sha256
             or journal.prompt_version != self._prompt_version
@@ -215,37 +229,36 @@ class DeepSeekTranslationAdapter:
     def _build_messages(
         self,
         revision: ArticleRevision,
-        block: Block,
+        plan: ProcessingPlan,
+        unit: TranslationUnit,
         journal: TranslationSessionJournal,
+        request: str,
     ) -> list[dict[str, str]]:
         messages: list[dict[str, str]] = [
             {"role": "system", "content": build_system_prompt()},
-            {"role": "user", "content": build_source_context(revision)},
+            {"role": "user", "content": build_source_context(revision, plan)},
         ]
-        reached_block = False
-        for prior_block in revision.blocks:
-            if prior_block.block_id == block.block_id:
-                reached_block = True
+        # Replay accepted history in article order: only plan units are ever
+        # requested, so code blocks and dividers can never enter the history.
+        for prior in plan.translation.units:
+            if prior.unit_id == unit.unit_id:
                 break
-            translations = journal.accepted.get(prior_block.block_id)
-            if translations is None:
+            reply = journal.accepted.get(prior.unit_id)
+            if reply is None:
                 raise TranslationProtocolError(
-                    f"cannot rebuild history: block {prior_block.block_id} precedes "
-                    f"{block.block_id} but has no accepted translation"
+                    f"cannot rebuild history: unit {prior.unit_id} precedes "
+                    f"{unit.unit_id} but has no accepted translation"
                 )
-            messages.append({"role": "user", "content": build_block_request(prior_block)})
             messages.append(
-                {
-                    "role": "assistant",
-                    "content": json.dumps(translations, ensure_ascii=False),
-                }
+                {"role": "user", "content": build_unit_request(prior)}
             )
-        if not reached_block:
+            messages.append({"role": "assistant", "content": reply})
+        else:
             raise TranslationProtocolError(
-                f"block {block.block_id} is not part of revision "
-                f"{revision.article_id}/{revision.revision}"
+                f"unit {unit.unit_id} is not part of the translation plan for "
+                f"revision {revision.article_id}/{revision.revision}"
             )
-        messages.append({"role": "user", "content": build_block_request(block)})
+        messages.append({"role": "user", "content": request})
         return messages
 
     def _extra_body(self) -> dict[str, Any]:
@@ -255,13 +268,7 @@ class DeepSeekTranslationAdapter:
         }
 
     def _retry_request(self, operation: Callable[[], _T]) -> _T:
-        """Retry transient transport errors and transiently-malformed responses.
-
-        Both rate-limit/server/timeout failures and protocol-validation failures
-        (wrong array length, fenced/object-wrapped/empty response) are retried up
-        to ``max_retries`` times; non-retryable errors (auth/quota/config) surface
-        immediately so the worker can fail the job and let an operator retry.
-        """
+        """Retry transient transport errors and transiently-malformed responses."""
         attempt = 0
         while True:
             try:
@@ -272,27 +279,118 @@ class DeepSeekTranslationAdapter:
                 self._sleeper(min(self._retry_backoff_seconds * (2**attempt), 10.0))
                 attempt += 1
 
-    def _validate(self, result: CompletionResult, block: Block) -> list[str]:
+    def _validate(
+        self,
+        result: CompletionResult,
+        unit: TranslationUnit,
+        protected_map: ProtectedTokenMap,
+    ) -> AcceptedTranslation:
+        if isinstance(unit, SentenceBatchUnit):
+            return self._validate_sentences(result, unit, protected_map)
+        if isinstance(unit, TableUnit):
+            return self._validate_table(result, unit, protected_map)
+        raise TranslationProtocolError(
+            f"unknown translation unit type {type(unit).__name__}"
+        )
+
+    def _validate_sentences(
+        self,
+        result: CompletionResult,
+        unit: SentenceBatchUnit,
+        protected_map: ProtectedTokenMap,
+    ) -> AcceptedTranslation:
         try:
             translations = parse_translation_list(result.content)
         except ValidationError as error:
             raise TranslationProtocolError(
-                f"model response for block {block.block_id} is not a JSON array of "
+                f"model response for unit {unit.block_id} is not a JSON array of "
                 f"non-empty strings"
             ) from error
-        if len(translations) != len(block.sentences):
+        if len(translations) != len(unit.sentences):
             raise TranslationProtocolError(
-                f"model returned {len(translations)} translations for block "
-                f"{block.block_id} which has {len(block.sentences)} sentences"
+                f"model returned {len(translations)} translations for unit "
+                f"{unit.block_id} which has {len(unit.sentences)} sentences"
             )
-        return translations
+        try:
+            verify_protected_tokens(protected_map, tuple(translations))
+        except ValueError as error:
+            raise TranslationProtocolError(str(error)) from error
+        restored = [protected_map.restore(text) for text in translations]
+        return AcceptedTranslation(
+            translation=SentenceUnitTranslation(
+                block_id=unit.block_id,
+                translations=tuple(
+                    SentenceTranslation(
+                        sentence_id=sentence.sentence_id, text_zh=restored[index]
+                    )
+                    for index, sentence in enumerate(unit.sentences)
+                ),
+            ),
+            request_id=result.request_id,
+        )
 
-    def _log_usage(self, block: Block, result: CompletionResult) -> None:
+    def _validate_table(
+        self,
+        result: CompletionResult,
+        unit: TableUnit,
+        protected_map: ProtectedTokenMap,
+    ) -> AcceptedTranslation:
+        try:
+            table = parse_table_response(result.content)
+        except ValidationError as error:
+            raise TranslationProtocolError(
+                f"model response for table {unit.block_id} is not the same "
+                f"structured JSON object"
+            ) from error
+        # The reply must be the SAME table, position by position: identity,
+        # column count, alignment sequence, header cell ID sequence and the
+        # full 2D row cell ID sequence. A set comparison is not enough — a
+        # model that swaps IDs between cells would bind translations to the
+        # wrong cell.
+        expected_header = tuple(cell.cell_id for cell in unit.header)
+        actual_header = tuple(cell.cell_id for cell in table.header)
+        expected_rows = tuple(
+            tuple(cell.cell_id for cell in row) for row in unit.rows
+        )
+        actual_rows = tuple(tuple(cell.cell_id for cell in row) for row in table.rows)
+        if (
+            table.block_id != unit.block_id
+            or table.columns != len(unit.header)
+            or table.alignments != [alignment.value for alignment in unit.alignments]
+            or actual_header != expected_header
+            or actual_rows != expected_rows
+            or len({*actual_header, *(cell for row in actual_rows for cell in row)})
+            != len(expected_header) + sum(len(row) for row in expected_rows)
+        ):
+            raise TranslationProtocolError(
+                f"model changed the structure or cell positions of table "
+                f"{unit.block_id}"
+            )
+        cells_in_order = [*table.header, *(cell for row in table.rows for cell in row)]
+        try:
+            verify_protected_tokens(
+                protected_map, tuple(cell.text for cell in cells_in_order)
+            )
+        except ValueError as error:
+            raise TranslationProtocolError(str(error)) from error
+        cells = tuple(
+            TableTranslatedCell(
+                cell_id=cell.cell_id, text_zh=protected_map.restore(cell.text)
+            )
+            for cell in cells_in_order
+        )
+        return AcceptedTranslation(
+            translation=TableUnitTranslation(block_id=unit.block_id, cells=cells),
+            request_id=result.request_id,
+        )
+
+    def _log_usage(self, unit: TranslationUnit, result: CompletionResult) -> None:
         # Structured usage only — never log content, translations or reasoning.
         LOGGER.info(
-            "deepseek translated block",
+            "deepseek translated unit",
             extra={
-                "block_id": block.block_id,
+                "unit_id": unit.unit_id,
+                "unit_kind": "table" if isinstance(unit, TableUnit) else "sentences",
                 "request_id": result.request_id,
                 "finish_reason": result.finish_reason,
                 "usage": (
