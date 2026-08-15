@@ -7,13 +7,17 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 
 import {
+  approveArticleRevision,
   createArticle,
   createArticleRevision,
   deleteArticle,
+  editStructure,
   getArticle,
   listArticles,
+  rebuildArticleRevision,
   type CreateArticleInput,
 } from "@/api/articles"
+import type { EditStructurePayload } from "@/features/articles/editedBlockSchema"
 
 export const articlesKeys = {
   root: ["articles"] as const,
@@ -69,6 +73,33 @@ export function useDeleteArticleMutation() {
   return useMutation({
     mutationFn: (input: { articleId: string; confirmation: string }) =>
       deleteArticle(input.articleId, input.confirmation),
+    onSuccess: invalidate,
+  })
+}
+
+/** 保存结构化编辑：成功后失效修订详情与结构报告（树/计数随之刷新）。 */
+export function useEditStructureMutation(articleId: string, revision: number) {
+  const invalidate = useInvalidateArticles()
+  return useMutation({
+    mutationFn: (payload: EditStructurePayload) =>
+      editStructure(articleId, revision, payload),
+    onSuccess: invalidate,
+  })
+}
+
+/** 冻结并创建任务：调用方跳转任务详情页。 */
+export function useApproveRevisionMutation(articleId: string, revision: number) {
+  const invalidate = useInvalidateArticles()
+  return useMutation({
+    mutationFn: () => approveArticleRevision(articleId, revision),
+    onSuccess: invalidate,
+  })
+}
+
+export function useRebuildRevisionMutation(articleId: string, revision: number) {
+  const invalidate = useInvalidateArticles()
+  return useMutation({
+    mutationFn: () => rebuildArticleRevision(articleId, revision),
     onSuccess: invalidate,
   })
 }

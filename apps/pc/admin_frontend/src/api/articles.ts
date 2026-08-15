@@ -7,6 +7,8 @@
  */
 
 import { apiFetch } from "@/api/client"
+import type { JobCorePayload } from "@/api/jobs"
+import type { EditStructurePayload } from "@/features/articles/editedBlockSchema"
 
 export type RevisionStatus = "draft" | "structured" | "approved" | "published"
 
@@ -144,6 +146,40 @@ export function getArticle(
 /** 各文章最新修订（完整 revision 载荷，修订录入页据此预填表单）。 */
 export function listArticles(): Promise<RevisionPayload[]> {
   return apiFetch<RevisionPayload[]>("/api/articles")
+}
+
+/** 保存结构化编辑（既有 PUT .../structure 端点，设计 §8.5「不变」）。 */
+export function editStructure(
+  articleId: string,
+  revision: number,
+  payload: EditStructurePayload,
+): Promise<RevisionPayload> {
+  return apiFetch<RevisionPayload>(
+    `/api/articles/${articleId}/revisions/${revision}/structure`,
+    { method: "PUT", body: JSON.stringify(payload) },
+  )
+}
+
+/** 冻结结构并创建生产任务（响应为任务载荷）。 */
+export function approveArticleRevision(
+  articleId: string,
+  revision: number,
+): Promise<JobCorePayload> {
+  return apiFetch<JobCorePayload>(
+    `/api/articles/${articleId}/revisions/${revision}/approve`,
+    { method: "POST" },
+  )
+}
+
+/** 已冻结修订重建制品（新任务）。 */
+export function rebuildArticleRevision(
+  articleId: string,
+  revision: number,
+): Promise<JobCorePayload> {
+  return apiFetch<JobCorePayload>(
+    `/api/articles/${articleId}/revisions/${revision}/rebuild`,
+    { method: "POST" },
+  )
 }
 
 export function deleteArticle(

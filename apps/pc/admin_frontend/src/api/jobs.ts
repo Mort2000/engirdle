@@ -132,11 +132,22 @@ export interface AudioReviewPayload {
   }
 }
 
+/** 结构树节点（structure-report 端点；translates/narrates 为派生只读）。 */
+export interface StructureTreeNode {
+  block_id: string
+  kind: string
+  translates: boolean
+  narrates: boolean
+  summary?: string
+  sentence_count?: number
+  detail?: string
+}
+
 export interface StructureReportPayload {
   article_id: string
   revision: number
   warnings: { code: string; message: string }[]
-  structure_tree: unknown[]
+  structure_tree: StructureTreeNode[]
   processing_counts: {
     translated_sentences: number
     translated_tables: number
