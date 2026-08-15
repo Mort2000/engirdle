@@ -14,6 +14,7 @@ import { NavLink, Outlet } from "react-router"
 
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
+import { Toaster } from "@/components/ui/sonner"
 import { cn } from "@/lib/utils"
 import { useTheme } from "@/lib/theme"
 
@@ -37,6 +38,12 @@ function ThemeToggle() {
       {theme === "dark" ? <Sun /> : <Moon />}
     </Button>
   )
+}
+
+/** 全局 Toast 容器（§6.4：Sonner），主题跟随自建 ThemeProvider。 */
+function AppToaster() {
+  const { theme } = useTheme()
+  return <Toaster theme={theme} position="bottom-right" />
 }
 
 /**
@@ -128,6 +135,8 @@ export function AppShell() {
           <Outlet />
         </div>
       </main>
+
+      <AppToaster />
     </div>
   )
 }
