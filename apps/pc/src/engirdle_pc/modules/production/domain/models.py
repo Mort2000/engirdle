@@ -46,6 +46,9 @@ class PipelineConfig:
     audio_loudness_target_lufs: float
     audio_true_peak_dbfs: float
     audio_loudness_range_lu: float
+    # Markdown parser identity (design §8.1): recorded so every stored
+    # structure hash stays traceable to the projection that produced it.
+    markdown_parser: str = "engirdle-gfm@1"
 
     def to_json(self) -> str:
         return json.dumps(asdict(self), sort_keys=True, separators=(",", ":"))
@@ -83,32 +86,43 @@ class BuildJob:
 
 @dataclass(frozen=True)
 class ProductionCheckpoint:
-    translation_checkpoint_id: str
-    accepted_block_ids: tuple[str, ...] = ()
-    synthesized_sentence_ids: tuple[str, ...] = ()
+    """Unit-identity checkpoint for a production job (design §8.5).
 
-    def accept_block(self, block_id: str) -> ProductionCheckpoint:
-        if block_id in self.accepted_block_ids:
+    Tracks accepted translation units and synthesized narration units. Code,
+    tables that need no work and dividers never appear here — only units the
+    plans actually contain. Old persisted checkpoints (pre-markdown field
+    names) are read compatibly and rewritten in the new vocabulary.
+    """
+
+    translation_checkpoint_id: str
+    accepted_translation_unit_ids: tuple[str, ...] = ()
+    synthesized_narration_unit_ids: tuple[str, ...] = ()
+
+    def accept_translation_unit(self, unit_id: str) -> ProductionCheckpoint:
+        if unit_id in self.accepted_translation_unit_ids:
             return self
         return replace(
             self,
-            accepted_block_ids=(*self.accepted_block_ids, block_id),
+            accepted_translation_unit_ids=(*self.accepted_translation_unit_ids, unit_id),
         )
 
-    def accept_speech(self, sentence_id: str) -> ProductionCheckpoint:
-        if sentence_id in self.synthesized_sentence_ids:
+    def accept_narration_unit(self, sentence_id: str) -> ProductionCheckpoint:
+        if sentence_id in self.synthesized_narration_unit_ids:
             return self
         return replace(
             self,
-            synthesized_sentence_ids=(*self.synthesized_sentence_ids, sentence_id),
+            synthesized_narration_unit_ids=(
+                *self.synthesized_narration_unit_ids,
+                sentence_id,
+            ),
         )
 
     def to_json(self) -> str:
         return json.dumps(
             {
                 "checkpoint_id": self.translation_checkpoint_id,
-                "accepted_blocks": self.accepted_block_ids,
-                "synthesized_sentences": self.synthesized_sentence_ids,
+                "accepted_translation_units": self.accepted_translation_unit_ids,
+                "synthesized_narration_units": self.synthesized_narration_unit_ids,
             },
             sort_keys=True,
         )
@@ -118,10 +132,16 @@ class ProductionCheckpoint:
         if value is None:
             return None
         payload = json.loads(value)
+        # Legacy field names (accepted_blocks / synthesized_sentences) mapped
+        # onto the unit vocabulary; unit identity is block/sentence identity.
+        accepted = payload.get("accepted_translation_units")
+        if accepted is None:
+            accepted = payload.get("accepted_blocks", [])
+        synthesized = payload.get("synthesized_narration_units")
+        if synthesized is None:
+            synthesized = payload.get("synthesized_sentences", [])
         return cls(
             translation_checkpoint_id=str(payload["checkpoint_id"]),
-            accepted_block_ids=tuple(str(item) for item in payload["accepted_blocks"]),
-            synthesized_sentence_ids=tuple(
-                str(item) for item in payload.get("synthesized_sentences", [])
-            ),
+            accepted_translation_unit_ids=tuple(str(item) for item in accepted),
+            synthesized_narration_unit_ids=tuple(str(item) for item in synthesized),
         )

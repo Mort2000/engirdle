@@ -8,7 +8,7 @@ from engirdle_pc.modules.audio.application.models import (
     AudioReviewChecks,
 )
 from engirdle_pc.modules.audio.application.ports import AudioRenderer, AudioStore
-from engirdle_pc.modules.content.public import ArticleRevision
+from engirdle_pc.modules.content.public import NarrationPlan
 from engirdle_pc.modules.speech.public import SentenceSpeech
 
 
@@ -20,11 +20,17 @@ class AudioService:
     def build(
         self,
         job_id: str,
-        revision: ArticleRevision,
+        narration: NarrationPlan,
         speech_items: tuple[SentenceSpeech, ...],
         target_dir: Path,
     ) -> AudioOutput:
-        output = self._renderer.render(revision, speech_items, target_dir)
+        """Build the article timeline from the narration plan (design §8.6).
+
+        The plan — not the revision structure — defines the timeline: tables,
+        code blocks and dividers occupy no audio interval and produce no
+        timing rows.
+        """
+        output = self._renderer.render(narration, speech_items, target_dir)
         self._repository.save(job_id, output)
         return output
 

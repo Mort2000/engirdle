@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from engirdle_pc.modules.content.public import (
+    PARSE_VERSION,
     SEGMENTER_VERSION,
     ArticleRevision,
     RevisionStatus,
@@ -15,6 +16,7 @@ from engirdle_pc.modules.production.domain.models import (
 )
 from engirdle_pc.modules.speech.public import SpeechService
 from engirdle_pc.modules.translation.public import (
+    PROMPT_VERSION,
     REASONING_EFFORT,
     THINKING_MODE,
     TranslationService,
@@ -39,11 +41,12 @@ class ProductionService:
         config = PipelineConfig(
             pipeline_version="0.1.0",
             segmenter=SEGMENTER_VERSION,
+            markdown_parser=PARSE_VERSION,
             translation_adapter=self._translation.name,
             translation_provider=self._translation.provider,
             translation_endpoint=self._translation.endpoint,
             translation_model=self._translation.model,
-            translation_prompt="full-article-sequential-blocks@v1",
+            translation_prompt=PROMPT_VERSION,
             translation_thinking=THINKING_MODE,
             translation_reasoning_effort=REASONING_EFFORT,
             speech_adapter=self._speech.name,

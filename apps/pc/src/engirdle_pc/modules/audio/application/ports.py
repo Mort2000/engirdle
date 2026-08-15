@@ -4,7 +4,7 @@ from pathlib import Path
 from typing import Protocol
 
 from engirdle_pc.modules.audio.application.models import AudioOutput
-from engirdle_pc.modules.content.public import ArticleRevision
+from engirdle_pc.modules.content.public import NarrationPlan
 from engirdle_pc.modules.speech.public import SentenceSpeech
 
 
@@ -17,7 +17,7 @@ class AudioStore(Protocol):
 class AudioRenderer(Protocol):
     def render(
         self,
-        revision: ArticleRevision,
+        narration: NarrationPlan,
         speech_items: tuple[SentenceSpeech, ...],
         target_dir: Path,
     ) -> AudioOutput: ...

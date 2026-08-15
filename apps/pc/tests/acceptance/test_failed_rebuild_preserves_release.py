@@ -8,10 +8,10 @@ from engirdle_pc.bootstrap.config import Settings
 from engirdle_pc.bootstrap.container import Container
 from engirdle_pc.entrypoints.admin_web.app import create_admin_app
 from engirdle_pc.entrypoints.publisher.app import create_publisher_app
-from engirdle_pc.modules.content.public import ArticleRevision, Block
+from engirdle_pc.modules.content.public import ArticleRevision, ProcessingPlan
 from engirdle_pc.modules.publishing.infrastructure.validator import CatalogValidator
 from engirdle_pc.modules.publishing.public import InvalidCatalog
-from engirdle_pc.modules.translation.public import TranslationBatch
+from engirdle_pc.modules.translation.public import TranslationUnit
 from engirdle_pc.shared.infrastructure.runtime import UuidIdentifierGenerator
 from tests.speech_fake import StubSpeechAdapter
 from tests.translation_fake import FakeTranslationAdapter
@@ -28,17 +28,21 @@ class FailSecondBuildOnceTranslator:
         self._build_number = 0
         self._failed = False
 
-    def begin(self, revision: ArticleRevision) -> str:
+    def begin(self, revision: ArticleRevision, plan: ProcessingPlan) -> str:
         self._build_number += 1
-        return f"build-{self._build_number}:{self._delegate.begin(revision)}"
+        return f"build-{self._build_number}:{self._delegate.begin(revision, plan)}"
 
-    def translate_block(
-        self, revision: ArticleRevision, block: Block, checkpoint_id: str
-    ) -> TranslationBatch:
+    def translate_unit(
+        self,
+        revision: ArticleRevision,
+        plan: ProcessingPlan,
+        unit: TranslationUnit,
+        checkpoint_id: str,
+    ):
         if checkpoint_id.startswith("build-2:") and not self._failed:
             self._failed = True
             raise RuntimeError("injected translation outage")
-        return self._delegate.translate_block(revision, block, checkpoint_id)
+        return self._delegate.translate_unit(revision, plan, unit, checkpoint_id)
 
 
 class FailSecondCatalogWriteValidator:

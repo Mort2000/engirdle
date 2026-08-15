@@ -8,7 +8,7 @@ from engirdle_pc.modules.audio.application.errors import InvalidSentenceAudio
 from engirdle_pc.modules.audio.application.models import AudioOutput
 from engirdle_pc.modules.audio.application.ports import AudioEncoder
 from engirdle_pc.modules.audio.domain.models import SentenceTiming
-from engirdle_pc.modules.content.public import ArticleRevision
+from engirdle_pc.modules.content.public import NarrationPlan, SentencePauseKind
 from engirdle_pc.modules.speech.public import SentenceSpeech
 
 
@@ -25,39 +25,31 @@ class LocalAudioRenderer:
 
     def render(
         self,
-        revision: ArticleRevision,
+        narration: NarrationPlan,
         speech_items: tuple[SentenceSpeech, ...],
         target_dir: Path,
     ) -> AudioOutput:
         speech_by_id = {item.sentence_id: item for item in speech_items}
-        expected_ids = {
-            sentence.sentence_id
-            for block in revision.blocks
-            for sentence in block.sentences
-        }
+        expected_ids = set(narration.sentence_ids)
         if set(speech_by_id) != expected_ids:
             raise InvalidSentenceAudio(
-                "speech sentence IDs do not match the frozen structure"
+                "speech sentence IDs do not match the narration plan"
             )
 
         sample_rate = 24_000
         timeline = array("h")
         timings: list[SentenceTiming] = []
-        all_sentences = [
-            (sentence_index, block, sentence)
-            for block in revision.blocks
-            for sentence_index, sentence in enumerate(block.sentences)
-        ]
-        for item_index, (sentence_index, block, sentence) in enumerate(all_sentences):
-            speech = speech_by_id[sentence.sentence_id]
+        units = narration.units
+        for item_index, unit in enumerate(units):
+            speech = speech_by_id[unit.sentence_id]
             if speech.sample_rate_hz != sample_rate or speech.sample_count <= 0:
                 raise InvalidSentenceAudio(
-                    f"invalid PCM metadata for {sentence.sentence_id}"
+                    f"invalid PCM metadata for {unit.sentence_id}"
                 )
             content = speech.pcm_path.read_bytes()
             if len(content) != speech.sample_count * 2:
                 raise InvalidSentenceAudio(
-                    f"invalid PCM length for {sentence.sentence_id}"
+                    f"invalid PCM length for {unit.sentence_id}"
                 )
             start_sample = len(timeline)
             sentence_samples = array("h")
@@ -66,18 +58,21 @@ class LocalAudioRenderer:
             end_sample = len(timeline)
             timings.append(
                 SentenceTiming(
-                    sentence_id=sentence.sentence_id,
+                    sentence_id=unit.sentence_id,
                     start_sample=start_sample,
                     end_sample=end_sample,
                     start_ms=start_sample * 1000 // sample_rate,
                     end_ms=(end_sample * 1000 + sample_rate - 1) // sample_rate,
                 )
             )
-            if item_index < len(all_sentences) - 1:
-                at_block_end = sentence_index == len(block.sentences) - 1
+            if item_index < len(units) - 1:
+                # A unit ending a text block applies the block pause even when
+                # the next narratable sentence sits beyond a table or code block
+                # (design §8.6: no extra silence for skipped content).
                 pause_ms = (
                     self._block_pause_ms
-                    if at_block_end
+                    if unit.pause_kind
+                    in {SentencePauseKind.BLOCK_END, SentencePauseKind.ARTICLE_END}
                     else self._sentence_pause_ms
                 )
                 timeline.extend([0] * (sample_rate * pause_ms // 1000))

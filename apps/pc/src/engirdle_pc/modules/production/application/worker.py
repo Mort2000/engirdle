@@ -1,9 +1,19 @@
+"""Plan-driven production worker (design §8.5).
+
+The worker never walks the raw revision structure. It iterates exactly the
+units of the derived ProcessingPlan: translation units (sentence batches and
+whole tables) and narration units (narratable sentences only). Code blocks,
+dividers and non-narratable content have no units, so they can never reach an
+adapter. Checkpoints record unit identities; resume verifies that claimed
+units actually exist in the translation store / PCM cache before skipping.
+"""
+
 from __future__ import annotations
 
 import logging
 
 from engirdle_pc.modules.audio.public import AudioService
-from engirdle_pc.modules.content.public import ContentService
+from engirdle_pc.modules.content.public import ContentService, ProcessingPlan
 from engirdle_pc.modules.production.application.ports import (
     JobStore,
     ProductionWorkspace,
@@ -15,7 +25,7 @@ from engirdle_pc.modules.production.domain.models import (
     ProductionStage,
 )
 from engirdle_pc.modules.speech.public import SentenceSpeech, SpeechService
-from engirdle_pc.modules.translation.public import TranslationService
+from engirdle_pc.modules.translation.public import TranslationService, TranslationUnit, UnitKind
 
 LOGGER = logging.getLogger(__name__)
 
@@ -51,76 +61,21 @@ class ProductionWorker:
         }
         try:
             revision = self._content.get(job.article_id, job.revision)
+            plan = self._content.processing_plan(job.article_id, job.revision)
             self._verify_adapter_snapshot(job)
             checkpoint = ProductionCheckpoint.from_json(job.checkpoint_json)
             if checkpoint is None:
-                checkpoint = ProductionCheckpoint(self._translations.begin(revision))
-            saved_translation_ids = {
-                translation.sentence_id
-                for translation in self._translations.list_for_job(job.job_id)
-            }
-            for block in revision.blocks:
-                expected = {sentence.sentence_id for sentence in block.sentences}
-                if (
-                    block.block_id in checkpoint.accepted_block_ids
-                    and expected <= saved_translation_ids
-                ):
-                    continue
-                batch = self._translations.translate_block(
-                    job.job_id,
-                    revision,
-                    block,
-                    checkpoint.translation_checkpoint_id,
-                )
-                actual = {translation.sentence_id for translation in batch.translations}
-                saved_translation_ids.update(actual)
-                checkpoint = checkpoint.accept_block(block.block_id)
-                self._jobs.checkpoint(
-                    job.job_id,
-                    ProductionStage.TRANSLATION,
-                    checkpoint.to_json(),
-                )
-
-            self._jobs.checkpoint(
-                job.job_id, ProductionStage.SPEECH, checkpoint.to_json()
-            )
-            target_dir = self._workspace.job_dir(job.job_id)
-            speech_items: list[SentenceSpeech] = []
-            cached_speech = {
-                speech.sentence_id: speech
-                for speech in self._speech.reusable_for_job(job.job_id)
-            }
-            for block in revision.blocks:
-                for sentence in block.sentences:
-                    cached = cached_speech.get(sentence.sentence_id)
-                    if (
-                        sentence.sentence_id in checkpoint.synthesized_sentence_ids
-                        and cached is not None
-                    ):
-                        speech_items.append(cached)
-                        continue
-                    # Re-check before every uncached sentence: activating a new
-                    # voice profile mid-build must fail the job, not mix voices.
-                    self._verify_adapter_snapshot(job)
-                    speech = self._speech.synthesize(
-                        job.job_id,
-                        sentence.sentence_id,
-                        sentence.text,
-                        target_dir / "pcm",
-                    )
-                    speech_items.append(speech)
-                    checkpoint = checkpoint.accept_speech(sentence.sentence_id)
-                    self._jobs.checkpoint(
-                        job.job_id,
-                        ProductionStage.SPEECH,
-                        checkpoint.to_json(),
-                    )
-
+                checkpoint = ProductionCheckpoint(self._translations.begin(revision, plan))
+            checkpoint = self._translate_units(job, plan, checkpoint)
+            speech_items, checkpoint = self._narrate_units(job, plan, checkpoint)
             self._jobs.checkpoint(
                 job.job_id, ProductionStage.AUDIO, checkpoint.to_json()
             )
             self._audio.build(
-                job.job_id, revision, tuple(speech_items), target_dir / "audio"
+                job.job_id,
+                plan.narration,
+                tuple(speech_items),
+                self._workspace.job_dir(job.job_id) / "audio",
             )
             self._jobs.require_review(job.job_id)
             LOGGER.info("Production job is ready for review", extra=context)
@@ -128,6 +83,75 @@ class ProductionWorker:
             LOGGER.exception("Production job failed", extra=context)
             self._jobs.fail(job.job_id, type(error).__name__, str(error))
         return True
+
+    def _translate_units(
+        self, job: BuildJob, plan: ProcessingPlan, checkpoint: ProductionCheckpoint
+    ) -> ProductionCheckpoint:
+        revision = self._content.get(job.article_id, job.revision)
+        reviewed = {
+            unit.unit_id: unit.unit_kind
+            for unit in self._translations.list_for_job(job.job_id)
+        }
+        for unit in plan.translation.units:
+            # A checkpointed unit must exist in the store with a matching kind;
+            # otherwise the checkpoint is stale and the unit reruns.
+            if (
+                unit.unit_id in checkpoint.accepted_translation_unit_ids
+                and reviewed.get(unit.unit_id) == _unit_kind(unit)
+            ):
+                continue
+            accepted = self._translations.translate_unit(
+                job.job_id,
+                revision,
+                plan,
+                unit,
+                checkpoint.translation_checkpoint_id,
+            )
+            reviewed[accepted.translation.block_id] = _unit_kind(unit)
+            checkpoint = checkpoint.accept_translation_unit(unit.unit_id)
+            self._jobs.checkpoint(
+                job.job_id,
+                ProductionStage.TRANSLATION,
+                checkpoint.to_json(),
+            )
+        return checkpoint
+
+    def _narrate_units(
+        self, job: BuildJob, plan: ProcessingPlan, checkpoint: ProductionCheckpoint
+    ) -> tuple[list[SentenceSpeech], ProductionCheckpoint]:
+        self._jobs.checkpoint(
+            job.job_id, ProductionStage.SPEECH, checkpoint.to_json()
+        )
+        target_dir = self._workspace.job_dir(job.job_id)
+        speech_items: list[SentenceSpeech] = []
+        cached_speech = {
+            speech.sentence_id: speech
+            for speech in self._speech.reusable_for_job(job.job_id)
+        }
+        for unit in plan.narration.units:
+            cached = cached_speech.get(unit.sentence_id)
+            if (
+                unit.sentence_id in checkpoint.synthesized_narration_unit_ids
+                and cached is not None
+            ):
+                speech_items.append(cached)
+                continue
+            # Re-check before every uncached sentence: activating a new
+            # voice profile mid-build must fail the job, not mix voices.
+            self._verify_adapter_snapshot(job)
+            speech = self._speech.synthesize_narration(
+                job.job_id,
+                unit,
+                target_dir / "pcm",
+            )
+            speech_items.append(speech)
+            checkpoint = checkpoint.accept_narration_unit(unit.sentence_id)
+            self._jobs.checkpoint(
+                job.job_id,
+                ProductionStage.SPEECH,
+                checkpoint.to_json(),
+            )
+        return speech_items, checkpoint
 
     def _verify_adapter_snapshot(self, job: BuildJob) -> None:
         if job.config.translation_adapter != self._translations.name:
@@ -145,3 +169,11 @@ class ProductionWorker:
             raise AdapterContractError("voice profile differs from the job snapshot")
         if job.config.anchor_sha256 != voice.anchor_sha256:
             raise AdapterContractError("voice anchor differs from the job snapshot")
+
+
+def _unit_kind(unit: TranslationUnit) -> UnitKind:
+    from engirdle_pc.modules.content.domain.plan import TableUnit
+
+    if isinstance(unit, TableUnit):
+        return UnitKind.TABLE
+    return UnitKind.SENTENCE

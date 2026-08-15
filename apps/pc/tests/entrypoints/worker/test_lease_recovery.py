@@ -4,8 +4,8 @@ import pytest
 
 from engirdle_pc.bootstrap.config import Settings
 from engirdle_pc.bootstrap.container import Container
-from engirdle_pc.modules.content.public import ArticleRevision, Block, NewArticle
-from engirdle_pc.modules.translation.public import TranslationBatch
+from engirdle_pc.modules.content.public import ArticleRevision, NewArticle, ProcessingPlan
+from engirdle_pc.modules.translation.public import TranslationUnit
 from engirdle_pc.shared.infrastructure.runtime import UuidIdentifierGenerator
 from tests.speech_fake import StubSpeechAdapter
 from tests.translation_fake import FakeTranslationAdapter
@@ -21,16 +21,20 @@ class CrashOnceTranslator:
         self._delegate = FakeTranslationAdapter(UuidIdentifierGenerator())
         self._crashed = False
 
-    def begin(self, revision: ArticleRevision) -> str:
-        return self._delegate.begin(revision)
+    def begin(self, revision: ArticleRevision, plan: ProcessingPlan) -> str:
+        return self._delegate.begin(revision, plan)
 
-    def translate_block(
-        self, revision: ArticleRevision, block: Block, checkpoint_id: str
-    ) -> TranslationBatch:
+    def translate_unit(
+        self,
+        revision: ArticleRevision,
+        plan: ProcessingPlan,
+        unit: TranslationUnit,
+        checkpoint_id: str,
+    ):
         if not self._crashed:
             self._crashed = True
             raise SystemExit("simulated worker process crash")
-        return self._delegate.translate_block(revision, block, checkpoint_id)
+        return self._delegate.translate_unit(revision, plan, unit, checkpoint_id)
 
 
 def test_worker_recovers_an_expired_running_lease_and_retries_safely(
