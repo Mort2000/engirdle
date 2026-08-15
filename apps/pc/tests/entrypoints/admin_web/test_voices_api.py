@@ -84,9 +84,9 @@ def test_anchor_batch_audition_confirm_and_activate_flow(
     assert activated.json()["is_active"] is True
 
     # Server-rendered pages stay in sync with the API.
-    assert client.get("/voices").status_code == 200
-    assert client.get("/voices/new").status_code == 200
-    audition = client.get(f"/voices/batches/{batch['batch_id']}")
+    assert client.get("/legacy/voices").status_code == 200
+    assert client.get("/legacy/voices/new").status_code == 200
+    audition = client.get(f"/legacy/voices/batches/{batch['batch_id']}")
     assert audition.status_code == 200
     assert "An English anchor sentence read aloud." in audition.text
 

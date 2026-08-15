@@ -2,11 +2,11 @@
 {% block title %}新建锚点候选 · Engirdle{% endblock %}
 {% block content %}
 <section class="page-heading"><p class="eyebrow">VOICE · CUSTOMVOICE</p><h1>新建英文锚点候选</h1><p>每个候选使用不同 seed 生成；生成会加载 CustomVoice 检查点，通常需要几十秒，期间本页会等待。</p></section>
-<form class="panel form" action="/voices/batches" method="post">
+<form class="panel form" action="/legacy/voices/batches" method="post">
   <label>英文 Speaker <select name="speaker">{% for speaker in speakers %}<option value="{{ speaker.name }}">{{ speaker.name }} — {{ speaker.description }}</option>{% endfor %}</select></label>
   <label>锚点朗读文本（英文，确认后必须与锚点音频逐字一致）<textarea name="anchor_text" required rows="4" maxlength="2000">{{ default_anchor_text }}</textarea></label>
   <label>风格 instruct（可选，英文）<textarea name="instruct" rows="2" maxlength="1000" placeholder="例如：Calm, steady narration at a moderate pace."></textarea></label>
   <div class="grid two"><label>起始 seed <input name="seed" type="number" value="0" min="0" required></label><label>候选数量 <input name="count" type="number" value="{{ default_candidate_count }}" min="1" max="10" required></label></div>
-  <div class="actions"><a href="/voices">取消</a><button type="submit">加载模型并生成候选</button></div>
+  <div class="actions"><a href="/legacy/voices">取消</a><button type="submit">加载模型并生成候选</button></div>
 </form>
 {% endblock %}

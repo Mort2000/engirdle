@@ -65,7 +65,7 @@ def test_user_can_produce_review_and_publish_an_article(
         "abnormal_duration_sentence_ids": [],
     }
     assert len(audio_review.json()["sentences"]) == 3
-    review_page = admin.get(f"/jobs/{job_id}")
+    review_page = admin.get(f"/legacy/jobs/{job_id}")
     assert review_page.status_code == 200
     assert "播放此句" in review_page.text
     assert "缺失 0" in review_page.text
@@ -118,7 +118,7 @@ def test_user_can_produce_review_and_publish_an_article(
             == "人工确认的第一句。"
         )
 
-    dashboard = admin.get("/")
+    dashboard = admin.get("/legacy/")
     assert "当前已发布制品" in dashboard.text
     assert "制品修订 1" in dashboard.text
     republished = admin.post(f"/api/artifacts/{package['package_id']}/republish")

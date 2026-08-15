@@ -93,7 +93,7 @@ def test_user_can_start_inspect_and_stop_isolated_publisher(tmp_path: Path) -> N
     assert started.json()["pid"] == 4312
     assert started.json()["started_at"] is not None
     assert "engirdle_pc.entrypoints.publisher.main" in launcher.commands[0]
-    dashboard = admin.get("/")
+    dashboard = admin.get("/legacy/")
     assert "运行中" in dashboard.text
     assert "没有鉴权" in dashboard.text
 

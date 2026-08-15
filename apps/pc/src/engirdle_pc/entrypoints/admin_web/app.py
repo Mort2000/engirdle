@@ -7,6 +7,7 @@ from typing import Annotated, Literal
 
 import anyio
 from fastapi import FastAPI, HTTPException, Path, status
+from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import AnyHttpUrl, BaseModel, ConfigDict, Field
 from sse_starlette import EventSourceResponse, ServerSentEvent
@@ -17,6 +18,10 @@ from engirdle_pc.entrypoints.admin_web.events import (
     JobEventState,
 )
 from engirdle_pc.entrypoints.admin_web.progress import JobProgress, derive_job_progress
+from engirdle_pc.entrypoints.admin_web.webui import (
+    ImmutableStaticFiles,
+    resolve_webui_directory,
+)
 from engirdle_pc.modules.content.public import (
     ArticleRevision,
     CodeBlock,
@@ -195,13 +200,33 @@ class ConfirmVoiceProfileRequest(RequestModel):
 
 
 def create_admin_app(
-    container: Container, *, event_poll_interval: float = 1.0
+    container: Container,
+    *,
+    event_poll_interval: float = 1.0,
+    webui_dir: FilePath | None = None,
 ) -> FastAPI:
+    """Assemble the admin application (design §3/§9).
+
+    Registration order matters: the ``/api/*`` routes are registered first,
+    the transitional legacy Jinja pages live under ``/legacy``, hashed SPA
+    assets mount at ``/assets`` with immutable caching, and a catch-all GET
+    fallback serves ``index.html`` for client-side deep links — explicitly
+    excluding the ``/api`` prefix so unknown API paths stay 404.
+
+    ``webui_dir`` overrides the webui artifact lookup (tests inject a
+    fixture directory); by default the packaged ``webui/`` or the
+    source-tree ``admin_frontend/dist`` must exist, otherwise app creation
+    fails with a readable error.
+    """
+
     @asynccontextmanager
     async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
         yield
         container.publisher_process.stop()
 
+    webui_directory = (
+        webui_dir if webui_dir is not None else resolve_webui_directory()
+    )
     app = FastAPI(title="Engirdle PC Admin", version="0.1.0", lifespan=lifespan)
     resource_root = FilePath(__file__).resolve().parent
     app.mount("/static", StaticFiles(directory=resource_root / "static"), name="static")
@@ -739,7 +764,34 @@ def create_admin_app(
 
     from engirdle_pc.entrypoints.admin_web.routes.pages import create_pages_router
 
-    app.include_router(create_pages_router(container))
+    # Transitional coexistence (design §12 step 3): the Jinja pages move
+    # under /legacy so the SPA can own "/"; they are removed in the cleanup
+    # step. Their redirects and template links point back into /legacy.
+    app.include_router(create_pages_router(container), prefix="/legacy")
+
+    # Hashed Vite assets: cache-forever responses (filenames embed a hash).
+    assets_directory = webui_directory / "assets"
+    if assets_directory.is_dir():
+        app.mount(
+            "/assets",
+            ImmutableStaticFiles(directory=assets_directory),
+            name="assets",
+        )
+
+    # SPA fallback for client-side deep links (design §9), registered last
+    # so every /api route and /legacy page above keeps precedence. index.html
+    # is served by FileResponse — never through the template engine — and is
+    # never cached, so deploys are picked up immediately.
+    @app.get("/{spa_path:path}", include_in_schema=False)
+    def spa_fallback(spa_path: str) -> FileResponse:
+        # Unknown /api paths must stay API 404s, never the SPA shell.
+        if spa_path == "api" or spa_path.startswith("api/"):
+            raise HTTPException(status_code=404, detail="Not Found")
+        return FileResponse(
+            webui_directory / "index.html",
+            headers={"Cache-Control": "no-cache"},
+        )
+
     return app
 
 

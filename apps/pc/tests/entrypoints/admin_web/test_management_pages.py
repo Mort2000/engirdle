@@ -20,16 +20,16 @@ def test_management_pages_support_article_entry_and_structure_review(
         )
     )
 
-    dashboard = client.get("/")
+    dashboard = client.get("/legacy/")
     assert dashboard.status_code == 200
     assert "翻译与 TTS 当前为验证桩" in dashboard.text
 
-    entry = client.get("/articles/new")
+    entry = client.get("/legacy/articles/new")
     assert entry.status_code == 200
     assert 'name="body"' in entry.text
 
     created = client.post(
-        "/articles",
+        "/legacy/articles",
         data={
             "title": "Page flow",
             "body": (
@@ -56,7 +56,7 @@ def test_management_pages_support_article_entry_and_structure_review(
 
     # An unclosed fence forces the warning panel onto the structure page.
     warned = client.post(
-        "/articles",
+        "/legacy/articles",
         data={
             "title": "Warned",
             "body": "Opening.\n\n```python\nnever closed",
@@ -96,7 +96,7 @@ def test_job_review_page_renders_table_translations_and_counts(
     ).json()["job_id"]
     assert container.worker.run_once() is True
 
-    page = client.get(f"/jobs/{job_id}")
+    page = client.get(f"/legacy/jobs/{job_id}")
     assert page.status_code == 200
     assert "播放此句" in page.text
     # Processing counters and the whole-table translation panel render.

@@ -4,22 +4,22 @@
 <section class="hero">
   <div><p class="eyebrow">LOCAL CONTENT WORKBENCH</p><h1>把一篇文章变成可离线阅读的制品</h1>
   <p>在本机确认文本结构、审阅译文与声音，然后发布为不可变 readpack。</p></div>
-  <a class="button" href="/articles/new">＋ 录入新文章</a>
+  <a class="button" href="/legacy/articles/new">＋ 录入新文章</a>
 </section>
 {% if verification_mode %}<aside class="notice"><strong>验证模式：</strong>翻译与 TTS 当前为验证桩。生成结果会显式标注，不会调用 DeepSeek 或加载 Qwen3-TTS。</aside>{% endif %}
 <section class="grid two">
   <div class="panel"><div class="panel-title"><h2>文章库</h2><span>{{ articles|length }} 篇</span></div>
-    {% if articles %}<div class="list">{% for article in articles %}<a class="list-row" href="/articles/{{ article.article_id }}/revisions/{{ article.revision }}"><span><strong>{{ article.title }}</strong><small>修订 {{ article.revision }} · {{ article.status.value }}</small></span><span>→</span></a>{% endfor %}</div>
+    {% if articles %}<div class="list">{% for article in articles %}<a class="list-row" href="/legacy/articles/{{ article.article_id }}/revisions/{{ article.revision }}"><span><strong>{{ article.title }}</strong><small>修订 {{ article.revision }} · {{ article.status.value }}</small></span><span>→</span></a>{% endfor %}</div>
     {% else %}<p class="empty">还没有文章。录入正文后将自动生成候选分句。</p>{% endif %}
   </div>
   <div class="panel"><div class="panel-title"><h2>生产任务</h2><span>{{ jobs|length }} 个</span></div>
-    {% if jobs %}<div class="list">{% for job in jobs %}<a class="list-row" href="/jobs/{{ job.job_id }}"><span><strong>{{ job.stage.value }}</strong><small>{{ job.article_id[:8] }} · 尝试 {{ job.attempts }}</small></span><span class="status {{ job.status.value }}">{{ job.status.value }}</span></a>{% endfor %}</div>
+    {% if jobs %}<div class="list">{% for job in jobs %}<a class="list-row" href="/legacy/jobs/{{ job.job_id }}"><span><strong>{{ job.stage.value }}</strong><small>{{ job.article_id[:8] }} · 尝试 {{ job.attempts }}</small></span><span class="status {{ job.status.value }}">{{ job.status.value }}</span></a>{% endfor %}</div>
     {% else %}<p class="empty">确认文章结构后，生产任务会出现在这里。</p>{% endif %}
   </div>
 </section>
 <section class="grid two">
   <div class="panel"><div class="panel-title"><h2>当前已发布制品</h2><span>{{ published|length }} 个</span></div>{% if published %}<div class="list">{% for item in published %}<div class="list-row"><span><strong>{{ item.title }}</strong><small>正文修订 {{ item.revision }} · 制品修订 {{ item.artifact_revision }} · {{ item.size }} bytes<br><code>{{ item.sha256[:16] }}…</code></small></span></div>{% endfor %}</div>{% else %}<p class="empty">还没有当前发布制品。</p>{% endif %}</div>
-  <div class="panel"><div class="panel-title"><h2>可重新发布制品</h2><span>{{ artifacts|length }} 个</span></div>{% if artifacts %}<div class="list">{% for artifact in artifacts %}<form class="list-row" action="/artifacts/{{ artifact.package_id }}/republish" method="post"><span><strong>{{ artifact.article_id[:8] }} · r{{ artifact.revision }}/a{{ artifact.artifact_revision }}</strong><small>{{ artifact.state }} · {{ artifact.size }} bytes</small></span><button type="submit">重新发布</button></form>{% endfor %}</div>{% else %}<p class="empty">成功构建后会保留不可变制品。</p>{% endif %}</div>
+  <div class="panel"><div class="panel-title"><h2>可重新发布制品</h2><span>{{ artifacts|length }} 个</span></div>{% if artifacts %}<div class="list">{% for artifact in artifacts %}<form class="list-row" action="/legacy/artifacts/{{ artifact.package_id }}/republish" method="post"><span><strong>{{ artifact.article_id[:8] }} · r{{ artifact.revision }}/a{{ artifact.artifact_revision }}</strong><small>{{ artifact.state }} · {{ artifact.size }} bytes</small></span><button type="submit">重新发布</button></form>{% endfor %}</div>{% else %}<p class="empty">成功构建后会保留不可变制品。</p>{% endif %}</div>
 </section>
-<section class="panel"><div class="panel-title"><h2>局域网只读服务</h2><span class="status {{ 'succeeded' if publisher.running else '' }}">{{ '运行中' if publisher.running else '已停止' }}</span></div><p>{% if catalog_available %}目录已生成。{% else %}尚无已发布制品；服务启动后目录仍会返回 404。{% endif %}</p><dl class="service-status"><div><dt>绑定地址</dt><dd><code>{{ publisher.binding_url }}</code></dd></div><div><dt>启动时间</dt><dd>{{ publisher.started_at or '—' }}</dd></div><div><dt>进程</dt><dd>{{ publisher.pid or '—' }}</dd></div></dl><aside class="notice"><strong>风险提示：</strong>此服务没有鉴权，只能在你信任的局域网中临时开启；同一网络内的设备可读取目录与全部已发布包。</aside><form action="/publisher/{{ 'stop' if publisher.running else 'start' }}" method="post"><button type="submit">{{ '停止局域网服务' if publisher.running else '启动局域网服务' }}</button></form></section>
+<section class="panel"><div class="panel-title"><h2>局域网只读服务</h2><span class="status {{ 'succeeded' if publisher.running else '' }}">{{ '运行中' if publisher.running else '已停止' }}</span></div><p>{% if catalog_available %}目录已生成。{% else %}尚无已发布制品；服务启动后目录仍会返回 404。{% endif %}</p><dl class="service-status"><div><dt>绑定地址</dt><dd><code>{{ publisher.binding_url }}</code></dd></div><div><dt>启动时间</dt><dd>{{ publisher.started_at or '—' }}</dd></div><div><dt>进程</dt><dd>{{ publisher.pid or '—' }}</dd></div></dl><aside class="notice"><strong>风险提示：</strong>此服务没有鉴权，只能在你信任的局域网中临时开启；同一网络内的设备可读取目录与全部已发布包。</aside><form action="/legacy/publisher/{{ 'stop' if publisher.running else 'start' }}" method="post"><button type="submit">{{ '停止局域网服务' if publisher.running else '启动局域网服务' }}</button></form></section>
 {% endblock %}

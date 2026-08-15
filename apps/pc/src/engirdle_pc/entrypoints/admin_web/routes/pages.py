@@ -76,17 +76,17 @@ def create_pages_router(container: Container) -> APIRouter:
     @router.post("/artifacts/{package_id}/republish")
     def republish_artifact(package_id: str) -> RedirectResponse:
         container.local_library.republish(package_id)
-        return RedirectResponse("/", status_code=303)
+        return RedirectResponse("/legacy/", status_code=303)
 
     @router.post("/publisher/start")
     def start_publisher() -> RedirectResponse:
         container.publisher_process.start()
-        return RedirectResponse("/", status_code=303)
+        return RedirectResponse("/legacy/", status_code=303)
 
     @router.post("/publisher/stop")
     def stop_publisher() -> RedirectResponse:
         container.publisher_process.stop()
-        return RedirectResponse("/", status_code=303)
+        return RedirectResponse("/legacy/", status_code=303)
 
     @router.get("/articles/new")
     def article_entry(request: Request) -> object:
@@ -114,7 +114,7 @@ def create_pages_router(container: Container) -> APIRouter:
             )
         )
         return RedirectResponse(
-            f"/articles/{revision.article_id}/revisions/{revision.revision}",
+            f"/legacy/articles/{revision.article_id}/revisions/{revision.revision}",
             status_code=303,
         )
 
@@ -149,7 +149,7 @@ def create_pages_router(container: Container) -> APIRouter:
             ),
         )
         return RedirectResponse(
-            f"/articles/{article_id}/revisions/{revision.revision}", status_code=303
+            f"/legacy/articles/{article_id}/revisions/{revision.revision}", status_code=303
         )
 
     @router.get("/articles/{article_id}/revisions/{revision_number}")
@@ -195,7 +195,7 @@ def create_pages_router(container: Container) -> APIRouter:
             edited_blocks_from_request(request.blocks),
         )
         return RedirectResponse(
-            f"/articles/{article_id}/revisions/{revision_number}", status_code=303
+            f"/legacy/articles/{article_id}/revisions/{revision_number}", status_code=303
         )
 
     @router.post("/articles/{article_id}/revisions/{revision_number}/approve")
@@ -204,14 +204,14 @@ def create_pages_router(container: Container) -> APIRouter:
     ) -> RedirectResponse:
         approved = container.content.approve(article_id, revision_number)
         job = container.production.queue(approved)
-        return RedirectResponse(f"/jobs/{job.job_id}", status_code=303)
+        return RedirectResponse(f"/legacy/jobs/{job.job_id}", status_code=303)
 
     @router.post("/articles/{article_id}/revisions/{revision_number}/rebuild")
     def rebuild_revision(article_id: str, revision_number: int) -> RedirectResponse:
         job = container.production.queue(
             container.content.get(article_id, revision_number)
         )
-        return RedirectResponse(f"/jobs/{job.job_id}", status_code=303)
+        return RedirectResponse(f"/legacy/jobs/{job.job_id}", status_code=303)
 
     @router.post("/articles/{article_id}/delete")
     def delete_article(
@@ -221,7 +221,7 @@ def create_pages_router(container: Container) -> APIRouter:
             container.local_library.delete_article(article_id, confirmation)
         except ValueError as error:
             raise HTTPException(status_code=409, detail=str(error)) from error
-        return RedirectResponse("/", status_code=303)
+        return RedirectResponse("/legacy/", status_code=303)
 
     @router.get("/jobs/{job_id}")
     def job_review(request: Request, job_id: str) -> object:
@@ -264,7 +264,7 @@ def create_pages_router(container: Container) -> APIRouter:
     ) -> RedirectResponse:
         container.production.require_review(job_id)
         container.translations.edit_sentence(job_id, sentence_id, text_zh)
-        return RedirectResponse(f"/jobs/{job_id}", status_code=303)
+        return RedirectResponse(f"/legacy/jobs/{job_id}", status_code=303)
 
     @router.post("/jobs/{job_id}/table-translations/{block_id}")
     async def save_table_translation(
@@ -294,17 +294,17 @@ def create_pages_router(container: Container) -> APIRouter:
             )
         except KeyError as error:
             raise HTTPException(status_code=404, detail=str(error)) from error
-        return RedirectResponse(f"/jobs/{job_id}", status_code=303)
+        return RedirectResponse(f"/legacy/jobs/{job_id}", status_code=303)
 
     @router.post("/jobs/{job_id}/retry")
     def retry_job(job_id: str) -> RedirectResponse:
         container.production.retry(job_id)
-        return RedirectResponse(f"/jobs/{job_id}", status_code=303)
+        return RedirectResponse(f"/legacy/jobs/{job_id}", status_code=303)
 
     @router.post("/jobs/{job_id}/publish")
     def publish_job(job_id: str) -> RedirectResponse:
         container.release.release(job_id)
-        return RedirectResponse(f"/jobs/{job_id}", status_code=303)
+        return RedirectResponse(f"/legacy/jobs/{job_id}", status_code=303)
 
     @router.get("/voices")
     def voices_overview(request: Request) -> object:
@@ -350,7 +350,7 @@ def create_pages_router(container: Container) -> APIRouter:
             seed=seed,
             count=count,
         )
-        return RedirectResponse(f"/voices/batches/{batch.batch_id}", status_code=303)
+        return RedirectResponse(f"/legacy/voices/batches/{batch.batch_id}", status_code=303)
 
     @router.get("/voices/batches/{batch_id}")
     def audition_voice_batch(request: Request, batch_id: str) -> object:
@@ -371,12 +371,12 @@ def create_pages_router(container: Container) -> APIRouter:
             candidate_index,
             voice_profile_id=voice_profile_id or None,
         )
-        return RedirectResponse("/voices", status_code=303)
+        return RedirectResponse("/legacy/voices", status_code=303)
 
     @router.post("/voices/profiles/{voice_profile_id}/{revision}/activate")
     def activate_voice_profile(voice_profile_id: str, revision: int) -> RedirectResponse:
         container.voices.activate(voice_profile_id, revision)
-        return RedirectResponse("/voices", status_code=303)
+        return RedirectResponse("/legacy/voices", status_code=303)
 
     return router
 
