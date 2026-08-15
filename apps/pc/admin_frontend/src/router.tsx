@@ -12,9 +12,9 @@ import { VoicesPage } from "@/features/voices/VoicesPage"
 import { VoiceNewPage } from "@/features/voices/VoiceNewPage"
 import { VoiceBatchPage } from "@/features/voices/VoiceBatchPage"
 
-// 路由表：设计 §5.1。全部页面挂在 AppShell 布局（设计 §6.1）下；
-// 未知路由由 NotFoundPage 兜底（服务端 SPA fallback 返回 index.html）。
-// 功能页当前为占位实现，按 §12 步骤 4 逐页接入。
+// 路由表：设计 §5.1。全部页面挂在 AppShell 布局（设计 §6.1）下，
+// 均为功能实现；未知路由由 NotFoundPage 兜底（服务端 SPA fallback
+// 返回 index.html）。
 export const router = createBrowserRouter([
   {
     element: <AppShell />,
