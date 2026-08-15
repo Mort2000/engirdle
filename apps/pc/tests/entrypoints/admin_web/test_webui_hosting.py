@@ -4,8 +4,9 @@ Uses a minimal fixture webui directory (``index.html`` plus a hashed-style
 asset) instead of a real npm build to verify:
 
 - the SPA fallback serves ``index.html`` via FileResponse with no-cache for
-  ``/`` and client-side deep links;
-- unknown ``/api`` paths stay JSON 404s (never the SPA shell);
+  ``/`` and client-side deep links (GET and HEAD alike);
+- unknown ``/api`` paths stay JSON 404s under every method while
+  wrong-method hits on real endpoints keep 405 (never the SPA shell);
 - the transitional legacy Jinja pages stay reachable under ``/legacy``
   with their ``/static`` resources still mounted;
 - ``/assets/*`` responses carry the immutable cache header;
@@ -118,6 +119,60 @@ def test_api_404_passes_through_the_spa_fallback(
     assert missing.status_code == 404
     assert SPA_MARKER not in missing.text
     assert missing.json()["detail"] == "Not Found"
+
+
+def test_unknown_api_paths_stay_404_under_every_method(
+    tmp_path: Path, webui_dir: Path, fake_translator: Any, fake_speech: Any
+) -> None:
+    """The all-method SPA fallback must not turn API misses into 405s."""
+    client = _make_client(tmp_path, fake_translator, fake_speech, webui_dir)
+
+    for request in (
+        client.get("/api/definitely-not-a-route"),
+        client.post("/api/definitely-not-a-route"),
+        client.head("/api/definitely-not-a-route"),
+        client.put("/api/definitely-not-a-route"),
+    ):
+        assert request.status_code == 404
+        assert SPA_MARKER not in request.text
+
+
+def test_wrong_method_on_real_api_route_keeps_405(
+    tmp_path: Path, webui_dir: Path, fake_translator: Any, fake_speech: Any
+) -> None:
+    """/api/health exists for GET only; other methods stay Method Not Allowed."""
+    client = _make_client(tmp_path, fake_translator, fake_speech, webui_dir)
+
+    assert client.get("/api/health").status_code == 200
+    assert client.post("/api/health").status_code == 405
+    assert client.head("/api/health").status_code == 405
+
+
+def test_head_requests_serve_the_spa_shell(
+    tmp_path: Path, webui_dir: Path, fake_translator: Any, fake_speech: Any
+) -> None:
+    client = _make_client(tmp_path, fake_translator, fake_speech, webui_dir)
+
+    for path in ("/", "/jobs/0197-editor-picks"):
+        response = client.head(path)
+        assert response.status_code == 200
+        assert response.headers["cache-control"] == "no-cache"
+
+
+def test_legacy_index_redirects_to_trailing_slash(
+    tmp_path: Path, webui_dir: Path, fake_translator: Any, fake_speech: Any
+) -> None:
+    """/legacy (no slash) must reach the legacy workbench, not the SPA shell."""
+    client = _make_client(tmp_path, fake_translator, fake_speech, webui_dir)
+
+    redirect = client.get("/legacy", follow_redirects=False)
+    assert redirect.status_code == 307
+    assert redirect.headers["location"] == "/legacy/"
+
+    followed = client.get("/legacy")
+    assert followed.status_code == 200
+    assert "内容生产端" in followed.text
+    assert SPA_MARKER not in followed.text
 
 
 def test_legacy_pages_stay_reachable_with_static_resources(

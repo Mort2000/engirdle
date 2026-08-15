@@ -6,11 +6,12 @@ from pathlib import Path as FilePath
 from typing import Annotated, Literal
 
 import anyio
-from fastapi import FastAPI, HTTPException, Path, status
-from fastapi.responses import FileResponse
+from fastapi import FastAPI, HTTPException, Path, Request, status
+from fastapi.responses import FileResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import AnyHttpUrl, BaseModel, ConfigDict, Field
 from sse_starlette import EventSourceResponse, ServerSentEvent
+from starlette.routing import Match
 
 from engirdle_pc.bootstrap.container import Container
 from engirdle_pc.entrypoints.admin_web.events import (
@@ -209,9 +210,10 @@ def create_admin_app(
 
     Registration order matters: the ``/api/*`` routes are registered first,
     the transitional legacy Jinja pages live under ``/legacy``, hashed SPA
-    assets mount at ``/assets`` with immutable caching, and a catch-all GET
+    assets mount at ``/assets`` with immutable caching, and a catch-all
     fallback serves ``index.html`` for client-side deep links — explicitly
-    excluding the ``/api`` prefix so unknown API paths stay 404.
+    excluding the ``/api`` prefix so unknown API paths stay 404 (under any
+    method) and wrong-method hits on real endpoints keep their 405.
 
     ``webui_dir`` overrides the webui artifact lookup (tests inject a
     fixture directory); by default the packaged ``webui/`` or the
@@ -778,21 +780,54 @@ def create_admin_app(
             name="assets",
         )
 
+    # ``/legacy`` without the trailing slash would otherwise land on the SPA
+    # fallback (the catch-all shadows Starlette's redirect_slashes), so the
+    # transition prefix gets an explicit redirect to the legacy workbench.
+    @app.get("/legacy", include_in_schema=False)
+    def legacy_index_redirect() -> RedirectResponse:
+        return RedirectResponse(url="/legacy/", status_code=307)
+
     # SPA fallback for client-side deep links (design §9), registered last
     # so every /api route and /legacy page above keeps precedence. index.html
     # is served by FileResponse — never through the template engine — and is
     # never cached, so deploys are picked up immediately.
-    @app.get("/{spa_path:path}", include_in_schema=False)
-    def spa_fallback(spa_path: str) -> FileResponse:
-        # Unknown /api paths must stay API 404s, never the SPA shell.
+    @app.api_route(
+        "/{spa_path:path}",
+        methods=["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+        include_in_schema=False,
+    )
+    def spa_fallback(spa_path: str, request: Request) -> FileResponse:
+        # Unknown /api paths must stay API 404s under every method, never
+        # the SPA shell; wrong-method hits on real endpoints keep the 405
+        # the router would answer without the fallback.
         if spa_path == "api" or spa_path.startswith("api/"):
+            if _partial_match_exists(request, skip_endpoint=spa_fallback):
+                raise HTTPException(status_code=405, detail="Method Not Allowed")
             raise HTTPException(status_code=404, detail="Not Found")
+        if request.method not in ("GET", "HEAD"):
+            raise HTTPException(status_code=405, detail="Method Not Allowed")
         return FileResponse(
             webui_directory / "index.html",
             headers={"Cache-Control": "no-cache"},
         )
 
     return app
+
+
+def _partial_match_exists(request: Request, *, skip_endpoint: object) -> bool:
+    """Whether another route matches the request path but not its method.
+
+    The all-method SPA fallback swallows those requests before the router
+    can answer 405 itself; re-checking the remaining routes keeps the
+    pre-SPA semantics intact (405 on real endpoints, 404 on unknown paths).
+    """
+    for route in request.app.router.routes:
+        if getattr(route, "endpoint", None) is skip_endpoint:
+            continue
+        match, _child_scope = route.matches(request.scope)
+        if match is Match.PARTIAL:
+            return True
+    return False
 
 
 def _revision_payload(revision: ArticleRevision) -> dict[str, object]:

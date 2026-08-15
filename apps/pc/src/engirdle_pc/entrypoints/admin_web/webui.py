@@ -65,9 +65,9 @@ class ImmutableStaticFiles(StaticFiles):
     ``Cache-Control: public, max-age=31536000, immutable``.
     """
 
-    def file_response(  # type: ignore[override]
+    def file_response(
         self,
-        full_path: os.PathLike[str],
+        full_path: str | os.PathLike[str],
         stat_result: os.stat_result,
         scope: Scope,
         status_code: int = 200,

@@ -1,15 +1,34 @@
-import { fireEvent, render, screen } from "@testing-library/react"
+import { act, fireEvent, render, screen } from "@testing-library/react"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { ThemeProvider, useTheme } from "@/lib/theme"
 
 const STORAGE_KEY = "engirdle-admin-theme"
 
-function mockSystemTheme(dark: boolean) {
+type SystemListener = (event: { matches: boolean }) => void
+
+/** Stub window.matchMedia with a controllable prefers-color-scheme query. */
+function mockSystemTheme(initialDark: boolean) {
+  const listeners = new Set<SystemListener>()
+  let dark = initialDark
   vi.stubGlobal(
     "matchMedia",
-    vi.fn().mockReturnValue({ matches: dark, addEventListener: vi.fn() }),
+    vi.fn().mockReturnValue({
+      get matches() {
+        return dark
+      },
+      addEventListener: (_type: string, listener: SystemListener) =>
+        listeners.add(listener),
+      removeEventListener: (_type: string, listener: SystemListener) =>
+        listeners.delete(listener),
+    }),
   )
+  return {
+    setDark(next: boolean) {
+      dark = next
+      listeners.forEach((listener) => listener({ matches: next }))
+    },
+  }
 }
 
 function ThemeProbe() {
@@ -28,7 +47,7 @@ afterEach(() => {
 })
 
 describe("ThemeProvider", () => {
-  it("无存储偏好时默认跟随系统深色", () => {
+  it("无存储偏好时默认跟随系统深色且不写入存储", () => {
     mockSystemTheme(true)
 
     render(
@@ -39,7 +58,24 @@ describe("ThemeProvider", () => {
 
     expect(document.documentElement).toHaveClass("dark")
     expect(screen.getByTestId("dark")).toBeInTheDocument()
-    expect(window.localStorage.getItem(STORAGE_KEY)).toBe("dark")
+    // 系统推导值不持久化：首次访问不锁定主题，系统变化仍被跟随。
+    expect(window.localStorage.getItem(STORAGE_KEY)).toBeNull()
+  })
+
+  it("未显式选择时运行期间跟随系统主题变化", () => {
+    const system = mockSystemTheme(true)
+
+    render(
+      <ThemeProvider>
+        <ThemeProbe />
+      </ThemeProvider>,
+    )
+
+    act(() => system.setDark(false))
+
+    expect(screen.getByTestId("light")).toBeInTheDocument()
+    expect(document.documentElement).not.toHaveClass("dark")
+    expect(window.localStorage.getItem(STORAGE_KEY)).toBeNull()
   })
 
   it("切换主题会同步 .dark class 并持久化", () => {
@@ -69,5 +105,20 @@ describe("ThemeProvider", () => {
 
     expect(document.documentElement).toHaveClass("dark")
     expect(screen.getByTestId("dark")).toBeInTheDocument()
+  })
+
+  it("显式选择后不再跟随系统主题变化", () => {
+    const system = mockSystemTheme(true)
+    render(
+      <ThemeProvider>
+        <ThemeProbe />
+      </ThemeProvider>,
+    )
+
+    fireEvent.click(screen.getByRole("button"))
+    act(() => system.setDark(true))
+
+    expect(screen.getByTestId("light")).toBeInTheDocument()
+    expect(document.documentElement).not.toHaveClass("dark")
   })
 })
