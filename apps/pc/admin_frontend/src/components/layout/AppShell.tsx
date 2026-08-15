@@ -17,6 +17,7 @@ import { Button } from "@/components/ui/button"
 import { Toaster } from "@/components/ui/sonner"
 import { cn } from "@/lib/utils"
 import { useTheme } from "@/lib/theme"
+import { useDashboardSummary } from "@/api/hooks/dashboard"
 
 const NAV_ITEMS = [
   { to: "/", label: "工作台", icon: LayoutDashboard },
@@ -49,12 +50,15 @@ function AppToaster() {
 /**
  * 应用框架布局（设计 §6.1）：可折叠左侧导航 + 内容区。
  *
- * 底部为主题切换与适配器状态徽标占位——徽标为框架页占位
- * （stub 验证模式警示），后续功能页阶段接入 /api/dashboard/summary
- * 的 verification_mode 后替换为真实状态。
+ * 底部为主题切换与适配器状态徽标（§6.1：stub 验证模式警示）。
+ * 徽标按 /api/dashboard/summary 的 verification_mode 门控——仅在翻译或
+ * TTS 适配器为验证桩时渲染；查询加载中/失败（data 为 undefined）时不
+ * 渲染，避免在真实适配器部署下误报。
  */
 export function AppShell() {
   const [collapsed, setCollapsed] = useState(false)
+  const summaryQuery = useDashboardSummary()
+  const verificationMode = summaryQuery.data?.verification_mode ?? false
 
   return (
     <div className="flex min-h-screen bg-background">
@@ -100,11 +104,11 @@ export function AppShell() {
         </nav>
 
         <div className="space-y-2 border-t px-2 py-3">
-          {!collapsed && (
+          {!collapsed && verificationMode && (
             <Badge
               variant="outline"
               className="w-full justify-center gap-1.5 border-amber-500/50 text-amber-600 dark:text-amber-400"
-              title="翻译 / TTS 适配器运行于验证桩（占位，稍后接入 dashboard summary）"
+              title="翻译 / TTS 适配器运行于验证桩模式，不会调用真实服务（详见工作台提示）"
             >
               <TriangleAlert aria-hidden="true" />
               验证桩模式
