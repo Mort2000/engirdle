@@ -8,22 +8,19 @@
  *   提供重建与新修订入口；删除文章走 AlertDialog 且要求输入文章 ID。
  */
 
-import { useMemo, useState } from "react"
+import { useMemo } from "react"
 import { Link, useNavigate, useParams } from "react-router"
 import { toast } from "sonner"
 
 import {
   useApproveRevisionMutation,
   useArticle,
-  useDeleteArticleMutation,
   useEditStructureMutation,
   useRebuildRevisionMutation,
 } from "@/api/hooks/articles"
 import { useStructureReport } from "@/api/hooks/jobs"
 import type { EditStructurePayload } from "@/features/articles/editedBlockSchema"
-import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
-import { Input } from "@/components/ui/input"
 import { Skeleton } from "@/components/ui/skeleton"
 import {
   Table,
@@ -33,37 +30,14 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table"
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-  AlertDialogTrigger,
-} from "@/components/ui/alert-dialog"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { PageHeader } from "@/components/layout/PageHeader"
 import {
   BlockListEditor,
 } from "@/features/articles/BlockListEditor"
+import { DeleteArticleDialog } from "@/features/articles/DeleteArticleDialog"
+import { ArticleStatusBadge } from "@/features/articles/ArticleStatusBadge"
 import { blocksFromRevisionPayload } from "@/features/articles/editedBlockSchema"
-
-const STATUS_BADGE_CLASS: Record<string, string> = {
-  draft: "bg-zinc-100 text-zinc-700 dark:bg-zinc-800 dark:text-zinc-300",
-  structured: "bg-blue-100 text-blue-700 dark:bg-blue-950 dark:text-blue-300",
-  approved: "bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300",
-  published: "bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300",
-}
-
-const STATUS_LABEL: Record<string, string> = {
-  draft: "草稿",
-  structured: "已解析",
-  approved: "已冻结",
-  published: "已发布",
-}
 
 function StructureTreeSkeleton() {
   return (
@@ -95,8 +69,6 @@ export function ArticleStructurePage() {
     articleId ?? "",
     validRevision ?? -1,
   )
-  const deleteMutation = useDeleteArticleMutation()
-  const [deleteConfirmation, setDeleteConfirmation] = useState("")
 
   const article = articleQuery.data
   const report = reportQuery.data
@@ -147,24 +119,6 @@ export function ArticleStructurePage() {
     }
   }
 
-  const onDelete = async () => {
-    if (!articleId || deleteConfirmation !== articleId) {
-      return
-    }
-    try {
-      await deleteMutation.mutateAsync({
-        articleId,
-        confirmation: deleteConfirmation,
-      })
-      toast.success("文章已移入回收站")
-      navigate("/")
-    } catch (error) {
-      toast.error(
-        error instanceof Error ? error.message : "删除失败，请重试",
-      )
-    }
-  }
-
   return (
     <div className="space-y-6">
       <PageHeader
@@ -178,9 +132,7 @@ export function ArticleStructurePage() {
         actions={
           article ? (
             <div className="flex items-center gap-2">
-              <Badge className={STATUS_BADGE_CLASS[article.status] ?? ""}>
-                {STATUS_LABEL[article.status] ?? article.status}
-              </Badge>
+              <ArticleStatusBadge status={article.status} />
               <span className="text-sm text-muted-foreground">
                 修订 {article.revision} · {article.blocks.length} 个块
               </span>
@@ -331,37 +283,11 @@ export function ArticleStructurePage() {
               已下载到移动端的内容不受影响。源文件、工作文件和制品将移入可
               恢复 trash。
             </p>
-            <AlertDialog>
-              <AlertDialogTrigger asChild>
-                <Button variant="destructive" className="mt-4">
-                  删除本地文章
-                </Button>
-              </AlertDialogTrigger>
-              <AlertDialogContent>
-                <AlertDialogHeader>
-                  <AlertDialogTitle>删除本地文章</AlertDialogTitle>
-                  <AlertDialogDescription>
-                    此操作将 {article.article_id} 的源文件、工作文件和制品移入
-                    可恢复 trash。输入文章 ID 以确认。
-                  </AlertDialogDescription>
-                </AlertDialogHeader>
-                <Input
-                  value={deleteConfirmation}
-                  onChange={(event) => setDeleteConfirmation(event.target.value)}
-                  placeholder={article.article_id}
-                  aria-label="输入文章 ID 以确认"
-                />
-                <AlertDialogFooter>
-                  <AlertDialogCancel>取消</AlertDialogCancel>
-                  <AlertDialogAction
-                    disabled={deleteConfirmation !== article.article_id}
-                    onClick={onDelete}
-                  >
-                    确认删除
-                  </AlertDialogAction>
-                </AlertDialogFooter>
-              </AlertDialogContent>
-            </AlertDialog>
+            <DeleteArticleDialog
+              articleId={article.article_id}
+              onDeleted={() => navigate("/")}
+              triggerClassName="mt-4"
+            />
           </section>
         </>
       )}
