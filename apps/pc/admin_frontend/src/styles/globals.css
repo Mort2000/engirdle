@@ -57,6 +57,20 @@
   --ring: var(--color-indigo-500);
 }
 
+/* 进度条 indeterminate 动画（§8.4：无单元刻度阶段的流动条）。 */
+@theme {
+  --animate-progress-indeterminate: progress-indeterminate 1.6s ease-in-out infinite;
+
+  @keyframes progress-indeterminate {
+    from {
+      transform: translateX(-100%);
+    }
+    to {
+      transform: translateX(400%);
+    }
+  }
+}
+
 @theme inline {
   --font-sans: system-ui, "PingFang SC", "Microsoft YaHei", sans-serif;
   --font-mono: ui-monospace, "JetBrains Mono", monospace;
