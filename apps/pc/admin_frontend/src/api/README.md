@@ -2,9 +2,10 @@
 
 后端契约层：
 
-- `client.ts`：`/api/*` 请求封装（fetch + 错误语义）（后续阶段填充）。
+- `client.ts`：`/api/*` 请求封装（fetch + 错误语义：非 2xx 抛 `ApiError`，携带后端 `detail`）。
+- `jobs.ts`：任务域载荷类型（后端返回 `dict[str, object]`，OpenAPI 生成类型为 unknown 记录，此处按 app.py 实际组装形状窄化）与请求函数。
 - `types.generated.ts`：`npm run gen:api` 生成的 OpenAPI 类型，禁止手改。
-- `hooks/`：TanStack Query 数据 hooks（含任务详情 SSE 事件驱动的缓存失效）（后续阶段填充）。
+- `hooks/`：TanStack Query 数据 hooks 与 SSE 实时流（`useJobStream`：事件驱动缓存更新 + 断连降级 5s 轮询）。
 
 ## 契约生成
 
