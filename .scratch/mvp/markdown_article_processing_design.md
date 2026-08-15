@@ -1,6 +1,6 @@
 # Engirdle Markdown 文章处理与移动端渲染方案
 
-> 文档状态：实现方案候选，当前代码尚未实现本文能力<br>
+> 文档状态：已实施（PC content 解析、翻译/朗读计划分流、Readpack 1.1、移动端导入与渲染及配套测试已落地）<br>
 > 更新时间：2026-08-14<br>
 > 适用范围：PC 文章录入、结构化、DeepSeek 翻译、Qwen3-TTS、Readpack 和 Flutter Android 阅读器<br>
 > 总体设计：[mvp_design.md](./mvp_design.md)<br>
