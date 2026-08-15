@@ -9,12 +9,18 @@ from sqlalchemy.orm import Session
 from engirdle_pc.modules.content.domain.entities import (
     ArticleRevision,
     Block,
-    BlockKind,
     RevisionStatus,
     Sentence,
     SourceAttribution,
+    TextBlock,
 )
 from engirdle_pc.modules.content.domain.errors import ContentNotFound, ImmutableRevision
+from engirdle_pc.modules.content.infrastructure.block_codec import (
+    block_from_row,
+    block_payload,
+    runs_from_render,
+    sentence_render,
+)
 from engirdle_pc.modules.content.infrastructure.orm import (
     ArticleRecord,
     ArticleRevisionRecord,
@@ -225,21 +231,24 @@ def _insert_blocks(session: Session, revision: ArticleRevision) -> None:
                 block_id=block.block_id,
                 kind=block.kind.value,
                 block_order=block.order,
+                payload_json=block_payload(block),
             )
         )
-        session.add_all(
-            [
-                ContentSentenceRecord(
-                    article_id=revision.article_id,
-                    revision=revision.revision,
-                    block_id=block.block_id,
-                    sentence_id=sentence.sentence_id,
-                    sentence_order=sentence.order,
-                    text=sentence.text,
-                )
-                for sentence in block.sentences
-            ]
-        )
+        if isinstance(block, TextBlock):
+            session.add_all(
+                [
+                    ContentSentenceRecord(
+                        article_id=revision.article_id,
+                        revision=revision.revision,
+                        block_id=block.block_id,
+                        sentence_id=sentence.sentence_id,
+                        sentence_order=sentence.order,
+                        text=sentence.text,
+                        render_json=sentence_render(sentence),
+                    )
+                    for sentence in block.sentences
+                ]
+            )
 
 
 def _map_revision(
@@ -264,19 +273,22 @@ def _map_revision(
             )
             .order_by(ContentSentenceRecord.sentence_order)
         )
+        sentences = [
+            Sentence(
+                sentence_id=sentence_record.sentence_id,
+                order=sentence_record.sentence_order,
+                text=sentence_record.text,
+                runs=runs_from_render(sentence_record.render_json),
+            )
+            for sentence_record in sentence_records
+        ]
         blocks.append(
-            Block(
-                block_id=block_record.block_id,
-                kind=BlockKind(block_record.kind),
-                order=block_record.block_order,
-                sentences=tuple(
-                    Sentence(
-                        sentence_id=sentence_record.sentence_id,
-                        order=sentence_record.sentence_order,
-                        text=sentence_record.text,
-                    )
-                    for sentence_record in sentence_records
-                ),
+            block_from_row(
+                block_record.kind,
+                block_record.block_id,
+                block_record.block_order,
+                block_record.payload_json,
+                sentences,
             )
         )
     return ArticleRevision(

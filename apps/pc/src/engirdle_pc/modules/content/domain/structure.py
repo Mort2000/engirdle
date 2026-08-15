@@ -1,186 +1,120 @@
 from __future__ import annotations
 
 import json
-import re
-import unicodedata
 from collections.abc import Iterable
+from dataclasses import replace
 
 from engirdle_pc.modules.content.domain.entities import (
     Block,
-    BlockKind,
+    CodeBlock,
+    DividerBlock,
     EditedBlock,
+    EditedCodeBlock,
+    EditedDividerBlock,
+    EditedTableBlock,
+    EditedTextBlock,
+    InlineRun,
     Sentence,
+    TableBlock,
+    TableCell,
+    TextBlock,
+    TextBlockStyle,
 )
 from engirdle_pc.modules.content.domain.errors import InvalidContent
 from engirdle_pc.shared.domain.hashing import sha256_text
 
-_LIST_MARKER = re.compile(r"^\s*(?:[-*+]\s+|\d+[.)]\s+)(.+)$")
-
 # Versioned identifier for the segmentation algorithm owned by this module. A
 # change to segmentation MUST bump this so the published manifest records which
 # segmenter produced the structure, and stored structure hashes stay traceable
-# to the algorithm revision that produced them. Sourced here (where the
-# algorithm lives) rather than hardcoded by the production module.
-SEGMENTER_VERSION = "engirdle-segmenter@1"
-_NONTERMINAL_ABBREVIATIONS = {
-    "dr",
-    "e.g",
-    "fig",
-    "i.e",
-    "jr",
-    "mr",
-    "mrs",
-    "ms",
-    "no",
-    "prof",
-    "sr",
-    "st",
-    "vs",
-}
-_CLOSING_PUNCTUATION = {'"', "'", "\u2019", "\u201d", ")", "]"}
-_SMART_CHARACTERS = str.maketrans(
-    {
-        "\u2018": "'",
-        "\u2019": "'",
-        "\u201c": '"',
-        "\u201d": '"',
-        "\u2013": "-",
-        "\u2014": "--",
-        "\u00a0": " ",
-    }
-)
+# to the algorithm revision that produced them. Bumped to @2 with the markdown
+# document model: sentences are now spans of visible plain text with inline
+# runs sliced to match (design §5.3).
+SEGMENTER_VERSION = "engirdle-segmenter@2"
 
 
-def normalize_text(raw_text: str) -> str:
-    normalized = unicodedata.normalize("NFKC", raw_text.replace("\r\n", "\n").replace("\r", "\n"))
-    normalized = normalized.translate(_SMART_CHARACTERS)
-    normalized = "".join(
-        character
-        for character in normalized
-        if character in "\n\t" or unicodedata.category(character) != "Cc"
+def structure_sha256(blocks: Iterable[Block]) -> str:
+    """Canonical structure hash over the typed block union (design §5.2.9).
+
+    Covers block types, type-specific fields, sentences, inline runs, table
+    structure and code content so any structural change alters the hash.
+    """
+    payload = [_block_payload(block) for block in blocks]
+    canonical = json.dumps(
+        payload, ensure_ascii=False, sort_keys=True, separators=(",", ":")
     )
-    lines = [re.sub(r"[\t ]+", " ", line).strip() for line in normalized.split("\n")]
-    result: list[str] = []
-    previous_blank = True
-    for line in lines:
-        if line:
-            result.append(line)
-            previous_blank = False
-        elif not previous_blank:
-            result.append("")
-            previous_blank = True
-    return "\n".join(result).strip()
+    return sha256_text(canonical)
 
 
-def segment_text(normalized_text: str) -> tuple[Block, ...]:
-    if not normalized_text.strip():
-        raise InvalidContent("article body must not be empty")
-    candidates: list[tuple[BlockKind, str]] = []
-    for chunk in re.split(r"\n\s*\n", normalized_text):
-        lines = [line.strip() for line in chunk.splitlines() if line.strip()]
-        if not lines:
-            continue
-        if all(_LIST_MARKER.match(line) for line in lines):
-            for line in lines:
-                match = _LIST_MARKER.match(line)
-                assert match is not None
-                candidates.append((BlockKind.LIST_ITEM, match.group(1).strip()))
-        elif all(line.startswith(">") for line in lines):
-            candidates.append((BlockKind.QUOTE, " ".join(line[1:].strip() for line in lines)))
-        else:
-            candidates.append((BlockKind.PARAGRAPH, " ".join(lines)))
-
-    sentence_number = 1
-    blocks: list[Block] = []
-    for block_order, (kind, text) in enumerate(candidates):
-        sentences: list[Sentence] = []
-        for sentence_order, sentence_text in enumerate(_split_sentences(text)):
-            if sentence_text:
-                sentences.append(
-                    Sentence(
-                        sentence_id=f"sentence-{sentence_number}",
-                        order=sentence_order,
-                        text=sentence_text,
-                    )
-                )
-                sentence_number += 1
-        if sentences:
-            blocks.append(
-                Block(
-                    block_id=f"block-{block_order + 1}",
-                    kind=kind,
-                    order=block_order,
-                    sentences=tuple(sentences),
-                )
-            )
-    if not blocks:
-        raise InvalidContent("article must contain at least one non-empty block")
-    return tuple(blocks)
+def _block_payload(block: Block) -> dict[str, object]:
+    base: dict[str, object] = {
+        "block_id": block.block_id,
+        "kind": block.kind.value,
+        "order": block.order,
+    }
+    if isinstance(block, TextBlock):
+        base["style"] = block.style.value
+        if block.heading_level is not None:
+            base["heading_level"] = block.heading_level
+        if block.list_kind is not None:
+            base["list_kind"] = block.list_kind.value
+            base["list_depth"] = block.list_depth
+        if block.list_ordinal is not None:
+            base["list_ordinal"] = block.list_ordinal
+        if block.quote_depth:
+            base["quote_depth"] = block.quote_depth
+        base["sentences"] = [
+            {
+                "sentence_id": sentence.sentence_id,
+                "order": sentence.order,
+                "text": sentence.text,
+                "runs": [
+                    {
+                        "kind": run.kind.value,
+                        "text": run.text,
+                        **({"href": run.href} if run.href is not None else {}),
+                    }
+                    for run in sentence.runs
+                ],
+            }
+            for sentence in block.sentences
+        ]
+    elif isinstance(block, TableBlock):
+        base["alignments"] = [alignment.value for alignment in block.alignments]
+        base["header"] = [_cell_payload(cell) for cell in block.header]
+        base["rows"] = [[_cell_payload(cell) for cell in row] for row in block.rows]
+    elif isinstance(block, CodeBlock):
+        base["language"] = block.language
+        base["code"] = block.code
+    return base
 
 
-def _split_sentences(text: str) -> tuple[str, ...]:
-    sentences: list[str] = []
-    start = 0
-    index = 0
-    while index < len(text):
-        character = text[index]
-        if character not in ".!?":
-            index += 1
-            continue
-        if character == "." and _period_is_nonterminal(text, index):
-            index += 1
-            continue
-        end = index + 1
-        while end < len(text) and text[end] in ".!?":
-            end += 1
-        while end < len(text) and text[end] in _CLOSING_PUNCTUATION:
-            end += 1
-        next_start = end
-        while next_start < len(text) and text[next_start].isspace():
-            next_start += 1
-        if next_start < len(text) and text[next_start].islower():
-            index = end
-            continue
-        sentence = text[start:end].strip()
-        if sentence:
-            sentences.append(sentence)
-        start = next_start
-        index = next_start
-    remainder = text[start:].strip()
-    if remainder:
-        sentences.append(remainder)
-    return tuple(sentences)
-
-
-def _period_is_nonterminal(text: str, index: int) -> bool:
-    if (
-        index > 0
-        and index + 1 < len(text)
-        and text[index - 1].isdigit()
-        and text[index + 1].isdigit()
-    ):
-        return True
-    token_start = index
-    while token_start > 0 and (
-        text[token_start - 1].isalpha() or text[token_start - 1] == "."
-    ):
-        token_start -= 1
-    raw_token = text[token_start:index]
-    token = raw_token.lower()
-    if token in _NONTERMINAL_ABBREVIATIONS:
-        return True
-    if len(raw_token) == 1 and raw_token.isupper():
-        return True
-    dotted = f"{token}."
-    return bool(re.fullmatch(r"(?:[a-z]\.){2,}", dotted))
+def _cell_payload(cell: TableCell) -> dict[str, object]:
+    return {
+        "cell_id": cell.cell_id,
+        "text": cell.plain_text,
+        "runs": [
+            {
+                "kind": run.kind.value,
+                "text": run.text,
+                **({"href": run.href} if run.href is not None else {}),
+            }
+            for run in cell.runs
+        ],
+    }
 
 
 def materialize_edited_blocks(edited_blocks: Iterable[EditedBlock]) -> tuple[Block, ...]:
+    """Validate a typed structure edit and assign any missing stable IDs.
+
+    ID policy (design §11.2): identifiers left empty are allocated here by the
+    content module — entrypoints never mint their own IDs.
+    """
     edited = tuple(edited_blocks)
     provided_block_ids = [block.block_id for block in edited if block.block_id is not None]
     provided_sentence_ids = [
         sentence.sentence_id
         for block in edited
+        if isinstance(block, EditedTextBlock)
         for sentence in block.sentences
         if sentence.sentence_id is not None
     ]
@@ -191,8 +125,10 @@ def materialize_edited_blocks(edited_blocks: Iterable[EditedBlock]) -> tuple[Blo
     blocks: list[Block] = []
     used_block_ids: set[str] = set()
     used_sentence_ids: set[str] = set()
+    used_cell_ids: set[str] = set()
     next_block_number = 1
     next_sentence_number = 1
+    next_cell_number = 1
     for block_order, edited_block in enumerate(edited):
         while (
             f"block-{next_block_number}" in used_block_ids
@@ -204,48 +140,101 @@ def materialize_edited_blocks(edited_blocks: Iterable[EditedBlock]) -> tuple[Blo
         if block_id in used_block_ids:
             raise InvalidContent(f"duplicate block ID: {block_id}")
         used_block_ids.add(block_id)
-        sentences: list[Sentence] = []
-        for sentence_order, edited_sentence in enumerate(edited_block.sentences):
-            text = edited_sentence.text.strip()
-            if not text:
-                raise InvalidContent("sentences must not be empty")
-            while (
-                f"sentence-{next_sentence_number}" in used_sentence_ids
-                or f"sentence-{next_sentence_number}" in provided_sentence_ids
-            ):
+        if isinstance(edited_block, EditedTextBlock):
+            sentences: list[Sentence] = []
+            for sentence_order, edited_sentence in enumerate(edited_block.sentences):
+                text = edited_sentence.text.strip()
+                if not text:
+                    raise InvalidContent("sentences must not be empty")
+                while (
+                    f"sentence-{next_sentence_number}" in used_sentence_ids
+                    or f"sentence-{next_sentence_number}" in provided_sentence_ids
+                ):
+                    next_sentence_number += 1
+                sentence_id = (
+                    edited_sentence.sentence_id or f"sentence-{next_sentence_number}"
+                )
                 next_sentence_number += 1
-            sentence_id = edited_sentence.sentence_id or f"sentence-{next_sentence_number}"
-            if sentence_id in used_sentence_ids:
-                raise InvalidContent(f"duplicate sentence ID: {sentence_id}")
-            used_sentence_ids.add(sentence_id)
-            next_sentence_number += 1
-            sentences.append(Sentence(sentence_id, sentence_order, text))
-        if not sentences:
-            raise InvalidContent("blocks must contain at least one sentence")
-        blocks.append(Block(block_id, edited_block.kind, block_order, tuple(sentences)))
+                if sentence_id in used_sentence_ids:
+                    raise InvalidContent(f"duplicate sentence ID: {sentence_id}")
+                used_sentence_ids.add(sentence_id)
+                sentences.append(Sentence(sentence_id, sentence_order, text))
+            if not sentences:
+                raise InvalidContent("text blocks must contain at least one sentence")
+            blocks.append(
+                TextBlock(
+                    block_id=block_id,
+                    order=block_order,
+                    style=edited_block.style,
+                    sentences=tuple(sentences),
+                    heading_level=edited_block.heading_level,
+                    list_kind=edited_block.list_kind,
+                    list_depth=edited_block.list_depth,
+                    list_ordinal=edited_block.list_ordinal,
+                    quote_depth=edited_block.quote_depth,
+                )
+            )
+        elif isinstance(edited_block, EditedTableBlock):
+            columns = len(edited_block.header)
+            if columns == 0:
+                raise InvalidContent("table blocks must have a header row")
+            if len(edited_block.alignments) != columns:
+                raise InvalidContent("table alignment count must match the header")
+            header: list[TableCell] = []
+            rows: list[tuple[TableCell, ...]] = []
+            def make_cell(text: str) -> TableCell:
+                nonlocal next_cell_number
+                cell_id = f"cell-{next_cell_number}"
+                next_cell_number += 1
+                if cell_id in used_cell_ids:
+                    raise InvalidContent(f"duplicate cell ID: {cell_id}")
+                used_cell_ids.add(cell_id)
+                return TableCell(cell_id=cell_id, plain_text=text.strip())
+
+            header = [make_cell(text) for text in edited_block.header]
+            for row in edited_block.rows:
+                if len(row) != columns:
+                    raise InvalidContent("table rows must match the header width")
+                rows.append(tuple(make_cell(text) for text in row))
+            blocks.append(
+                TableBlock(
+                    block_id=block_id,
+                    order=block_order,
+                    alignments=tuple(edited_block.alignments),
+                    header=tuple(header),
+                    rows=tuple(rows),
+                )
+            )
+        elif isinstance(edited_block, EditedCodeBlock):
+            code = edited_block.code
+            if not code:
+                raise InvalidContent("code blocks must not be empty")
+            blocks.append(
+                CodeBlock(
+                    block_id=block_id,
+                    order=block_order,
+                    code=code,
+                    language=edited_block.language,
+                )
+            )
+        elif isinstance(edited_block, EditedDividerBlock):
+            blocks.append(DividerBlock(block_id=block_id, order=block_order))
+        else:
+            raise InvalidContent(f"unsupported edited block: {type(edited_block).__name__}")
     if not blocks:
         raise InvalidContent("article must contain at least one block")
     return tuple(blocks)
 
 
-def structure_sha256(blocks: Iterable[Block]) -> str:
-    payload = [
-        {
-            "block_id": block.block_id,
-            "kind": block.kind.value,
-            "order": block.order,
-            "sentences": [
-                {
-                    "sentence_id": sentence.sentence_id,
-                    "order": sentence.order,
-                    "text": sentence.text,
-                }
-                for sentence in block.sentences
-            ],
-        }
-        for block in blocks
-    ]
-    canonical = json.dumps(
-        payload, ensure_ascii=False, sort_keys=True, separators=(",", ":")
-    )
-    return sha256_text(canonical)
+def text_block_plain_runs(text: str) -> tuple[InlineRun, ...]:
+    """Single plain run projection used when only plain text is available."""
+    from engirdle_pc.modules.content.domain.entities import InlineRunKind
+
+    return (InlineRun(InlineRunKind.PLAIN, text),)
+
+
+def normalize_edited_text_block_styles(block: TextBlock) -> TextBlock:
+    """Keep edited heading/quote styles consistent after direct construction."""
+    if block.style is TextBlockStyle.HEADING and block.heading_level is None:
+        return replace(block, heading_level=1)
+    return block

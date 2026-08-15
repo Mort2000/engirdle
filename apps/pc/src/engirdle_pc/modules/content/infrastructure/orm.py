@@ -66,6 +66,7 @@ class ContentBlockRecord(Base):
     block_id: Mapped[str] = mapped_column(primary_key=True)
     kind: Mapped[str]
     block_order: Mapped[int]
+    payload_json: Mapped[str] = mapped_column(default="{}")
 
 
 class ContentSentenceRecord(Base):
@@ -86,3 +87,4 @@ class ContentSentenceRecord(Base):
     block_id: Mapped[str]
     sentence_order: Mapped[int]
     text: Mapped[str]
+    render_json: Mapped[str] = mapped_column(default="[]")

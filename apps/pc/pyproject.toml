@@ -10,6 +10,9 @@ dependencies = [
   "imageio-ffmpeg>=0.6,<1",
   "jinja2>=3.1,<4",
   "jsonschema[format]>=4.25,<5",
+  # Frozen GFM-subset markdown parser (content module, engirdle-gfm@1).
+  # Upgrading it changes the AST projection and requires a PARSE_VERSION bump.
+  "markdown-it-py>=3,<5",
   "openai>=1.50,<2",
   "pydantic-settings>=2.10,<3",
   "python-multipart>=0.0.20,<1",
