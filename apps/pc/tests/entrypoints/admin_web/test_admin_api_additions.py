@@ -194,6 +194,6 @@ def test_dashboard_summary_aggregates_workbench_state(
     assert summary["publisher"]["running"] is False
     assert summary["publisher"]["binding_host"]
     assert summary["catalog_available"] is True
-    # The stub adapters flag the verification-mode badge (same semantics as
-    # the legacy Jinja dashboard).
+    # The stub adapters flag the verification-mode badge the workbench
+    # renders from this field.
     assert summary["verification_mode"] is True

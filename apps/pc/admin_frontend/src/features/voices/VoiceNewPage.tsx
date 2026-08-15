@@ -45,7 +45,7 @@ import {
 import { Skeleton } from "@/components/ui/skeleton"
 import { Textarea } from "@/components/ui/textarea"
 
-/** 与后端 pages.py DEFAULT_ANCHOR_TEXT 保持一致（API 未单独暴露默认值）。 */
+/** 与后端锚点默认文本保持一致（API 未单独暴露默认值）。 */
 const DEFAULT_ANCHOR_TEXT =
   "Every article deserves a clear voice. When the narration flows naturally, " +
   "listening becomes effortless."

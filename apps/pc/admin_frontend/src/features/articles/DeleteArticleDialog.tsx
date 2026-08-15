@@ -1,9 +1,8 @@
 /**
  * 删除文章的 AlertDialog（设计 §6.1：破坏性操作二次确认）。
  *
- * 保留现有语义：必须输入文章 ID 才能确认，DELETE 请求携带
- * confirmation 查询参数（与旧 Jinja 危险面板一致）。由结构确认页
- * 与工作台文章库共用。
+ * 保留既有语义：必须输入文章 ID 才能确认，DELETE 请求携带
+ * confirmation 查询参数。由结构确认页与工作台文章库共用。
  */
 
 import { useState } from "react"

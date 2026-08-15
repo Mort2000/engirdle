@@ -7,8 +7,7 @@ from typing import Annotated, Literal
 
 import anyio
 from fastapi import FastAPI, HTTPException, Path, Request, status
-from fastapi.responses import FileResponse, RedirectResponse
-from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse
 from pydantic import AnyHttpUrl, BaseModel, ConfigDict, Field
 from sse_starlette import EventSourceResponse, ServerSentEvent
 from starlette.routing import Match
@@ -208,12 +207,12 @@ def create_admin_app(
 ) -> FastAPI:
     """Assemble the admin application (design §3/§9).
 
-    Registration order matters: the ``/api/*`` routes are registered first,
-    the transitional legacy Jinja pages live under ``/legacy``, hashed SPA
-    assets mount at ``/assets`` with immutable caching, and a catch-all
-    fallback serves ``index.html`` for client-side deep links — explicitly
-    excluding the ``/api`` prefix so unknown API paths stay 404 (under any
-    method) and wrong-method hits on real endpoints keep their 405.
+    Registration order matters: the ``/api/*`` routes are registered
+    first, hashed SPA assets mount at ``/assets`` with immutable caching,
+    and a catch-all fallback serves ``index.html`` for client-side deep
+    links — explicitly excluding the ``/api`` prefix so unknown API paths
+    stay 404 (under any method) and wrong-method hits on real endpoints
+    keep their 405.
 
     ``webui_dir`` overrides the webui artifact lookup (tests inject a
     fixture directory); by default the packaged ``webui/`` or the
@@ -230,8 +229,6 @@ def create_admin_app(
         webui_dir if webui_dir is not None else resolve_webui_directory()
     )
     app = FastAPI(title="Engirdle PC Admin", version="0.1.0", lifespan=lifespan)
-    resource_root = FilePath(__file__).resolve().parent
-    app.mount("/static", StaticFiles(directory=resource_root / "static"), name="static")
 
     def _read_job_event_state(job_id: str) -> JobEventState:
         """Load a job's full state for SSE diffing (runs on the thread pool)."""
@@ -388,9 +385,8 @@ def create_admin_app(
     def get_structure_report(article_id: str, revision: int) -> dict[str, object]:
         """Parse warnings, derived structure tree and processing counters.
 
-        Replaces the server-side assembly of the old Jinja structure page
-        (design §8.5): the SPA renders the same read-only information from
-        this JSON payload.
+        The SPA structure page renders this read-only information from the
+        JSON payload (design §8.5).
         """
         report = container.content.structure_report(article_id, revision)
         return {
@@ -408,9 +404,9 @@ def create_admin_app(
     def dashboard_summary() -> dict[str, object]:
         """Workbench aggregate in a single round trip (design §8.5).
 
-        Semantically mirrors the old Jinja dashboard assembly: latest
-        revisions, recent jobs (with derived progress), current publications,
-        artifacts, publisher state and the verification-mode badge inputs.
+        Latest revisions, recent jobs (with derived progress), current
+        publications, artifacts, publisher state and the verification-mode
+        badge inputs.
         """
         articles = container.content.list_latest()
         return {
@@ -764,13 +760,6 @@ def create_admin_app(
         )
         return _voice_profile_payload(profile)
 
-    from engirdle_pc.entrypoints.admin_web.routes.pages import create_pages_router
-
-    # Transitional coexistence (design §12 step 3): the Jinja pages move
-    # under /legacy so the SPA can own "/"; they are removed in the cleanup
-    # step. Their redirects and template links point back into /legacy.
-    app.include_router(create_pages_router(container), prefix="/legacy")
-
     # Hashed Vite assets: cache-forever responses (filenames embed a hash).
     assets_directory = webui_directory / "assets"
     if assets_directory.is_dir():
@@ -780,17 +769,10 @@ def create_admin_app(
             name="assets",
         )
 
-    # ``/legacy`` without the trailing slash would otherwise land on the SPA
-    # fallback (the catch-all shadows Starlette's redirect_slashes), so the
-    # transition prefix gets an explicit redirect to the legacy workbench.
-    @app.get("/legacy", include_in_schema=False)
-    def legacy_index_redirect() -> RedirectResponse:
-        return RedirectResponse(url="/legacy/", status_code=307)
-
     # SPA fallback for client-side deep links (design §9), registered last
-    # so every /api route and /legacy page above keeps precedence. index.html
-    # is served by FileResponse — never through the template engine — and is
-    # never cached, so deploys are picked up immediately.
+    # so every /api route above keeps precedence. index.html is served by
+    # FileResponse and is never cached, so deploys are picked up
+    # immediately.
     @app.api_route(
         "/{spa_path:path}",
         methods=["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
@@ -840,8 +822,8 @@ def _revision_payload(revision: ArticleRevision) -> dict[str, object]:
         "normalized_sha256": revision.normalized_sha256,
         "structure_sha256": revision.structure_sha256,
         # Raw markdown so the SPA revision-entry page can prefill its editor
-        # with the exact source the user submitted (legacy page used
-        # article.raw_text; additive field, existing clients unaffected).
+        # with the exact source the user submitted (additive field, existing
+        # clients unaffected).
         "raw_text": revision.raw_text,
         "source": {
             "author": revision.source.author,
@@ -1062,9 +1044,8 @@ def structure_tree_payload(
 ) -> list[dict[str, object]]:
     """Read-only per-block summary with DERIVED processing flags (§11.1).
 
-    Shared by the structure-report API and the legacy Jinja page: the
-    translate/narrate routing is a projection of the plan, never a manual
-    toggle, so UIs cannot contradict the pipeline protocol.
+    The translate/narrate routing is a projection of the plan, never a
+    manual toggle, so the UI cannot contradict the pipeline protocol.
     """
     translate_ids = {unit.unit_id for unit in plan.translation.units}
     narrate_ids = {unit.source_block_id for unit in plan.narration.units}

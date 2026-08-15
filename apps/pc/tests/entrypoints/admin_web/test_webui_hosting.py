@@ -1,4 +1,4 @@
-"""SPA hosting tests for the admin web refactor (design §9/§12 step 3).
+"""SPA hosting tests for the admin web refactor (design §9/§12 step 6).
 
 Uses a minimal fixture webui directory (``index.html`` plus a hashed-style
 asset) instead of a real npm build to verify:
@@ -7,8 +7,9 @@ asset) instead of a real npm build to verify:
   ``/`` and client-side deep links (GET and HEAD alike);
 - unknown ``/api`` paths stay JSON 404s under every method while
   wrong-method hits on real endpoints keep 405 (never the SPA shell);
-- the transitional legacy Jinja pages stay reachable under ``/legacy``
-  with their ``/static`` resources still mounted;
+- the removed transition routes (``/legacy`` pages, ``/static`` assets)
+  fall back to the SPA shell instead of erroring — the SPA is the only
+  page layer;
 - ``/assets/*`` responses carry the immutable cache header;
 - the webui resolver picks candidates in order and raises a readable
   startup error when both locations miss.
@@ -159,41 +160,29 @@ def test_head_requests_serve_the_spa_shell(
         assert response.headers["cache-control"] == "no-cache"
 
 
-def test_legacy_index_redirects_to_trailing_slash(
+def test_removed_legacy_routes_fall_back_to_the_spa_shell(
     tmp_path: Path, webui_dir: Path, fake_translator: Any, fake_speech: Any
 ) -> None:
-    """/legacy (no slash) must reach the legacy workbench, not the SPA shell."""
+    """The retired page layer leaves no dead routes behind.
+
+    Every path the retired server pages owned — the ``/legacy`` workbench
+    and its subpages, the ``/static`` stylesheet mount — now answers with the
+    SPA shell (client-side routing shows a proper page or 404 view), never a
+    server error or a stale server-rendered page.
+    """
     client = _make_client(tmp_path, fake_translator, fake_speech, webui_dir)
 
-    redirect = client.get("/legacy", follow_redirects=False)
-    assert redirect.status_code == 307
-    assert redirect.headers["location"] == "/legacy/"
-
-    followed = client.get("/legacy")
-    assert followed.status_code == 200
-    assert "内容生产端" in followed.text
-    assert SPA_MARKER not in followed.text
-
-
-def test_legacy_pages_stay_reachable_with_static_resources(
-    tmp_path: Path, webui_dir: Path, fake_translator: Any, fake_speech: Any
-) -> None:
-    client = _make_client(tmp_path, fake_translator, fake_speech, webui_dir)
-
-    dashboard = client.get("/legacy/")
-    assert dashboard.status_code == 200
-    assert "内容生产端" in dashboard.text
-
-    entry = client.get("/legacy/articles/new")
-    assert entry.status_code == 200
-
-    voices = client.get("/legacy/voices")
-    assert voices.status_code == 200
-
-    # Legacy templates reference /static/admin.css absolutely; the mount
-    # stays at the root so those pages keep working during the transition.
-    stylesheet = client.get("/static/admin.css")
-    assert stylesheet.status_code == 200
+    for path in (
+        "/legacy",
+        "/legacy/",
+        "/legacy/articles/new",
+        "/legacy/voices",
+        "/static/admin.css",
+    ):
+        response = client.get(path)
+        assert response.status_code == 200, path
+        assert SPA_MARKER in response.text, path
+        assert response.headers["cache-control"] == "no-cache", path
 
 
 def test_hashed_assets_are_served_immutable(

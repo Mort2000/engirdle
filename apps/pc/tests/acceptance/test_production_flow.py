@@ -65,10 +65,12 @@ def test_user_can_produce_review_and_publish_an_article(
         "abnormal_duration_sentence_ids": [],
     }
     assert len(audio_review.json()["sentences"]) == 3
-    review_page = admin.get(f"/legacy/jobs/{job_id}")
-    assert review_page.status_code == 200
-    assert "播放此句" in review_page.text
-    assert "缺失 0" in review_page.text
+    # Every narration sentence carries the timing that backs the
+    # per-sentence playback in the review UI.
+    assert all(
+        item["start_ms"] <= item["end_ms"]
+        for item in audio_review.json()["sentences"]
+    )
 
     translations = admin.get(f"/api/jobs/{job_id}/translations").json()
     first_sentence_id = translations[0]["sentence_id"]
@@ -118,9 +120,12 @@ def test_user_can_produce_review_and_publish_an_article(
             == "人工确认的第一句。"
         )
 
-    dashboard = admin.get("/legacy/")
-    assert "当前已发布制品" in dashboard.text
-    assert "制品修订 1" in dashboard.text
+    summary = admin.get("/api/dashboard/summary").json()
+    assert [item["package_id"] for item in summary["published"]] == [
+        package["package_id"]
+    ]
+    assert summary["published"][0]["artifact_revision"] == 1
+    assert [item["state"] for item in summary["artifacts"]] == ["published"]
     republished = admin.post(f"/api/artifacts/{package['package_id']}/republish")
     assert republished.status_code == 201
     assert publisher.get(catalog_item["url"]).status_code == 200

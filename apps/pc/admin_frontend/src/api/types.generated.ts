@@ -152,9 +152,8 @@ export interface paths {
          * Get Structure Report
          * @description Parse warnings, derived structure tree and processing counters.
          *
-         *     Replaces the server-side assembly of the old Jinja structure page
-         *     (design §8.5): the SPA renders the same read-only information from
-         *     this JSON payload.
+         *     The SPA structure page renders this read-only information from the
+         *     JSON payload (design §8.5).
          */
         get: operations["get_structure_report_api_articles__article_id__revisions__revision__structure_report_get"];
         put?: never;
@@ -176,9 +175,9 @@ export interface paths {
          * Dashboard Summary
          * @description Workbench aggregate in a single round trip (design §8.5).
          *
-         *     Semantically mirrors the old Jinja dashboard assembly: latest
-         *     revisions, recent jobs (with derived progress), current publications,
-         *     artifacts, publisher state and the verification-mode badge inputs.
+         *     Latest revisions, recent jobs (with derived progress), current
+         *     publications, artifacts, publisher state and the verification-mode
+         *     badge inputs.
          */
         get: operations["dashboard_summary_api_dashboard_summary_get"];
         put?: never;
