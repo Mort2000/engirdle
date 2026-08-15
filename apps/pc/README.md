@@ -89,6 +89,46 @@ uv run ruff check hatch_build.py src tests
 uv run mypy src
 uv run pytest
 uv build
+
+# 管理端前端（需 Node ≥ 22，版本固定见 admin_frontend/.nvmrc）
+cd admin_frontend
+npm run lint
+npm run typecheck
+npm run test
 ```
 
 测试直接使用根目录 `contracts` 中的合法/非法 fixtures，并包含从空数据库完成“录入 → 生成 → 审阅 → 发布 → 下载”的黑盒流程、失败重试、租约恢复、只读路由隔离和旧制品保护。
+
+### 构建与打包（管理端前端）
+
+管理端 SPA（`admin_frontend/`）由 hatchling 构建钩子（`hatch_build.py`）在**源码构建**时编译，并作为 `engirdle_pc/entrypoints/admin_web/webui/` 预置进 wheel，因此安装预构建 wheel 不需要 Node。
+
+```plantuml
+@startuml
+title 管理端前端构建打包流程（hatch_build.py 钩子）
+start
+:uv sync / uv build 触发 hatchling;
+if (目标 == wheel ?) then (是)
+  if (ENGIRDLE_SKIP_WEB_BUILD=1 ?) then (是)
+    :要求 admin_frontend/dist 已存在\n（无网络 CI 逃生门），否则报错;
+  else (否)
+    if (dist 存在且源码哈希\n与 .build-cache.json 一致 ?) then (是)
+      :跳过 npm，复用 dist;
+    else (否)
+      :npm ci（按 lockfile）+ npm run build\n写入源码哈希清单 .build-cache.json;
+    endif
+  endif
+  :dist 注入 wheel 的\nengirdle_pc/entrypoints/admin_web/webui/;
+else (sdist)
+  :仅包含前端源码（package.json、lockfile、\nsrc/ 与构建配置，不含 node_modules/dist）;
+endif
+stop
+@enduml
+```
+
+要点：
+
+- **Node 要求**：从源码或 sdist 构建 wheel 需要 Node ≥ 22 与 npm（`admin_frontend/.nvmrc` 固定 Node 24）；安装预构建 wheel 不需要 Node。
+- **`uv sync` 触发构建**：首次同步会执行前端构建；钩子用 `admin_frontend/.build-cache.json`（源码内容哈希清单，不入库）比对输入，未变更则跳过 npm 直接复用 `dist/`，后续同步不重复构建。
+- **`uv build` 语义**：默认先产出 sdist，再从 sdist 二次构建 wheel（每次都会在临时目录重新执行 npm）；sdist 不含 `node_modules/` 与 `dist/`，从 sdist 到 wheel 的链路依赖 `npm ci` 按 lockfile 还原依赖。源码树的哈希缓存作用于 `uv sync` 与 `uv build --wheel`。
+- **逃生门**：无 Node 或无网络环境（如纯 Python 改动的 CI）可设 `ENGIRDLE_SKIP_WEB_BUILD=1` 跳过前端构建，但要求 `admin_frontend/dist` 已存在，否则构建失败并提示先预构建或安装 Node。
