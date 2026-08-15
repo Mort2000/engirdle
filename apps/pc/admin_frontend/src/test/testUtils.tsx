@@ -5,7 +5,7 @@
 import { render } from "@testing-library/react"
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import type { ReactNode } from "react"
-import { MemoryRouter, Route, Routes } from "react-router"
+import { createMemoryRouter, RouterProvider } from "react-router"
 import { vi, type Mock } from "vitest"
 
 export function createTestQueryClient(): QueryClient {
@@ -25,20 +25,27 @@ interface RenderOptions {
   path?: string
 }
 
+/** render 结果 + memory router 实例（导航断言用）。 */
+export type RenderWithProvidersResult = ReturnType<typeof render> & {
+  /** createMemoryRouter 返回的路由实例（react-router v7 未导出其类型名）。 */
+  router: ReturnType<typeof createMemoryRouter>
+}
+
 export function renderWithProviders(
   ui: ReactNode,
   options?: RenderOptions,
-): ReturnType<typeof render> {
+): RenderWithProvidersResult {
   const queryClient = options?.queryClient ?? createTestQueryClient()
-  return render(
+  const router = createMemoryRouter(
+    [{ path: options?.path ?? "*", element: ui }],
+    { initialEntries: [options?.route ?? "/"] },
+  )
+  const result = render(
     <QueryClientProvider client={queryClient}>
-      <MemoryRouter initialEntries={[options?.route ?? "/"]}>
-        <Routes>
-          <Route path={options?.path ?? "*"} element={ui} />
-        </Routes>
-      </MemoryRouter>
+      <RouterProvider router={router} />
     </QueryClientProvider>,
   )
+  return { ...result, router }
 }
 
 /** 按路径前缀分发的 fetch 桩请求描述。 */
