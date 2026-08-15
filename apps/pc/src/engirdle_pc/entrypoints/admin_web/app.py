@@ -839,6 +839,10 @@ def _revision_payload(revision: ArticleRevision) -> dict[str, object]:
         "source_sha256": revision.source_sha256,
         "normalized_sha256": revision.normalized_sha256,
         "structure_sha256": revision.structure_sha256,
+        # Raw markdown so the SPA revision-entry page can prefill its editor
+        # with the exact source the user submitted (legacy page used
+        # article.raw_text; additive field, existing clients unaffected).
+        "raw_text": revision.raw_text,
         "source": {
             "author": revision.source.author,
             "display_name": revision.source.display_name,

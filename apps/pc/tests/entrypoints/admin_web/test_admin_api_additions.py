@@ -138,6 +138,22 @@ def test_structure_report_surfaces_parse_warnings(
     assert report["warnings"][0]["message"]
 
 
+def test_revision_payload_exposes_raw_text_for_editor_prefill(
+    tmp_path: Path, fake_translator: Any, fake_speech: Any
+) -> None:
+    """The SPA revision-entry page prefills its editor from raw_text."""
+    _container, client = _make_client(tmp_path, fake_translator, fake_speech)
+    article = _create_article(client, ARTICLE_BODY)
+
+    revision = client.get(
+        f"/api/articles/{article['article_id']}/revisions/1"
+    ).json()
+    assert revision["raw_text"] == ARTICLE_BODY
+    # Latest-revision listing carries the same field for prefill lookups.
+    listed = client.get("/api/articles").json()
+    assert [item["raw_text"] for item in listed] == [ARTICLE_BODY]
+
+
 def test_dashboard_summary_aggregates_workbench_state(
     tmp_path: Path, fake_translator: Any, fake_speech: Any
 ) -> None:
