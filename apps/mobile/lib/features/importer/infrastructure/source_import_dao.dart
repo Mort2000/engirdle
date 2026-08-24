@@ -2,6 +2,29 @@ import 'dart:convert';
 
 import 'package:sqlite3/sqlite3.dart';
 
+/// Journal states (design §6.5). The transient acquiring/staged/validating
+/// phases collapse into the single [awaitingConfirmation] write for a
+/// single-process app: by the time a row exists, staging and structuring
+/// already succeeded.
+enum SourceImportState {
+  awaitingConfirmation('awaiting_confirmation'),
+  moving('moving'),
+  committed('committed'),
+  cancelled('cancelled'),
+  failed('failed');
+
+  const SourceImportState(this.wire);
+
+  final String wire;
+
+  static SourceImportState? fromWire(String wire) {
+    for (final state in values) {
+      if (state.wire == wire) return state;
+    }
+    return null;
+  }
+}
+
 /// Journal for raw-source imports (design §6.5): one row per import from the
 /// moment staging is frozen until the install commits or the preview is
 /// cancelled. The database is the source of truth for recovery — after

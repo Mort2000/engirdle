@@ -7,6 +7,7 @@ import 'package:engirdle_mobile/features/importer/application/content_import_ser
 import 'package:engirdle_mobile/features/source_ingestion/domain/raw_source.dart';
 import 'package:engirdle_mobile/shared_kernel/failures.dart';
 import 'package:flutter_test/flutter_test.dart';
+
 import 'package:path/path.dart' as p;
 
 import '../helpers/test_helpers.dart';
@@ -242,6 +243,8 @@ void main() {
     expect(content.capabilities.hasNarration, isTrue);
   });
 
+  _reviewFixGroup(() => deps);
+
   test('contract violations become package-format failures', () async {
     final zip = File(
       p.join(
@@ -282,3 +285,105 @@ ConfirmedSourceMetadata _confirmedMetadata({required String title}) =>
       sourceDisplayName: null,
       sourceUrl: null,
     );
+
+void _reviewFixGroup(AppDependencies Function() depsOf) {
+  group('review fixes', () {
+    test('unsupported document extensions reject inside the module', () async {
+      final deps = depsOf();
+      await expectLater(
+        deps.contentImport.stageDocumentSource(
+          rawBytes: utf8.encode('x'),
+          fileName: 'photo.png',
+        ),
+        throwsA(
+          isA<AppFailure>().having(
+            (f) => f.kind,
+            'kind',
+            FailureKind.packageFormat,
+          ),
+        ),
+      );
+      expect(deps.directories.stagingRoot.listSync(), isEmpty);
+    });
+
+    test('a staged preview resumes after simulated process death', () async {
+      final deps = depsOf();
+      final preview = await deps.contentImport.stageRawSource(
+        rawBytes: utf8.encode('Resumable body. Second sentence.'),
+        syntax: SourceSyntax.plainText,
+        origin: 'paste',
+      );
+      expect(deps.contentImport.pendingPreviews(), hasLength(1));
+
+      final resumed = await deps.contentImport.resumePreview(preview.importId);
+      expect(resumed.importId, preview.importId);
+      expect(
+        resumed.candidate.structureSha256,
+        preview.candidate.structureSha256,
+      );
+
+      final ref = await deps.contentImport.confirmRawSource(
+        preview.importId,
+        metadata: const ConfirmedSourceMetadata(
+          title: 'Resumed',
+          licenseName: 'unknown',
+        ),
+      );
+      expect(deps.library.getContent(ref.articleId)!.article.title, 'Resumed');
+      expect(deps.contentImport.pendingPreviews(), isEmpty);
+    });
+
+    test('v2 packages with unexpected layouts reject before payload '
+        'extraction', () async {
+      final deps = depsOf();
+      final zip = File(
+        p.join(
+          Directory.current.path,
+          '..',
+          '..',
+          'contracts',
+          'readpack',
+          'v2',
+          'fixtures',
+          'invalid',
+          'undeclared-extra-file.readpack',
+        ),
+      );
+      await expectLater(
+        deps.contentImport.importDocumentPackage(
+          bytes: zip.readAsBytesSync(),
+          fileName: 'undeclared-extra-file.readpack',
+        ),
+        throwsA(
+          isA<AppFailure>().having(
+            (f) => f.message,
+            'message',
+            'unexpected package layout',
+          ),
+        ),
+      );
+      expect(deps.directories.stagingRoot.listSync(), isEmpty);
+      expect(deps.library.listArticles(), isEmpty);
+    });
+
+    test('paste staging enforces the module-level size ceiling', () async {
+      final deps = depsOf();
+      final huge = 'a' * (8 * 1024 * 1024 + 1);
+      await expectLater(
+        deps.contentImport.stageRawSource(
+          rawBytes: utf8.encode(huge),
+          syntax: SourceSyntax.plainText,
+          origin: 'paste',
+        ),
+        throwsA(
+          isA<AppFailure>().having(
+            (f) => f.message,
+            'message',
+            contains('source_too_large'),
+          ),
+        ),
+      );
+      expect(deps.directories.stagingRoot.listSync(), isEmpty);
+    });
+  });
+}

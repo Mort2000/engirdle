@@ -10,6 +10,7 @@ import 'package:engirdle_mobile/features/library/application/library_service.dar
 import 'package:engirdle_mobile/features/library/domain/article_install.dart';
 import 'package:engirdle_mobile/features/source_ingestion/application/raw_source_parser.dart';
 import 'package:engirdle_mobile/features/source_ingestion/domain/raw_source.dart';
+import 'package:engirdle_mobile/features/importer/infrastructure/source_import_dao.dart';
 import 'package:engirdle_mobile/features/source_ingestion/infrastructure/markdown_parser.dart';
 import 'package:engirdle_mobile/shared_kernel/content_identity.dart';
 import 'package:engirdle_mobile/shared_kernel/failures.dart';
@@ -250,6 +251,23 @@ class FakeContentImportService implements ContentImportService {
 
   @override
   Future<void> recover() async {}
+
+  @override
+  Future<RawSourcePreview> stageDocumentSource({
+    required List<int> rawBytes,
+    required String fileName,
+  }) => stageRawSource(
+    rawBytes: rawBytes,
+    syntax: SourceSyntax.fromFileName(fileName),
+    origin: 'document',
+  );
+
+  @override
+  List<SourceImportRow> pendingPreviews() => const [];
+
+  @override
+  Future<RawSourcePreview> resumePreview(String importId) =>
+      throw const AppFailure(FailureKind.database, 'no resumable import');
 }
 
 /// Builds dependencies with the in-memory content import service (widget

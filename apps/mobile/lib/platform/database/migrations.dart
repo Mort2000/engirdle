@@ -3,7 +3,7 @@ import 'package:sqlite3/sqlite3.dart';
 /// Ordered migration chain. `kMigrations[i]` upgrades version i → i+1.
 /// Table ownership (module architecture §6.5):
 ///   connection   → service_config
-///   importer     → import_operations
+///   importer     → import_operations, source_imports
 ///   library      → articles, article_artifacts, blocks, sentences,
 ///                  article_reading_mode, article_active_translations,
 ///                  narration_assets, sentence_audio_ranges

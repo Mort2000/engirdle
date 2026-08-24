@@ -9,7 +9,6 @@ import '../../../shared_kernel/failures.dart';
 import '../../catalog/domain/catalog_status.dart';
 import '../../connection/presentation/service_setup_page.dart';
 import '../../importer/presentation/download_import_page.dart';
-import '../../source_ingestion/domain/raw_source.dart';
 import '../../source_ingestion/presentation/source_confirm_page.dart';
 import '../domain/installed_article.dart';
 import 'widgets/article_cover.dart';
@@ -28,6 +27,7 @@ class BookshelfPage extends StatefulWidget {
 
 class _BookshelfPageState extends State<BookshelfPage> {
   List<InstalledArticle> _articles = const [];
+  String? _resumableImport; // journaled preview awaiting confirmation
   List<CatalogEntry>? _catalog; // null = local-only view (03A)
   String? _catalogError;
   bool _checking = false;
@@ -52,9 +52,31 @@ class _BookshelfPageState extends State<BookshelfPage> {
 
   void _reload() {
     if (!mounted) return;
+    final deps = AppScope.of(context);
     setState(() {
-      _articles = AppScope.of(context).library.listArticles();
+      _articles = deps.library.listArticles();
+      // §6.5/§14.4: a preview frozen before process death resumes here.
+      _resumableImport = deps.contentImport
+          .pendingPreviews()
+          .firstOrNull
+          ?.importId;
     });
+  }
+
+  Future<void> _resumePendingImport() async {
+    final importId = _resumableImport;
+    if (importId == null) return;
+    final deps = AppScope.of(context);
+    try {
+      final preview = await deps.contentImport.resumePreview(importId);
+      if (!mounted) return;
+      final installed = await Navigator.of(context).push<bool>(
+        MaterialPageRoute(builder: (_) => SourceConfirmPage(preview: preview)),
+      );
+      if (installed == true) _reload();
+    } on AppFailure {
+      _reload();
+    }
   }
 
   void _maybeFirstRun() {
@@ -185,18 +207,10 @@ class _BookshelfPageState extends State<BookshelfPage> {
     final picked = await deps.documentPicker.pickDocument();
     if (picked == null || !mounted) return;
     final name = picked.displayName ?? '';
-    final lower = name.toLowerCase();
-    if (!lower.endsWith('.txt') &&
-        !lower.endsWith('.md') &&
-        !lower.endsWith('.markdown')) {
-      _snack('不支持的文件类型「$name」；请选择 .txt、.md 或 .markdown。');
-      return;
-    }
     try {
-      final preview = await deps.contentImport.stageRawSource(
+      final preview = await deps.contentImport.stageDocumentSource(
         rawBytes: picked.bytes,
-        syntax: SourceSyntax.fromFileName(name),
-        origin: 'document',
+        fileName: name,
       );
       if (!mounted) return;
       final installed = await Navigator.of(context).push<bool>(
@@ -348,6 +362,17 @@ class _BookshelfPageState extends State<BookshelfPage> {
       body: ListView(
         padding: const EdgeInsets.fromLTRB(14, 4, 14, 88),
         children: [
+          if (_resumableImport != null)
+            Card(
+              color: AppPalette.amberContainer,
+              child: ListTile(
+                leading: const Icon(Icons.history),
+                title: const Text('有一次未确认的导入预览'),
+                subtitle: const Text('上次预览后应用被中断；可继续确认或忽略。'),
+                trailing: const Icon(Icons.chevron_right),
+                onTap: _resumePendingImport,
+              ),
+            ),
           _RefreshCard(
             checking: _checking,
             catalogActive: catalogActive,

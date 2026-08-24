@@ -20,7 +20,9 @@ import '../../source_ingestion/application/raw_source_parser.dart';
 import '../../source_ingestion/domain/raw_source.dart';
 import '../../source_ingestion/domain/source_parse_error.dart';
 import '../../source_ingestion/infrastructure/markdown_parser.dart';
-import '../infrastructure/source_import_dao.dart';
+import '../infrastructure/source_import_dao.dart'
+    show SourceImportDao, SourceImportRow, SourceImportState;
+import 'import_service.dart';
 import 'readpack_router.dart';
 
 /// The input-independent content import module (design §6.5/§7.2) for the
@@ -94,7 +96,7 @@ class ContentImportService {
       _dao.insert(
         SourceImportRow(
           importId: importId,
-          state: 'awaiting_confirmation',
+          state: SourceImportState.awaitingConfirmation.wire,
           syntax: syntax.wire,
           rawSha256: candidate.sourceSha256,
           normalizedSha256: candidate.normalizedSha256,
@@ -131,6 +133,79 @@ class ContentImportService {
     }
   }
 
+  /// The document adapter for raw sources (§6.1): the module — not the
+  /// calling widget — owns the extension gate; `.txt`/`.md`/`.markdown`
+  /// route to staging, anything else is an actionable error.
+  Future<RawSourcePreview> stageDocumentSource({
+    required List<int> rawBytes,
+    required String fileName,
+  }) async {
+    final lower = fileName.toLowerCase();
+    final supported =
+        lower.endsWith('.txt') ||
+        lower.endsWith('.md') ||
+        lower.endsWith('.markdown');
+    if (!supported) {
+      throw AppFailure(
+        FailureKind.packageFormat,
+        'unsupported file type "$fileName"; pick .txt, .md or .markdown',
+      );
+    }
+    return stageRawSource(
+      rawBytes: rawBytes,
+      syntax: SourceSyntax.fromFileName(fileName),
+      origin: 'document',
+    );
+  }
+
+  /// Rebuilds the confirmation preview for a journaled, unconfirmed import
+  /// (§6.5/§14.4: kill after 预览 resumes to the confirmation page). The
+  /// frozen hashes guard the deterministic re-parse.
+  Future<RawSourcePreview> resumePreview(String importId) async {
+    final row = _dao.find(importId);
+    if (row == null ||
+        row.state != SourceImportState.awaitingConfirmation.wire) {
+      throw const AppFailure(FailureKind.database, 'no resumable import');
+    }
+    final syntax = SourceSyntax.fromWire(row.syntax);
+    if (syntax == null) {
+      throw const AppFailure(FailureKind.database, 'unknown syntax');
+    }
+    final staging = _dirs.stagingDir(importId);
+    final canonicalFile = File(p.join(staging.path, 'canonical.txt'));
+    if (!await canonicalFile.exists()) {
+      _dao.delete(importId);
+      await _dropStaging(staging);
+      throw const AppFailure(FailureKind.database, 'staging incomplete');
+    }
+    final candidate = _rawParser.parsePaste(
+      text: await canonicalFile.readAsString(),
+      syntax: syntax,
+    );
+    if (candidate.structureSha256 != row.structureSha256 ||
+        candidate.normalizedSha256 != row.normalizedSha256) {
+      // The staged snapshot drifted; drop it rather than resume a structure
+      // the user never previewed.
+      await cancelRawSource(importId);
+      throw const AppFailure(
+        FailureKind.database,
+        'staged structure drifted from the frozen preview',
+      );
+    }
+    return RawSourcePreview(
+      importId: importId,
+      candidate: candidate,
+      duplicates: _duplicatesOf(candidate),
+      origin: row.stats['origin'] as String? ?? 'paste',
+    );
+  }
+
+  /// Unconfirmed previews still recoverable after process death.
+  List<SourceImportRow> pendingPreviews() => [
+    for (final row in _dao.all())
+      if (row.state == SourceImportState.awaitingConfirmation.wire) row,
+  ];
+
   /// Cancels an unconfirmed preview: staging and journal row both go away,
   /// never leaving an empty shell article (design §12.2).
   Future<void> cancelRawSource(String importId) async {
@@ -151,7 +226,7 @@ class ContentImportService {
     if (row == null) {
       throw const AppFailure(FailureKind.database, 'unknown import');
     }
-    if (row.state != 'awaiting_confirmation') {
+    if (row.state != SourceImportState.awaitingConfirmation.wire) {
       throw AppFailure(
         FailureKind.database,
         'import not awaiting confirmation (state ${row.state})',
@@ -195,13 +270,7 @@ class ContentImportService {
     );
     final origin = row.stats['origin'] as String? ?? 'paste';
 
-    _dao.updateState(importId, 'moving');
-    final finalDir = _library.artifactDirectory(ref);
-    if (await finalDir.exists()) {
-      throw const AppFailure(FailureKind.database, 'artifact already exists');
-    }
-    await finalDir.parent.create(recursive: true);
-
+    _dao.updateState(importId, SourceImportState.moving.wire);
     final attributionJson = _rawAttributionJson(
       title: metadata.title,
       sourceName: metadata.sourceDisplayName,
@@ -212,10 +281,8 @@ class ContentImportService {
     await File(
       p.join(staging.path, 'attribution.json'),
     ).writeAsString(attributionJson);
-
-    // Read before the rename moves the directory away.
+    // Read before the move takes the staging directory away.
     final rawBytes = await rawFile.readAsBytes();
-    await staging.rename(finalDir.path);
     final install = ValidatedArticleImport(
       articleId: articleId,
       revision: revision,
@@ -246,19 +313,80 @@ class ContentImportService {
       artifactSizeBytes: rawBytes.length,
       artifactSha256: sha256OfBytes(rawBytes),
     );
-    try {
-      _library.commitInstall(install);
-    } on AppFailure {
-      // The move already landed; the artifact dir is not yet referenced by
-      // the DB, so rolling it back is safe.
-      if (await finalDir.exists()) await finalDir.delete(recursive: true);
-      _dao.updateState(importId, 'failed');
-      rethrow;
-    }
-    _dao.updateState(importId, 'committed');
+    await _moveAndCommit(ref: ref, install: install, moveFrom: staging);
+    _dao.updateState(importId, SourceImportState.committed.wire);
     _dao.delete(importId);
     _logger.info('content_import.committed', {'article': ref.toString()});
     return ref;
+  }
+
+  /// The shared install tail (design §8.2): refuse a live artifact directory,
+  /// move the staged content into the immutable location, then switch the DB
+  /// pointer — and roll the directory back if the commit fails, since the DB
+  /// does not reference it yet.
+  Future<void> _moveAndCommit({
+    required ArticleRef ref,
+    required ValidatedArticleImport install,
+    required Directory moveFrom,
+  }) async {
+    final finalDir = _library.artifactDirectory(ref);
+    if (await finalDir.exists()) {
+      throw const AppFailure(FailureKind.database, 'artifact already exists');
+    }
+    await finalDir.parent.create(recursive: true);
+    await moveFrom.rename(finalDir.path);
+    try {
+      _library.commitInstall(install);
+    } on AppFailure {
+      if (await finalDir.exists()) await finalDir.delete(recursive: true);
+      rethrow;
+    }
+  }
+
+  /// §6.5 pre-extraction gate: the manifest's declared path set must exactly
+  /// equal the ZIP's central-directory paths (v2) or the fixed v1 layout,
+  /// before any payload beyond the manifest touches the disk.
+  void _requireExpectedPaths({
+    required String manifestJson,
+    required Set<String> entryPaths,
+  }) {
+    final Object? manifest;
+    try {
+      manifest = jsonDecode(manifestJson);
+    } on FormatException {
+      throw const AppFailure(FailureKind.packageFormat, 'invalid manifest');
+    }
+    if (manifest is! Map<String, Object?>) {
+      throw const AppFailure(FailureKind.packageFormat, 'invalid manifest');
+    }
+    final version = manifest['format_version'];
+    final Set<String> expected;
+    if (version == '1.0' || version == '1.1') {
+      expected = ImportService.allowedPaths;
+    } else if (version is String && version.startsWith('2.')) {
+      final files = manifest['files'];
+      if (files is! List<Object?>) {
+        throw const AppFailure(FailureKind.packageFormat, 'invalid manifest');
+      }
+      expected = {
+        for (final f in files)
+          if (f is Map<String, Object?> && f['path'] is String)
+            f['path']! as String,
+        'manifest.json',
+      };
+    } else {
+      throw AppFailure(
+        FailureKind.packageFormat,
+        'unsupported major version "$version"',
+      );
+    }
+    if (!entryPaths.containsAll(expected) ||
+        !expected.containsAll(entryPaths)) {
+      throw const AppFailure(
+        FailureKind.packageFormat,
+        'unexpected package layout',
+      );
+    }
   }
 
   /// One-shot import of a SAF-picked `.readpack` (v1 or v2): package content
@@ -275,8 +403,32 @@ class ContentImportService {
     try {
       await zipFile.writeAsBytes(bytes);
       final entries = await const SecureZipReader().preflight(zipFile);
+      // §6.5 order: extract ONLY the bounded manifest first, check the major
+      // and the exact path set against the ZIP's central directory, and only
+      // then stream the remaining payloads to disk.
+      final manifestEntry = entries.firstWhere(
+        (e) => e.path == 'manifest.json',
+        orElse: () => throw const AppFailure(
+          FailureKind.packageFormat,
+          'missing manifest.json',
+        ),
+      );
+      final manifestFile = File(p.join(staging.path, 'manifest.json'));
+      await const SecureZipReader().extractEntry(
+        zipFile,
+        manifestEntry,
+        manifestFile,
+      );
+      _requireExpectedPaths(
+        manifestJson: await manifestFile.readAsString(),
+        entryPaths: {for (final e in entries) e.path},
+      );
       final extracted = <String, File>{};
       for (final entry in entries) {
+        if (entry.path == 'manifest.json') {
+          extracted[entry.path] = manifestFile;
+          continue;
+        }
         final out = File(p.join(staging.path, entry.path));
         await const SecureZipReader().extractEntry(zipFile, entry, out);
         extracted[entry.path] = out;
@@ -293,28 +445,15 @@ class ContentImportService {
         revision: install.revision,
         artifactRevision: install.artifactRevision,
       );
-      final finalDir = _library.artifactDirectory(ref);
-      if (await finalDir.exists()) {
-        throw const AppFailure(
-          FailureKind.packageFormat,
-          'artifact already exists',
-        );
-      }
-      await finalDir.parent.create(recursive: true);
       // Move the extracted payload (not the zip) like every other ingress.
-      await Directory(p.join(staging.path, 'payload')).create();
+      final payloadDir = Directory(p.join(staging.path, 'payload'));
+      await payloadDir.create();
       for (final entry in extracted.entries) {
-        final target = File(p.join(staging.path, 'payload', entry.key));
+        final target = File(p.join(payloadDir.path, entry.key));
         await target.parent.create(recursive: true);
         await entry.value.rename(target.path);
       }
-      await Directory(p.join(staging.path, 'payload')).rename(finalDir.path);
-      try {
-        _library.commitInstall(install);
-      } on AppFailure {
-        if (await finalDir.exists()) await finalDir.delete(recursive: true);
-        rethrow;
-      }
+      await _moveAndCommit(ref: ref, install: install, moveFrom: payloadDir);
       await _dropStaging(staging);
       _logger.info('content_import.package_committed', {
         'article': ref.toString(),
@@ -347,20 +486,27 @@ class ContentImportService {
     final now = DateTime.now().toUtc();
     for (final row in _dao.all()) {
       try {
-        switch (row.state) {
-          case 'awaiting_confirmation':
+        switch (SourceImportState.fromWire(row.state)) {
+          case null:
+            _logger.warn('content_import.unknown_state', {
+              'import_id': row.importId,
+              'state': row.state,
+            });
+            await _dropStaging(_dirs.stagingDir(row.importId));
+            _dao.delete(row.importId);
+          case SourceImportState.awaitingConfirmation:
             final created = DateTime.parse(row.createdAt);
             if (now.difference(created) > previewExpiry) {
               await cancelRawSource(row.importId);
             }
-          case 'moving':
-          case 'failed':
+          case SourceImportState.moving:
+          case SourceImportState.failed:
             // Nothing entered the library (the commit would have flipped
             // the row to committed before deleting it); drop the staging.
             await _dropStaging(_dirs.stagingDir(row.importId));
             _dao.delete(row.importId);
-          case 'committed':
-          case 'cancelled':
+          case SourceImportState.committed:
+          case SourceImportState.cancelled:
             _dao.delete(row.importId);
         }
       } catch (e) {

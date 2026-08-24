@@ -27,6 +27,11 @@ class RawSourceParser {
     required SourceSyntax syntax,
   }) {
     final bytes = utf8.encode(text);
+    // §6.5: paste input must not bypass the module limits either; the page
+    // guard is UX, this is the boundary.
+    if (bytes.length > maxSourceBytes) {
+      throw const SourceParseException('source_too_large');
+    }
     return _structure(
       rawBytes: bytes,
       canonicalText: _canonicalize(text),

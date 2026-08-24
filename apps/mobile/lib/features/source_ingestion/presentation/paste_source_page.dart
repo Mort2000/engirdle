@@ -34,8 +34,23 @@ class _PasteSourcePageState extends State<PasteSourcePage> {
   bool get _overLimit =>
       _byteCount > 8 * 1024 * 1024 || _controller.text.isEmpty;
 
+  /// §6.2: NUL and disallowed control characters block preview at this page
+  /// (only newline and tab are legal raw content; the visible-text filter
+  /// downstream is a second net, not the gate).
+  bool get _hasDisallowedControls {
+    for (final rune in _controller.text.runes) {
+      if (rune == 0x0A || rune == 0x09) {
+        continue;
+      }
+      if (rune < 0x20 || (rune >= 0x7F && rune <= 0x9F)) {
+        return true;
+      }
+    }
+    return false;
+  }
+
   Future<void> _preview() async {
-    if (_previewing || _overLimit) return;
+    if (_previewing || _overLimit || _hasDisallowedControls) return;
     setState(() => _previewing = true);
     final deps = AppScope.of(context);
     try {
@@ -65,19 +80,30 @@ class _PasteSourcePageState extends State<PasteSourcePage> {
 
   static String _stageFailureText(AppFailure failure) {
     final detail = failure.detail ?? '';
-    if (detail.contains('raw_html')) return '内容包含 HTML 片段，移动端不支持；请删除 HTML 后重试。';
+    if (detail.contains('raw_html')) {
+      return '内容包含 HTML 片段，移动端不支持；请删除 HTML 后重试。';
+    }
     if (detail.contains('link_reference_definition')) {
       return '内容包含链接引用定义（[标签]: 地址），移动端不支持；请改用完整链接。';
     }
-    if (detail.contains('autolink'))
+    if (detail.contains('autolink')) {
       return '内容包含 <自动链接>，移动端不支持；请使用 [文字](地址) 形式。';
-    if (detail.contains('html_entity'))
+    }
+    if (detail.contains('html_entity')) {
       return '内容包含 HTML 实体（如 &amp;），移动端不支持；请改用字符本身。';
-    if (detail.contains('empty_body')) return '内容为空或全是空白，无法导入。';
-    if (detail.contains('source_too_large')) return '内容超过 8 MiB 上限；请拆分后再导入。';
-    if (detail.contains('resource_limit'))
+    }
+    if (detail.contains('empty_body')) {
+      return '内容为空或全是空白，无法导入。';
+    }
+    if (detail.contains('source_too_large')) {
+      return '内容超过 8 MiB 上限；请拆分后再导入。';
+    }
+    if (detail.contains('resource_limit')) {
       return '内容超出资源上限（块/句/表格/代码），请精简后再导入。';
-    if (detail.contains('nesting_depth')) return '引用或列表嵌套超过 4 层，请减少嵌套。';
+    }
+    if (detail.contains('nesting_depth')) {
+      return '引用或列表嵌套超过 4 层，请减少嵌套。';
+    }
     return '解析失败：${failureMessage(failure)}';
   }
 
@@ -85,6 +111,7 @@ class _PasteSourcePageState extends State<PasteSourcePage> {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final overLimit = _byteCount > 8 * 1024 * 1024;
+    final controlBlocked = _hasDisallowedControls;
     return Scaffold(
       appBar: AppBar(title: const Text('粘贴原文')),
       body: Padding(
@@ -136,14 +163,20 @@ class _PasteSourcePageState extends State<PasteSourcePage> {
                   child: Text(
                     overLimit
                         ? '当前 $_byteCount 字节，超过 8 MiB 上限，无法预览。'
+                        : controlBlocked
+                        ? '内容包含不允许的控制字符（NUL 等），请先删除后再预览。'
                         : '$_byteCount 字节（UTF-8）· 上限 8 MiB',
                     style: theme.textTheme.bodySmall?.copyWith(
-                      color: overLimit ? theme.colorScheme.error : null,
+                      color: overLimit || controlBlocked
+                          ? theme.colorScheme.error
+                          : null,
                     ),
                   ),
                 ),
                 FilledButton(
-                  onPressed: (_previewing || _overLimit) ? null : _preview,
+                  onPressed: (_previewing || _overLimit || controlBlocked)
+                      ? null
+                      : _preview,
                   child: Text(_previewing ? '解析中…' : '预览'),
                 ),
               ],

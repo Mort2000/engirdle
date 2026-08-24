@@ -178,6 +178,25 @@ class _SourceConfirmPageState extends State<SourceConfirmPage> {
               '${candidate.canTranslate ? '' : ' · 无可翻译单元'}',
               style: theme.textTheme.bodySmall,
             ),
+            if (_looksNonEnglish(candidate)) ...[
+              const SizedBox(height: 6),
+              Row(
+                children: [
+                  Icon(
+                    Icons.translate,
+                    size: 16,
+                    color: theme.colorScheme.onSurfaceVariant,
+                  ),
+                  const SizedBox(width: 6),
+                  Expanded(
+                    child: Text(
+                      '内容可能不是英文；仍可导入阅读，分词与词典以英文为主。',
+                      style: theme.textTheme.bodySmall,
+                    ),
+                  ),
+                ],
+              ),
+            ],
             const SizedBox(height: 8),
             ..._previewBlocks(theme, candidate),
             if (_hasWarnings) ...[
@@ -198,6 +217,12 @@ class _SourceConfirmPageState extends State<SourceConfirmPage> {
                         : warning.code,
                     style: theme.textTheme.bodySmall,
                   ),
+                  subtitle: warning.blockIndex == null
+                      ? null
+                      : Text(
+                          '位于第 ${warning.blockIndex} 块附近',
+                          style: theme.textTheme.bodySmall,
+                        ),
                 ),
               CheckboxListTile(
                 value: _warningsAcknowledged,
@@ -253,6 +278,28 @@ class _SourceConfirmPageState extends State<SourceConfirmPage> {
         ),
       ),
     );
+  }
+
+  /// §6.3: warning-only language heuristic — CJK characters dominating the
+  /// visible text suggests the source is not English.
+  static bool _looksNonEnglish(RawSourceCandidate candidate) {
+    var asciiLetters = 0;
+    var cjk = 0;
+    for (final block in candidate.blocks) {
+      if (block is! ParsedTextBlock) continue;
+      for (final sentence in block.sentences) {
+        for (final rune in sentence.text.runes) {
+          if ((rune >= 0x41 && rune <= 0x5A) ||
+              (rune >= 0x61 && rune <= 0x7A)) {
+            asciiLetters += 1;
+          } else if (rune >= 0x4E00 && rune <= 0x9FFF) {
+            cjk += 1;
+          }
+        }
+      }
+    }
+    final total = asciiLetters + cjk;
+    return total > 20 && cjk > asciiLetters;
   }
 
   Widget _duplicateRow(ThemeData theme, String text) => Padding(

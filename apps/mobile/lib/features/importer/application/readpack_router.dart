@@ -6,6 +6,7 @@ import '../../../contracts/readpack_v1/readpack_validator.dart';
 import '../../../contracts/readpack_v2/derivatives_v2.dart';
 import '../../../contracts/readpack_v2/readpack_v2_validator.dart';
 import '../../library/domain/article_install.dart';
+import '../../source_ingestion/domain/raw_source.dart' show SourceSyntax;
 
 /// Version routing for extracted `.readpack` files (design §6.5): the
 /// manifest's major decides the validator; both families project onto the
@@ -130,7 +131,13 @@ class ReadpackRouter {
       formatVersion: manifest.formatVersion,
       sourceSha256: article.sourceSha256,
       normalizedSha256: article.normalizedSha256,
-      sourceSyntax: manifest.parserVersion == null ? 'plain_text' : 'markdown',
+      // The manifest's parser presence is the syntax declaration (v2 README:
+      // content.parser is absent for plain-text sources).
+      sourceSyntax:
+          (manifest.parserVersion == null
+                  ? SourceSyntax.plainText
+                  : SourceSyntax.markdown)
+              .wire,
       structureSha256: article.structureSha256,
       parserVersion: manifest.parserVersion,
       segmenterVersion: manifest.segmenterVersion,
