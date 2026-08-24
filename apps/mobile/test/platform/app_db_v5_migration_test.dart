@@ -75,7 +75,7 @@ void main() {
       addTearDown(appDb.close);
       final db = appDb.db;
 
-      expect(db.userVersion, 5);
+      expect(db.userVersion, 6);
 
       // Base row: identity + pipeline versions, no audio columns.
       final article = db

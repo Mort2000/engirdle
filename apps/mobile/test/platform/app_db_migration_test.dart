@@ -1,6 +1,7 @@
 import 'dart:io';
 
 import 'package:engirdle_mobile/contracts/readpack_v1/article.dart';
+import 'package:engirdle_mobile/features/library/domain/article_install.dart';
 import 'package:engirdle_mobile/contracts/readpack_v1/manifest.dart';
 import 'package:engirdle_mobile/features/library/domain/installed_article.dart';
 import 'package:engirdle_mobile/features/library/infrastructure/library_dao.dart';
@@ -78,7 +79,7 @@ void main() {
       addTearDown(appDb.close);
       final db = appDb.db;
 
-      expect(db.userVersion, 5);
+      expect(db.userVersion, 6);
       final blockColumns = db.select("PRAGMA table_info('blocks')");
       final payloadColumn = blockColumns.singleWhere(
         (row) => row['name'] == 'payload_json',
@@ -129,10 +130,12 @@ void main() {
       final dao = LibraryDao(appDb.db);
       final content = ArticleContent.parse(v11ArticleJson());
       dao.installArticle(
-        content: content,
-        manifest: v11ManifestParsed(),
-        manifestJson: '{}',
-        attributionJson: '{}',
+        ValidatedArticleImport.fromV1(
+          content: content,
+          manifest: v11ManifestParsed(),
+          manifestJson: '{}',
+          attributionJson: '{}',
+        ),
       );
 
       final blocks = dao.getBlocks(content.articleId);

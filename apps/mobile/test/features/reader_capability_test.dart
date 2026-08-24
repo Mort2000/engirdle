@@ -1,6 +1,7 @@
 import 'dart:convert';
 
 import 'package:engirdle_mobile/app/dependencies.dart';
+import 'package:engirdle_mobile/features/library/domain/article_install.dart';
 import 'package:engirdle_mobile/contracts/readpack_v1/article.dart';
 import 'package:engirdle_mobile/contracts/readpack_v1/manifest.dart';
 import 'package:engirdle_mobile/features/library/domain/installed_article.dart';
@@ -27,10 +28,12 @@ void main() {
     tester,
   ) async {
     deps.library.commitInstall(
-      content: ArticleContent.parse(_articleJson(translated: false)),
-      manifest: ReadpackManifest.parse(jsonDecode(_manifestJson())),
-      manifestJson: _manifestJson(),
-      attributionJson: '{}',
+      ValidatedArticleImport.fromV1(
+        content: ArticleContent.parse(_articleJson(translated: false)),
+        manifest: ReadpackManifest.parse(jsonDecode(_manifestJson())),
+        manifestJson: _manifestJson(),
+        attributionJson: '{}',
+      ),
     );
 
     await tester.pumpWidget(
@@ -63,10 +66,12 @@ void main() {
     tester,
   ) async {
     deps.library.commitInstall(
-      content: ArticleContent.parse(_articleJson(translated: true)),
-      manifest: ReadpackManifest.parse(jsonDecode(_manifestJson())),
-      manifestJson: _manifestJson(),
-      attributionJson: '{}',
+      ValidatedArticleImport.fromV1(
+        content: ArticleContent.parse(_articleJson(translated: true)),
+        manifest: ReadpackManifest.parse(jsonDecode(_manifestJson())),
+        manifestJson: _manifestJson(),
+        attributionJson: '{}',
+      ),
     );
 
     await tester.pumpWidget(
@@ -85,10 +90,12 @@ void main() {
     tester,
   ) async {
     deps.library.commitInstall(
-      content: ArticleContent.parse(_articleJson(translated: false)),
-      manifest: ReadpackManifest.parse(jsonDecode(_manifestJson())),
-      manifestJson: _manifestJson(),
-      attributionJson: '{}',
+      ValidatedArticleImport.fromV1(
+        content: ArticleContent.parse(_articleJson(translated: false)),
+        manifest: ReadpackManifest.parse(jsonDecode(_manifestJson())),
+        manifestJson: _manifestJson(),
+        attributionJson: '{}',
+      ),
     );
     deps.library.setReadingMode(_articleId, ReadingMode.bilingual);
 

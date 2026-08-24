@@ -121,3 +121,6 @@ List<SourceParseWarning> _unclosedFenceWarnings(
     SourceParseWarning(code: 'unclosed_code_fence', blockIndex: blockCount),
   ];
 }
+
+String sha256OfBytes(List<int> bytes) =>
+    crypto.sha256.convert(bytes).toString();

@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:engirdle_mobile/contracts/readpack_v1/article.dart';
 import 'package:engirdle_mobile/contracts/readpack_v1/manifest.dart';
 import 'package:engirdle_mobile/features/library/application/library_service.dart';
+import 'package:engirdle_mobile/features/library/domain/article_install.dart';
 import 'package:engirdle_mobile/features/library/infrastructure/library_dao.dart';
 import 'package:engirdle_mobile/features/playback/domain/lease_registry.dart';
 import 'package:engirdle_mobile/features/playback/infrastructure/library_playback_source_adapter.dart';
@@ -49,10 +50,12 @@ void main() {
     );
     audio.createSync(recursive: true);
     library.commitInstall(
-      content: ArticleContent.parse(articleJson(withSentence: withSentence)),
-      manifest: ReadpackManifest.parse(manifestJson()),
-      manifestJson: '{}',
-      attributionJson: '{}',
+      ValidatedArticleImport.fromV1(
+        content: ArticleContent.parse(articleJson(withSentence: withSentence)),
+        manifest: ReadpackManifest.parse(manifestJson()),
+        manifestJson: '{}',
+        attributionJson: '{}',
+      ),
     );
   }
 

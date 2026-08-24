@@ -137,6 +137,7 @@ class MdBlockState {
       final lineStart = bMarks[line];
       var first = lineStart;
       var last = line + 1 < end || keepLastLf ? eMarks[line] + 1 : eMarks[line];
+      if (last > src.length) last = src.length; // Python slicing clips
 
       while (first < last && lineIndent < indent) {
         final ch = src.codeUnitAt(first);

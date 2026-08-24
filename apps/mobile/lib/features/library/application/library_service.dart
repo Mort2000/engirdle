@@ -2,12 +2,11 @@ import 'dart:io';
 
 import 'package:path/path.dart' as p;
 
-import '../../../contracts/readpack_v1/article.dart';
-import '../../../contracts/readpack_v1/manifest.dart';
 import '../../../platform/filesystem/app_directories.dart';
 import '../../../shared_kernel/content_identity.dart';
 import '../../../shared_kernel/failures.dart';
 import '../../playback/domain/lease_registry.dart';
+import '../domain/article_install.dart';
 import '../domain/installed_article.dart';
 import '../infrastructure/library_dao.dart';
 
@@ -95,21 +94,11 @@ class LibraryService {
   Directory artifactDirectory(ArticleRef ref) =>
       _dirs.articleDir(ref.articleId, ref.revision, ref.artifactRevision);
 
-  /// Commits a validated, fully-moved package: the single DB transaction
+  /// Commits a validated, fully-moved import: the single DB transaction
   /// that switches the article's current pointer (design §8.2).
-  void commitInstall({
-    required ArticleContent content,
-    required ReadpackManifest manifest,
-    required String manifestJson,
-    required String attributionJson,
-  }) {
+  void commitInstall(ValidatedArticleImport install) {
     try {
-      _dao.installArticle(
-        content: content,
-        manifest: manifest,
-        manifestJson: manifestJson,
-        attributionJson: attributionJson,
-      );
+      _dao.installArticle(install);
     } catch (e) {
       throw AppFailure(
         FailureKind.database,
@@ -117,6 +106,24 @@ class LibraryService {
         detail: e.toString(),
       );
     }
+  }
+
+  /// Duplicate matches for the confirmation page (§6.3): exact raw bytes
+  /// first, then content duplicates (same normalized hash + syntax).
+  ({List<InstalledArticle> exact, List<InstalledArticle> content}) duplicates({
+    required String sourceSha256,
+    required String normalizedSha256,
+    required String sourceSyntax,
+  }) {
+    final exact = _dao.findBySourceSha256(sourceSha256);
+    final content = _dao
+        .findByContentIdentity(
+          normalizedSha256: normalizedSha256,
+          sourceSyntax: sourceSyntax,
+        )
+        .where((a) => a.sourceSha256 != sourceSha256)
+        .toList();
+    return (exact: exact, content: content);
   }
 
   /// Deletes the article's DB rows and all on-disk artifacts.

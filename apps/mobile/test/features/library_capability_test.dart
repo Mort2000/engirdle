@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:engirdle_mobile/contracts/readpack_v1/article.dart';
 import 'package:engirdle_mobile/contracts/readpack_v1/manifest.dart';
 import 'package:engirdle_mobile/features/library/application/library_service.dart';
+import 'package:engirdle_mobile/features/library/domain/article_install.dart';
 import 'package:engirdle_mobile/features/library/domain/installed_article.dart';
 import 'package:engirdle_mobile/features/library/infrastructure/library_dao.dart';
 import 'package:engirdle_mobile/platform/database/app_database.dart';
@@ -36,10 +37,12 @@ void main() {
     final manifestJson = _manifestJson();
     final content = ArticleContent.parse(articleJson);
     library.commitInstall(
-      content: content,
-      manifest: ReadpackManifest.parse(jsonDecode(manifestJson)),
-      manifestJson: manifestJson,
-      attributionJson: '{}',
+      ValidatedArticleImport.fromV1(
+        content: content,
+        manifest: ReadpackManifest.parse(jsonDecode(manifestJson)),
+        manifestJson: manifestJson,
+        attributionJson: '{}',
+      ),
     );
     return library.getContent(content.articleId)!;
   }

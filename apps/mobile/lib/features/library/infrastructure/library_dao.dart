@@ -4,8 +4,8 @@ import 'package:sqlite3/sqlite3.dart';
 
 import '../../../contracts/contract_violation.dart';
 import '../../../contracts/readpack_v1/article.dart';
-import '../../../contracts/readpack_v1/manifest.dart';
 import '../../../shared_kernel/id_generator.dart';
+import '../domain/article_install.dart';
 import '../domain/installed_article.dart';
 
 /// DAO for library-owned tables: the immutable article base (articles,
@@ -38,7 +38,9 @@ class LibraryDao {
   static const _articleSelect =
       'SELECT a.article_id, a.title, a.author, a.source_display_name, '
       'a.source_url, a.revision, a.current_artifact_revision, a.origin, '
-      'a.structure_sha256, a.installed_at, ar.package_id, ar.format_version, '
+      'a.source_sha256, a.structure_sha256, a.normalized_sha256, '
+      'a.source_syntax, '
+      'a.installed_at, ar.package_id, ar.format_version, '
       'n.audio_path, n.codec, n.sample_rate_hz, n.channels, n.duration_ms '
       'FROM articles a '
       'JOIN article_artifacts ar ON ar.article_id = a.article_id '
@@ -393,20 +395,13 @@ class LibraryDao {
   }
 
   /// Atomically replaces any previously installed revision of the article
-  /// with the new validated package (MOB-IMP-002 pointer switch).
-  ///
-  /// Installs the immutable base plus its packaged derivatives: a complete
-  /// zh-Hans translation set (activated) when the package carries one, and
-  /// a narration asset when sentences bear audio ranges. Runs in one short
-  /// transaction; callers move files first and keep the recovery log around
-  /// this call (design §8.2).
-  void installArticle({
-    required ArticleContent content,
-    required ReadpackManifest manifest,
-    required String manifestJson,
-    required String attributionJson,
-  }) {
-    final articleId = content.articleId;
+  /// with the unified validated import (MOB-IMP-002 pointer switch, design
+  /// §5.7): the immutable base plus its packaged derivatives — a translation
+  /// set (activated, complete by construction) and a narration asset. Runs in
+  /// one short transaction; callers move files first and keep the recovery
+  /// log around this call (design §8.2).
+  void installArticle(ValidatedArticleImport install) {
+    final articleId = install.articleId;
     final now = DateTime.now().toUtc().toIso8601String();
     _db.execute('BEGIN IMMEDIATE');
     try {
@@ -421,21 +416,25 @@ class LibraryDao {
       _db.execute(
         'INSERT INTO articles (article_id, title, author, '
         'source_display_name, source_url, revision, origin, '
-        'source_sha256, structure_sha256, parser_version, '
-        'segmenter_version, current_artifact_revision, installed_at) '
-        "VALUES (?, ?, ?, ?, ?, ?, 'catalog', ?, ?, ?, ?, ?, ?)",
+        'source_sha256, normalized_sha256, source_syntax, structure_sha256, '
+        'parser_version, segmenter_version, current_artifact_revision, '
+        'installed_at) '
+        'VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
         [
           articleId,
-          content.title,
-          content.source.author,
-          content.source.displayName,
-          content.source.url,
-          content.revision,
-          content.sourceSha256,
-          content.structureSha256,
-          null, // v1 manifests carry no parser identifier; segmenter below
-          manifest.pipeline.segmenter,
-          manifest.artifactRevision,
+          install.title,
+          install.source.author,
+          install.source.displayName,
+          install.source.url,
+          install.revision,
+          install.origin,
+          install.sourceSha256,
+          install.normalizedSha256,
+          install.sourceSyntax,
+          install.structureSha256,
+          install.parserVersion,
+          install.segmenterVersion,
+          install.artifactRevision,
           now,
         ],
       );
@@ -443,23 +442,24 @@ class LibraryDao {
         'INSERT INTO article_artifacts (article_id, artifact_revision, '
         'ingress_kind, package_id, format_version, size_bytes, sha256, '
         'manifest_json, attribution_json, installed_at) '
-        "VALUES (?, ?, 'catalog', ?, ?, ?, ?, ?, ?, ?)",
+        'VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
         [
           articleId,
-          manifest.artifactRevision,
-          manifest.packageId,
-          manifest.formatVersion,
-          manifest.fileFor('audio/article.m4a').size,
-          manifest.fileFor('audio/article.m4a').sha256,
-          manifestJson,
-          attributionJson,
+          install.artifactRevision,
+          install.origin,
+          install.packageId,
+          install.formatVersion,
+          install.artifactSizeBytes,
+          install.artifactSha256,
+          install.manifestJson,
+          install.attributionJson,
           now,
         ],
       );
       if (previousMode != null) {
         setReadingMode(articleId, previousMode);
       }
-      final blocks = [...content.blocks]..sort((a, b) => a.order - b.order);
+      final blocks = [...install.blocks]..sort((a, b) => a.order - b.order);
       for (final block in blocks) {
         final described = _describe(block);
         _db.execute(
@@ -491,11 +491,7 @@ class LibraryDao {
           );
         }
       }
-      _installPackagedDerivatives(
-        content: content,
-        manifest: manifest,
-        now: now,
-      );
+      _installDerivatives(install, now);
       _db.execute('COMMIT');
     } catch (_) {
       // A failing ROLLBACK must not mask the original error.
@@ -509,56 +505,36 @@ class LibraryDao {
   }
 
   /// Writes the packaged translation set (activated when complete) and the
-  /// narration asset. A v1 package always carries both; source-only inputs
-  /// (phase 2) simply produce neither. Partial derivatives are never
-  /// installed: the caller validated the package as a whole.
-  void _installPackagedDerivatives({
-    required ArticleContent content,
-    required ReadpackManifest manifest,
-    required String now,
-  }) {
-    final articleId = content.articleId;
-    final sentenceTranslations = [
-      for (final sentence in _textSentences(content))
-        if (sentence.translationZh != null)
-          (sentence.sentenceId, sentence.translationZh!),
-    ];
-    final tableTranslations = [
-      for (final block in content.blocks)
-        if (block is ParsedTableBlock)
-          for (final entry in block.translationById.entries)
-            (block.blockId, entry.key, entry.value),
-    ];
-    if (sentenceTranslations.isNotEmpty || tableTranslations.isNotEmpty) {
+  /// narration asset. Source-only imports carry neither; partial derivatives
+  /// are never installed — the caller validated the artifact as a whole.
+  void _installDerivatives(ValidatedArticleImport install, String now) {
+    final articleId = install.articleId;
+    final translation = install.translation;
+    if (translation != null) {
       final setId = newUuid();
       _db.execute(
         'INSERT INTO translation_sets (translation_set_id, article_id, '
         'artifact_revision, structure_sha256, target_locale, origin, '
         'status, pipeline_json, created_at) '
-        "VALUES (?, ?, ?, ?, 'zh-Hans', 'packaged', 'complete', ?, ?)",
+        "VALUES (?, ?, ?, ?, ?, 'packaged', 'complete', ?, ?)",
         [
           setId,
           articleId,
-          manifest.artifactRevision,
-          content.structureSha256,
-          jsonEncode({
-            'provider': manifest.pipeline.translationProvider,
-            'model': manifest.pipeline.translationModel,
-            'prompt': manifest.pipeline.translationPrompt,
-            'thinking': manifest.pipeline.translationThinking,
-            'reasoning_effort': manifest.pipeline.translationReasoningEffort,
-          }),
+          install.artifactRevision,
+          install.structureSha256,
+          translation.locale,
+          translation.pipelineJson,
           now,
         ],
       );
-      for (final (sentenceId, text) in sentenceTranslations) {
+      for (final (sentenceId, text) in translation.sentences) {
         _db.execute(
           'INSERT INTO sentence_translations (translation_set_id, '
           'sentence_id, text) VALUES (?, ?, ?)',
           [setId, sentenceId, text],
         );
       }
-      for (final (blockId, cellId, text) in tableTranslations) {
+      for (final (blockId, cellId, text) in translation.cells) {
         _db.execute(
           'INSERT INTO table_cell_translations (translation_set_id, '
           'block_id, cell_id, text) VALUES (?, ?, ?, ?)',
@@ -567,25 +543,14 @@ class LibraryDao {
       }
       _db.execute(
         'INSERT INTO article_active_translations (article_id, '
-        "target_locale, translation_set_id) VALUES (?, 'zh-Hans', ?)",
-        [articleId, setId],
+        'target_locale, translation_set_id) VALUES (?, ?, ?)',
+        [articleId, translation.locale, setId],
       );
     }
 
-    final narratedSentences = [
-      for (final sentence in _textSentences(content))
-        if (sentence.hasAudio)
-          (
-            sentence.sentenceId,
-            sentence.audioStartMs!,
-            sentence.audioEndMs!,
-            sentence.audioStartSample!,
-            sentence.audioEndSample!,
-          ),
-    ];
-    if (narratedSentences.isNotEmpty) {
+    final narration = install.narration;
+    if (narration != null) {
       final narrationId = newUuid();
-      final audio = manifest.audio;
       _db.execute(
         'INSERT INTO narration_assets (narration_id, article_id, '
         'artifact_revision, structure_sha256, audio_path, codec, '
@@ -594,17 +559,17 @@ class LibraryDao {
         [
           narrationId,
           articleId,
-          manifest.artifactRevision,
-          content.structureSha256,
-          audio.path,
-          audio.codec,
-          audio.sampleRateHz,
-          audio.channels,
-          audio.durationMs,
+          install.artifactRevision,
+          install.structureSha256,
+          narration.audioPath,
+          narration.codec,
+          narration.sampleRateHz,
+          narration.channels,
+          narration.durationMs,
         ],
       );
       for (final (sentenceId, startMs, endMs, startSample, endSample)
-          in narratedSentences) {
+          in narration.ranges) {
         _db.execute(
           'INSERT INTO sentence_audio_ranges (narration_id, sentence_id, '
           'audio_start_ms, audio_end_ms, audio_start_sample, '
@@ -613,18 +578,6 @@ class LibraryDao {
         );
       }
     }
-  }
-
-  /// The article's text-block sentences in reading order (block order, then
-  /// sentence order) — the single traversal installs use for every
-  /// sentence-derived row.
-  static Iterable<SentenceContent> _textSentences(ArticleContent content) {
-    final blocks = [...content.blocks]..sort((a, b) => a.order - b.order);
-    return [
-      for (final block in blocks)
-        if (block is ParsedTextBlock)
-          ...([...block.sentences]..sort((a, b) => a.order - b.order)),
-    ];
   }
 
   /// Wire kind + payload JSON for one parsed block.
@@ -650,6 +603,29 @@ class LibraryDao {
   /// Exposed for tests: the wire kind and payload JSON for a parsed block.
   static ({String kind, String payload}) describeBlock(ParsedBlock block) =>
       _describe(block);
+
+  /// Exact raw duplicates (same source_sha256) for the confirmation page.
+  List<InstalledArticle> findBySourceSha256(String sourceSha256) => [
+    for (final row in _db.select(
+      '$_articleSelect WHERE a.source_sha256 = ? ORDER BY a.title',
+      [sourceSha256],
+    ))
+      _articleFromRow(row),
+  ];
+
+  /// Content-duplicate candidates: same normalized hash AND syntax, covering
+  /// paste/file pairs that differ only by BOM or line endings (§6.3).
+  List<InstalledArticle> findByContentIdentity({
+    required String normalizedSha256,
+    required String sourceSyntax,
+  }) => [
+    for (final row in _db.select(
+      '$_articleSelect WHERE a.normalized_sha256 = ? '
+      'AND a.source_syntax = ? ORDER BY a.title',
+      [normalizedSha256, sourceSyntax],
+    ))
+      _articleFromRow(row),
+  ];
 
   /// Switches the article's active set for the set's locale. The set must
   /// be complete, belong to this article, bind the current structure hash
@@ -783,6 +759,9 @@ class LibraryDao {
       packageId: row['package_id'] as String?,
       formatVersion: row['format_version'] as String,
       origin: row['origin'] as String,
+      sourceSha256: row['source_sha256'] as String?,
+      normalizedSha256: row['normalized_sha256'] as String?,
+      sourceSyntax: row['source_syntax'] as String?,
       structureSha256: row['structure_sha256'] as String?,
       narration: narration,
       installedAt: DateTime.parse(row['installed_at'] as String).toLocal(),

@@ -517,6 +517,31 @@ const kMigrations = <List<String>>[
     // disappears with that table.
     'CREATE INDEX idx_sentences_article ON sentences(article_id, ord)',
   ],
+  // v5 → v6: raw-source import support (lightweight-readpack design §11.1).
+  // The base gains the content-duplicate identity (normalized_sha256 +
+  // source_syntax, NULL for catalog installs), and the source-import journal
+  // backs the acquiring→…→committed state machine (§6.5) with recovery to the
+  // confirmation page after process death. Cheap additive migration: no
+  // table rebuilds, no data movement.
+  [
+    'ALTER TABLE articles ADD COLUMN normalized_sha256 TEXT',
+    'ALTER TABLE articles ADD COLUMN source_syntax TEXT',
+    '''
+    CREATE TABLE source_imports (
+      import_id TEXT PRIMARY KEY,
+      state TEXT NOT NULL,
+      syntax TEXT NOT NULL,
+      raw_sha256 TEXT NOT NULL,
+      normalized_sha256 TEXT NOT NULL,
+      structure_sha256 TEXT NOT NULL,
+      suggested_title TEXT NOT NULL,
+      stats_json TEXT NOT NULL,
+      warnings_json TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    )
+    ''',
+  ],
 ];
 
 /// Applies pending migrations inside a single transaction.

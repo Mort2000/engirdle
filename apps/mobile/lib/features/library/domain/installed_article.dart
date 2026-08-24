@@ -16,6 +16,9 @@ class InstalledArticle {
     required this.packageId,
     required this.formatVersion,
     required this.origin,
+    this.sourceSha256,
+    this.normalizedSha256,
+    this.sourceSyntax,
     this.structureSha256,
     this.narration,
     required this.installedAt,
@@ -31,9 +34,17 @@ class InstalledArticle {
   final String? packageId;
   final String formatVersion;
 
-  /// How the base entered the library: `catalog` (PC readpack) for now;
-  /// paste/document follow with the lightweight import path.
+  /// How the base entered the library: `catalog` (PC readpack), `paste`, or
+  /// `document` (SAF-picked package or raw file).
   final String origin;
+
+  /// SHA-256 of the raw source text the base was structured from.
+  final String? sourceSha256;
+
+  /// Raw-source duplicate identity (both NULL for catalog installs):
+  /// content duplicates share normalized hash + syntax (§6.3).
+  final String? normalizedSha256;
+  final String? sourceSyntax;
 
   /// Exact structure hash the derivatives must bind to; NULL only for
   /// pre-v5 installs that never persisted it.

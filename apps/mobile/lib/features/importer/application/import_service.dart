@@ -14,6 +14,7 @@ import '../../../shared_kernel/content_identity.dart';
 import '../../../shared_kernel/failures.dart';
 import '../../../shared_kernel/id_generator.dart';
 import '../../library/application/library_service.dart';
+import '../../library/domain/article_install.dart';
 import '../domain/import_models.dart';
 import '../infrastructure/import_log_dao.dart';
 
@@ -160,10 +161,12 @@ class ImportService {
       final attributionJson =
           await File(p.join(finalDir.path, 'attribution.json')).readAsString();
       _library.commitInstall(
-        content: validated.article,
-        manifest: validated.manifest,
-        manifestJson: manifestJson,
-        attributionJson: attributionJson,
+        ValidatedArticleImport.fromV1(
+          content: validated.article,
+          manifest: validated.manifest,
+          manifestJson: manifestJson,
+          attributionJson: attributionJson,
+        ),
       );
       committed = true;
       _logDao.updateState(importId, ImportState.committed);
@@ -281,10 +284,12 @@ class ImportService {
             await File(p.join(finalDir.path, 'attribution.json'))
                 .readAsString();
         _library.commitInstall(
-          content: validated.article,
-          manifest: validated.manifest,
-          manifestJson: manifestJson,
-          attributionJson: attributionJson,
+          ValidatedArticleImport.fromV1(
+            content: validated.article,
+            manifest: validated.manifest,
+            manifestJson: manifestJson,
+            attributionJson: attributionJson,
+          ),
         );
         _logDao.updateState(op.importId, ImportState.committed);
       } catch (e) {
