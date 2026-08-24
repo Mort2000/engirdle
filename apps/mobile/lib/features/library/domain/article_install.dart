@@ -74,11 +74,17 @@ class ValidatedArticleImport {
   final NarrationImport? narration;
 
   /// Maps a fully validated v1 package onto the unified install input.
+  /// [origin] defaults to `catalog` (the LAN path); SAF-picked packages pass
+  /// `document`. The artifact identity defaults to the legacy audio-entry
+  /// recording; callers holding the actual ZIP can override it.
   factory ValidatedArticleImport.fromV1({
     required ArticleContent content,
     required ReadpackManifest manifest,
     required String manifestJson,
     required String attributionJson,
+    String origin = 'catalog',
+    int? artifactSizeBytes,
+    String? artifactSha256,
   }) {
     final audio = manifest.fileFor('audio/article.m4a');
     return ValidatedArticleImport(
@@ -87,7 +93,7 @@ class ValidatedArticleImport {
       artifactRevision: manifest.artifactRevision,
       title: content.title,
       source: content.source,
-      origin: 'catalog',
+      origin: origin,
       formatVersion: manifest.formatVersion,
       sourceSha256: content.sourceSha256,
       structureSha256: content.structureSha256,
@@ -95,8 +101,8 @@ class ValidatedArticleImport {
       blocks: content.blocks,
       manifestJson: manifestJson,
       attributionJson: attributionJson,
-      artifactSizeBytes: audio.size,
-      artifactSha256: audio.sha256,
+      artifactSizeBytes: artifactSizeBytes ?? audio.size,
+      artifactSha256: artifactSha256 ?? audio.sha256,
       packageId: manifest.packageId,
       translation: PackagedTranslationImport.fromV1Content(content, manifest),
       narration: NarrationImport.fromV1Content(content, manifest),
