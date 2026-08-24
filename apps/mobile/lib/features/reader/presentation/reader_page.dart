@@ -67,6 +67,12 @@ class _ReaderPageState extends State<ReaderPage> {
     }
     _content = content;
     _mode = deps.library.readingMode(widget.articleId);
+    // Safe fallback: a persisted bilingual/zh preference for an article with
+    // no active translation set opens en-only instead of empty panes. The
+    // stored preference is left alone — a future set re-enables it.
+    if (!content.capabilities.hasTranslation && _mode != ReadingMode.enOnly) {
+      _mode = ReadingMode.enOnly;
+    }
     _labels = content.sentenceLabels;
     for (final sentence in content.sentences) {
       _viewKeys[sentence.sentenceId] = GlobalKey<SentenceViewState>();
@@ -124,7 +130,8 @@ class _ReaderPageState extends State<ReaderPage> {
       context: context,
       builder: (sheetContext) => SentenceMenuSheet(
         label: _labelOf(sentence),
-        translationEnabled: _mode != ReadingMode.zhOnly,
+        translationEnabled: _mode != ReadingMode.zhOnly && _hasTranslation(),
+        playbackEnabled: _content?.capabilities.hasNarration ?? false,
         onTranslate: () {
           Navigator.of(sheetContext).pop();
           _showTranslation(sentence);
@@ -141,12 +148,15 @@ class _ReaderPageState extends State<ReaderPage> {
     );
   }
 
+  bool _hasTranslation() => _content?.capabilities.hasTranslation ?? false;
+
   void _showTranslation(InstalledSentence sentence) {
     showModalBottomSheet<void>(
       context: context,
       builder: (sheetContext) => SentenceTranslationSheet(
         label: _labelOf(sentence),
         sentence: sentence,
+        playbackEnabled: _content?.capabilities.hasNarration ?? false,
         onPlaySentence: () {
           Navigator.of(sheetContext).pop();
           _startPlayback(sentence, PlaybackMode.sentence);
@@ -299,7 +309,11 @@ class _ReaderPageState extends State<ReaderPage> {
           overflow: TextOverflow.ellipsis,
         ),
         actions: [
-          _ModeChip(mode: _mode, onChanged: _setMode),
+          _ModeChip(
+            mode: _mode,
+            translationEnabled: content.capabilities.hasTranslation,
+            onChanged: _setMode,
+          ),
           PopupMenuButton<String>(
             onSelected: (value) {
               switch (value) {
@@ -390,11 +404,14 @@ class _Header extends StatelessWidget {
   Widget build(BuildContext context) {
     final article = content.article;
     final wordCount = formatThousands(content.approximateWordCount);
+    final narrationMeta = article.narration == null
+        ? '仅原文'
+        : '句级语音 ${_duration(article.narration!.durationMs)}';
     final meta = switch (mode) {
       ReadingMode.enOnly =>
-        '${article.author ?? '未知作者'} · 约 $wordCount 词 · 句级语音 ${_duration(article.durationMs)}',
+        '${article.author ?? '未知作者'} · 约 $wordCount 词 · $narrationMeta',
       ReadingMode.bilingual =>
-        '${article.author ?? '未知作者'} · 约 $wordCount 词 · 句级语音 ${_duration(article.durationMs)}',
+        '${article.author ?? '未知作者'} · 约 $wordCount 词 · $narrationMeta',
       ReadingMode.zhOnly =>
         '${article.author ?? '未知作者'} · 第 ${article.revision} 版 · 句级语音为英文原文',
     };
@@ -426,9 +443,18 @@ class _Header extends StatelessWidget {
 }
 
 class _ModeChip extends StatelessWidget {
-  const _ModeChip({required this.mode, required this.onChanged});
+  const _ModeChip({
+    required this.mode,
+    required this.translationEnabled,
+    required this.onChanged,
+  });
 
   final ReadingMode mode;
+
+  /// Without an active translation set the bilingual/zh entries are hidden
+  /// (not disabled): the article simply has no such reading mode yet.
+  final bool translationEnabled;
+
   final void Function(ReadingMode) onChanged;
 
   static const _labels = {
@@ -444,7 +470,8 @@ class _ModeChip extends StatelessWidget {
       onSelected: onChanged,
       itemBuilder: (_) => [
         for (final entry in _labels.entries)
-          PopupMenuItem(value: entry.key, child: Text(entry.value)),
+          if (entry.key == ReadingMode.enOnly || translationEnabled)
+            PopupMenuItem(value: entry.key, child: Text(entry.value)),
       ],
       child: Container(
         margin: const EdgeInsets.symmetric(vertical: 12),

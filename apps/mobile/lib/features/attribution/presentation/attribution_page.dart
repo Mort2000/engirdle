@@ -73,10 +73,14 @@ class AttributionPage extends StatelessWidget {
                   '声音配置',
                   '${parsed.manifest.pipeline.voiceProfile} · anchor ${_short(parsed.manifest.pipeline.anchorSha256)}',
                 ),
-                (
-                  '音频',
-                  'AAC-LC · 24 kHz · 单声道 · ${formatDurationMs(article.durationMs)}',
-                ),
+                if (article.narration != null)
+                  (
+                    '音频',
+                    '${article.narration!.codec.toUpperCase()} · '
+                        '${article.narration!.sampleRateHz ~/ 1000} kHz · '
+                        '${article.narration!.channels == 1 ? '单声道' : '${article.narration!.channels} 声道'} · '
+                        '${formatDurationMs(article.narration!.durationMs)}',
+                  ),
               ],
             ),
           ],
@@ -124,9 +128,12 @@ class AttributionPage extends StatelessWidget {
     return 'unknown';
   }
 
-  static String _short(String hash) => hash.length <= 8
-      ? hash
-      : '${hash.substring(0, 4)}…${hash.substring(hash.length - 4)}';
+  static String _short(String? value) {
+    if (value == null) return '—';
+    return value.length <= 8
+        ? value
+        : '${value.substring(0, 4)}…${value.substring(value.length - 4)}';
+  }
 }
 
 class _Section extends StatelessWidget {

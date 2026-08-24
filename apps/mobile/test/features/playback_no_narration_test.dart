@@ -33,11 +33,7 @@ void main() {
       directories: dirs,
       playbackLeases: registry,
     );
-    ref = ArticleRef(
-      articleId: articleId,
-      revision: 1,
-      artifactRevision: 1,
-    );
+    ref = ArticleRef(articleId: articleId, revision: 1, artifactRevision: 1);
   });
 
   tearDown(() async {
@@ -48,11 +44,9 @@ void main() {
   void install({required bool withSentence}) {
     // The audio file only needs to exist for actual playback, not for
     // resolving ranges; keep the artifact layout honest anyway.
-    final audio = File(p.join(
-      library.artifactDirectory(ref).path,
-      'audio',
-      'article.m4a',
-    ));
+    final audio = File(
+      p.join(library.artifactDirectory(ref).path, 'audio', 'article.m4a'),
+    );
     audio.createSync(recursive: true);
     library.commitInstall(
       content: ArticleContent.parse(articleJson(withSentence: withSentence)),
@@ -62,22 +56,37 @@ void main() {
     );
   }
 
-  test('an article of only table/code/divider blocks yields zero ranges',
-      () async {
-    install(withSentence: false);
-    final adapter =
-        LibraryPlaybackSourceAdapter(library: library, registry: registry);
+  test(
+    'an article of only table/code/divider blocks has no narration lease',
+    () async {
+      install(withSentence: false);
+      final adapter = LibraryPlaybackSourceAdapter(
+        library: library,
+        registry: registry,
+      );
 
-    final lease = await adapter.acquire(ref);
-    expect(lease.ranges, isEmpty);
-    expect(lease.totalDuration, const Duration(milliseconds: 2000));
-    adapter.release(lease);
-  });
+      // Zero narratable sentences means no narration asset at all: acquire
+      // fails clearly instead of leasing an audio file with empty ranges.
+      await expectLater(
+        adapter.acquire(ref),
+        throwsA(
+          isA<StateError>().having(
+            (e) => e.message,
+            'message',
+            contains('playback.source.no_narration'),
+          ),
+        ),
+      );
+      expect(registry.isLeasedArticle(articleId), isFalse);
+    },
+  );
 
   test('a mixed article counts only narratable sentences', () async {
     install(withSentence: true);
-    final adapter =
-        LibraryPlaybackSourceAdapter(library: library, registry: registry);
+    final adapter = LibraryPlaybackSourceAdapter(
+      library: library,
+      registry: registry,
+    );
 
     final lease = await adapter.acquire(ref);
     expect(lease.ranges, hasLength(1));
@@ -153,39 +162,54 @@ Map<String, Object?> articleJson({required bool withSentence}) =>
     };
 
 Map<String, Object?> manifestJson() => <String, Object?>{
-      'format': 'readpack',
-      'format_version': '1.1',
-      'required_capabilities': ['markdown-blocks'],
-      'package_id': '55555555-5555-4555-8555-555555555555',
-      'created_at': '2026-08-14T08:00:00Z',
-      'article': {'id': articleId, 'revision': 1, 'artifact_revision': 1},
-      'files': [
-        {'path': 'article.json', 'size': 1, 'sha256': 'c' * 64, 'media_type': 'application/json'},
-        {'path': 'attribution.json', 'size': 1, 'sha256': 'd' * 64, 'media_type': 'application/json'},
-        {'path': 'audio/article.m4a', 'size': 1, 'sha256': 'e' * 64, 'media_type': 'audio/mp4'},
-      ],
-      'audio': {
-        'path': 'audio/article.m4a',
-        'codec': 'aac-lc',
-        'sample_rate_hz': 24000,
-        'channels': 1,
-        'duration_ms': 2000,
-      },
-      'pipeline': {
-        'version': '0.1.0',
-        'segmenter': 'fixture-segmenter@1',
-        'translation': {
-          'provider': 'fixture-provider',
-          'model': 'fixture-model',
-          'thinking': 'enabled',
-          'reasoning_effort': 'max',
-          'prompt': 'fixture-prompt@v1',
-        },
-        'tts': {
-          'custom_voice_model': 'fixture-custom-voice@r1',
-          'base_model': 'fixture-base@r1',
-          'voice_profile': 'fixture-voice@1',
-          'anchor_sha256': 'f' * 64,
-        },
-      },
-    };
+  'format': 'readpack',
+  'format_version': '1.1',
+  'required_capabilities': ['markdown-blocks'],
+  'package_id': '55555555-5555-4555-8555-555555555555',
+  'created_at': '2026-08-14T08:00:00Z',
+  'article': {'id': articleId, 'revision': 1, 'artifact_revision': 1},
+  'files': [
+    {
+      'path': 'article.json',
+      'size': 1,
+      'sha256': 'c' * 64,
+      'media_type': 'application/json',
+    },
+    {
+      'path': 'attribution.json',
+      'size': 1,
+      'sha256': 'd' * 64,
+      'media_type': 'application/json',
+    },
+    {
+      'path': 'audio/article.m4a',
+      'size': 1,
+      'sha256': 'e' * 64,
+      'media_type': 'audio/mp4',
+    },
+  ],
+  'audio': {
+    'path': 'audio/article.m4a',
+    'codec': 'aac-lc',
+    'sample_rate_hz': 24000,
+    'channels': 1,
+    'duration_ms': 2000,
+  },
+  'pipeline': {
+    'version': '0.1.0',
+    'segmenter': 'fixture-segmenter@1',
+    'translation': {
+      'provider': 'fixture-provider',
+      'model': 'fixture-model',
+      'thinking': 'enabled',
+      'reasoning_effort': 'max',
+      'prompt': 'fixture-prompt@v1',
+    },
+    'tts': {
+      'custom_voice_model': 'fixture-custom-voice@r1',
+      'base_model': 'fixture-base@r1',
+      'voice_profile': 'fixture-voice@1',
+      'anchor_sha256': 'f' * 64,
+    },
+  },
+};

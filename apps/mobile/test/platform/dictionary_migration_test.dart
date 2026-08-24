@@ -2,6 +2,7 @@ import 'dart:io';
 
 import 'package:engirdle_mobile/features/dictionary/infrastructure/dictionary_dao.dart';
 import 'package:engirdle_mobile/platform/database/app_database.dart';
+import 'package:engirdle_mobile/platform/database/migrations.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:path/path.dart' as p;
 import 'package:sqlite3/sqlite3.dart';
@@ -18,93 +19,12 @@ void main() {
       });
       final path = p.join(temp.path, 'app.db');
       final legacy = sqlite3.open(path);
-      legacy.execute('''
-      CREATE TABLE dictionary_manifest (
-        dictionary_id TEXT PRIMARY KEY,
-        revision INTEGER NOT NULL,
-        path TEXT NOT NULL,
-        size_bytes INTEGER NOT NULL,
-        sha256 TEXT NOT NULL,
-        meta_json TEXT NOT NULL,
-        installed_at TEXT NOT NULL
-      )
-    ''');
-      legacy.execute('''
-      CREATE TABLE vocabulary (
-        vocabulary_id TEXT PRIMARY KEY,
-        surface TEXT NOT NULL,
-        normalized TEXT NOT NULL,
-        lemma TEXT,
-        part_of_speech TEXT,
-        sense_id TEXT NOT NULL,
-        sense_en TEXT NOT NULL,
-        sense_zh TEXT,
-        source_name TEXT NOT NULL,
-        dictionary_id TEXT NOT NULL,
-        dictionary_revision INTEGER NOT NULL,
-        article_id TEXT NOT NULL,
-        revision INTEGER NOT NULL,
-        sentence_id TEXT NOT NULL,
-        sentence_text TEXT NOT NULL,
-        sentence_translation_zh TEXT,
-        article_title TEXT NOT NULL,
-        created_at TEXT NOT NULL
-      )
-    ''');
-      legacy.execute(
-        'CREATE INDEX idx_vocabulary_created ON vocabulary(created_at DESC)',
-      );
-      // The real v1 schema also owns the library tables; the v3→v4 step
-      // alters blocks/sentences, so the forged legacy database must carry
-      // them for the migration chain to replay.
-      legacy.execute('''
-      CREATE TABLE articles (
-        article_id TEXT PRIMARY KEY,
-        title TEXT NOT NULL,
-        author TEXT,
-        source_display_name TEXT,
-        source_url TEXT,
-        revision INTEGER NOT NULL,
-        artifact_revision INTEGER NOT NULL,
-        package_id TEXT NOT NULL,
-        format_version TEXT NOT NULL,
-        duration_ms INTEGER NOT NULL,
-        audio_codec TEXT NOT NULL,
-        sample_rate_hz INTEGER NOT NULL,
-        channels INTEGER NOT NULL,
-        size_bytes INTEGER NOT NULL,
-        sha256 TEXT NOT NULL,
-        installed_at TEXT NOT NULL,
-        manifest_json TEXT NOT NULL,
-        attribution_json TEXT NOT NULL
-      )
-    ''');
-      legacy.execute('''
-      CREATE TABLE blocks (
-        article_id TEXT NOT NULL REFERENCES articles(article_id) ON DELETE CASCADE,
-        block_id TEXT NOT NULL,
-        kind TEXT NOT NULL,
-        ord INTEGER NOT NULL,
-        PRIMARY KEY (article_id, block_id)
-      )
-    ''');
-      legacy.execute('''
-      CREATE TABLE sentences (
-        article_id TEXT NOT NULL,
-        block_id TEXT NOT NULL,
-        sentence_id TEXT NOT NULL,
-        ord INTEGER NOT NULL,
-        text TEXT NOT NULL,
-        translation_zh TEXT,
-        audio_start_ms INTEGER,
-        audio_end_ms INTEGER,
-        audio_start_sample INTEGER,
-        audio_end_sample INTEGER,
-        PRIMARY KEY (article_id, sentence_id),
-        FOREIGN KEY (article_id, block_id)
-          REFERENCES blocks(article_id, block_id) ON DELETE CASCADE
-      )
-    ''');
+      // Replay the real v1 batch so every module table exists exactly as
+      // shipped; later migrations alter or rename these tables and a forged
+      // partial database would not survive the chain.
+      for (final statement in kMigrations.first) {
+        legacy.execute(statement);
+      }
       legacy.execute(
         'INSERT INTO vocabulary VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
         [

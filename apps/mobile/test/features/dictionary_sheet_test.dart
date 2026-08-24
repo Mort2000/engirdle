@@ -142,7 +142,14 @@ final _article = InstalledArticle(
   artifactRevision: 1,
   packageId: 'package',
   formatVersion: '1.0',
-  durationMs: 1000,
+  origin: 'catalog',
+  narration: const InstalledNarrationSummary(
+    audioPath: 'audio/article.m4a',
+    codec: 'aac-lc',
+    sampleRateHz: 24000,
+    channels: 1,
+    durationMs: 1000,
+  ),
   installedAt: DateTime(2026),
 );
 

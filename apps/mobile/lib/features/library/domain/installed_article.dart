@@ -1,7 +1,9 @@
 import '../../../contracts/readpack_v1/article.dart';
 import '../../../shared_kernel/content_identity.dart';
 
-/// An article revision installed on this device (MOB-LIB-001).
+/// An article revision installed on this device (MOB-LIB-001). The base is
+/// immutable source structure; translations and narration are separate
+/// derivatives whose presence is summarized here for list rows and headers.
 class InstalledArticle {
   const InstalledArticle({
     required this.articleId,
@@ -13,7 +15,9 @@ class InstalledArticle {
     required this.artifactRevision,
     required this.packageId,
     required this.formatVersion,
-    required this.durationMs,
+    required this.origin,
+    this.structureSha256,
+    this.narration,
     required this.installedAt,
   });
 
@@ -24,16 +28,58 @@ class InstalledArticle {
   final String? sourceUrl;
   final int revision;
   final int artifactRevision;
-  final String packageId;
+  final String? packageId;
   final String formatVersion;
-  final int durationMs;
+
+  /// How the base entered the library: `catalog` (PC readpack) for now;
+  /// paste/document follow with the lightweight import path.
+  final String origin;
+
+  /// Exact structure hash the derivatives must bind to; NULL only for
+  /// pre-v5 installs that never persisted it.
+  final String? structureSha256;
+
+  /// Present only when a narration asset covers this article.
+  final InstalledNarrationSummary? narration;
+
   final DateTime installedAt;
 
   ArticleRef get ref => ArticleRef(
-        articleId: articleId,
-        revision: revision,
-        artifactRevision: artifactRevision,
-      );
+    articleId: articleId,
+    revision: revision,
+    artifactRevision: artifactRevision,
+  );
+}
+
+/// Audio description of an installed narration asset (readpack v1 layout).
+class InstalledNarrationSummary {
+  const InstalledNarrationSummary({
+    required this.audioPath,
+    required this.codec,
+    required this.sampleRateHz,
+    required this.channels,
+    required this.durationMs,
+  });
+
+  /// Path relative to the article artifact directory.
+  final String audioPath;
+  final String codec;
+  final int sampleRateHz;
+  final int channels;
+  final int durationMs;
+}
+
+/// What the reader and player may do with an article right now: derived from
+/// an active complete translation set and an installed narration asset —
+/// never from forged placeholder values (lightweight-readpack design §4.2).
+class ArticleCapabilities {
+  const ArticleCapabilities({
+    required this.hasTranslation,
+    required this.hasNarration,
+  });
+
+  final bool hasTranslation;
+  final bool hasNarration;
 }
 
 /// Full installed content in reading order, for the reader and player.
@@ -41,19 +87,24 @@ class InstalledContent {
   const InstalledContent({
     required this.article,
     required this.blocks,
-    required this.audioFilePath,
+    required this.capabilities,
+    this.audioFilePath,
   });
 
   final InstalledArticle article;
   final List<InstalledBlock> blocks;
-  final String audioFilePath;
+  final ArticleCapabilities capabilities;
+
+  /// Absolute path of the narration audio; null when the article has no
+  /// narration asset (reading-only articles never fake one).
+  final String? audioFilePath;
 
   /// All sentences in reading order. Only text blocks bear sentences, so
   /// table/code/divider blocks can never enter the playback range list.
   List<InstalledSentence> get sentences => [
-        for (final block in blocks)
-          if (block is InstalledTextBlock) ...block.sentences,
-      ];
+    for (final block in blocks)
+      if (block is InstalledTextBlock) ...block.sentences,
+  ];
 
   /// sentenceId to its display label, computed from reading order (opaque
   /// IDs are never parsed for display). Shared by the reader header and the
@@ -203,6 +254,8 @@ enum ReadingMode {
   bilingual,
   zhOnly;
 
-  static ReadingMode fromName(String name) => ReadingMode.values
-      .firstWhere((m) => m.name == name, orElse: () => ReadingMode.enOnly);
+  static ReadingMode fromName(String name) => ReadingMode.values.firstWhere(
+    (m) => m.name == name,
+    orElse: () => ReadingMode.enOnly,
+  );
 }

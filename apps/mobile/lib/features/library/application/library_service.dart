@@ -18,9 +18,9 @@ class LibraryService {
     required LibraryDao dao,
     required AppDirectories directories,
     LeaseRegistry? playbackLeases,
-  })  : _dao = dao,
-        _dirs = directories,
-        _leases = playbackLeases;
+  }) : _dao = dao,
+       _dirs = directories,
+       _leases = playbackLeases;
 
   final LibraryDao _dao;
   final AppDirectories _dirs;
@@ -35,27 +35,55 @@ class LibraryService {
   InstalledArticle? getArticle(String articleId) => _dao.getArticle(articleId);
 
   /// Full content for the reader; null when the article is not installed.
+  /// Derivatives compose by capability: audio exists only with a narration
+  /// asset, translations only with an active complete set.
   InstalledContent? getContent(String articleId) {
     final article = _dao.getArticle(articleId);
     if (article == null) return null;
-    final audioFile = File(p.join(
-      _dirs
-          .articleDir(articleId, article.revision, article.artifactRevision)
-          .path,
-      'audio',
-      'article.m4a',
-    ));
+    final narration = article.narration;
     return InstalledContent(
       article: article,
       blocks: _dao.getBlocks(articleId),
-      audioFilePath: audioFile.path,
+      capabilities: ArticleCapabilities(
+        hasTranslation: _dao.hasActiveTranslation(articleId),
+        hasNarration: narration != null,
+      ),
+      audioFilePath: narration == null
+          ? null
+          : File(
+              p.join(
+                _dirs
+                    .articleDir(
+                      articleId,
+                      article.revision,
+                      article.artifactRevision,
+                    )
+                    .path,
+                narration.audioPath,
+              ),
+            ).path,
     );
+  }
+
+  /// Atomically switches the article's active translation set. The set must
+  /// be complete and cover the current base exactly (validated in the DAO
+  /// transaction); rejections leave the previous activation untouched.
+  void activateTranslation(String articleId, String translationSetId) {
+    try {
+      _dao.activateTranslation(articleId, translationSetId);
+    } catch (e) {
+      throw AppFailure(
+        FailureKind.database,
+        'translation activation failed',
+        detail: e.toString(),
+      );
+    }
   }
 
   /// Raw manifest/attribution JSON for the attribution page.
   ({String manifestJson, String attributionJson})? getAttributionJson(
-          String articleId) =>
-      _dao.getRawJson(articleId);
+    String articleId,
+  ) => _dao.getRawJson(articleId);
 
   ReadingMode readingMode(String articleId) =>
       _dao.getReadingMode(articleId) ?? ReadingMode.enOnly;
@@ -83,8 +111,11 @@ class LibraryService {
         attributionJson: attributionJson,
       );
     } catch (e) {
-      throw AppFailure(FailureKind.database, 'install commit failed',
-          detail: e.toString());
+      throw AppFailure(
+        FailureKind.database,
+        'install commit failed',
+        detail: e.toString(),
+      );
     }
   }
 
@@ -97,13 +128,18 @@ class LibraryService {
   Future<void> deleteArticle(String articleId) async {
     if (_leases?.isLeasedArticle(articleId) ?? false) {
       throw const AppFailure(
-          FailureKind.player, 'article is currently playing; stop it first');
+        FailureKind.player,
+        'article is currently playing; stop it first',
+      );
     }
     try {
       _dao.deleteArticle(articleId);
     } catch (e) {
-      throw AppFailure(FailureKind.database, 'delete failed',
-          detail: e.toString());
+      throw AppFailure(
+        FailureKind.database,
+        'delete failed',
+        detail: e.toString(),
+      );
     }
     final root = _dirs.articleRootDir(articleId);
     if (await root.exists()) {

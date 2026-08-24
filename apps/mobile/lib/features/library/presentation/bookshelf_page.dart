@@ -381,7 +381,9 @@ class _ArticleTile extends StatelessWidget {
                     overflow: TextOverflow.ellipsis,
                   ),
                   Text(
-                    '${article.author ?? '未知作者'} · 音频 ${formatDurationMs(article.durationMs)}',
+                    article.narration == null
+                        ? '${article.author ?? '未知作者'} · 仅原文'
+                        : '${article.author ?? '未知作者'} · 音频 ${formatDurationMs(article.narration!.durationMs)}',
                     style: theme.textTheme.bodySmall,
                   ),
                 ],
@@ -459,7 +461,9 @@ class _CatalogTile extends StatelessWidget {
                     // 03B: package size is engineering detail — it belongs to
                     // the download page (04), not the list subtitle.
                     installed != null
-                        ? '${installed.author ?? '未知作者'} · 音频 ${formatDurationMs(installed.durationMs)}'
+                        ? installed.narration == null
+                              ? '${installed.author ?? '未知作者'} · 仅原文'
+                              : '${installed.author ?? '未知作者'} · 音频 ${formatDurationMs(installed.narration!.durationMs)}'
                         : '未安装',
                     style: theme.textTheme.bodySmall,
                   ),

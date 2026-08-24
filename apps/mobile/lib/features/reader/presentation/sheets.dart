@@ -8,6 +8,7 @@ class SentenceMenuSheet extends StatelessWidget {
   const SentenceMenuSheet({
     required this.label,
     required this.translationEnabled,
+    required this.playbackEnabled,
     required this.onTranslate,
     required this.onPlaySentence,
     required this.onPlayContinuous,
@@ -16,8 +17,13 @@ class SentenceMenuSheet extends StatelessWidget {
 
   final String label;
 
-  /// Disabled in zh-only mode (already reading the translation).
+  /// Disabled in zh-only mode (already reading the translation) or when no
+  /// active translation set exists.
   final bool translationEnabled;
+
+  /// Hidden entirely when the article has no narration asset — there is
+  /// nothing to play and no fake placeholder audio.
+  final bool playbackEnabled;
   final VoidCallback onTranslate;
   final VoidCallback onPlaySentence;
   final VoidCallback onPlayContinuous;
@@ -38,24 +44,24 @@ class SentenceMenuSheet extends StatelessWidget {
           _MenuRow(
             icon: Icons.translate,
             title: '单句翻译',
-            subtitle: translationEnabled
-                ? '在抽屉中查看本句中文译文，不改动原文区'
-                : '当前已是译文模式',
+            subtitle: translationEnabled ? '在抽屉中查看本句中文译文，不改动原文区' : '当前已是译文模式',
             enabled: translationEnabled,
             onTap: onTranslate,
           ),
-          _MenuRow(
-            icon: Icons.play_arrow,
-            title: '单句朗读',
-            subtitle: '从本句开始位置播放，句末自动停止',
-            onTap: onPlaySentence,
-          ),
-          _MenuRow(
-            icon: Icons.play_arrow,
-            title: '从此开始朗读',
-            subtitle: '从本句连续播放至文章结尾',
-            onTap: onPlayContinuous,
-          ),
+          if (playbackEnabled) ...[
+            _MenuRow(
+              icon: Icons.play_arrow,
+              title: '单句朗读',
+              subtitle: '从本句开始位置播放，句末自动停止',
+              onTap: onPlaySentence,
+            ),
+            _MenuRow(
+              icon: Icons.play_arrow,
+              title: '从此开始朗读',
+              subtitle: '从本句连续播放至文章结尾',
+              onTap: onPlayContinuous,
+            ),
+          ],
         ],
       ),
     );
@@ -68,6 +74,7 @@ class SentenceTranslationSheet extends StatelessWidget {
   const SentenceTranslationSheet({
     required this.label,
     required this.sentence,
+    required this.playbackEnabled,
     required this.onPlaySentence,
     required this.onPlayContinuous,
     super.key,
@@ -75,6 +82,10 @@ class SentenceTranslationSheet extends StatelessWidget {
 
   final String label;
   final InstalledSentence sentence;
+
+  /// Play buttons render only when the article has a narration asset.
+  final bool playbackEnabled;
+
   final VoidCallback onPlaySentence;
   final VoidCallback onPlayContinuous;
 
@@ -92,8 +103,10 @@ class SentenceTranslationSheet extends StatelessWidget {
             Row(
               children: [
                 Expanded(
-                  child: Text('单句翻译 · $label',
-                      style: theme.textTheme.titleMedium),
+                  child: Text(
+                    '单句翻译 · $label',
+                    style: theme.textTheme.titleMedium,
+                  ),
                 ),
                 IconButton(
                   onPressed: () => Navigator.of(context).pop(),
@@ -104,7 +117,10 @@ class SentenceTranslationSheet extends StatelessWidget {
             Text(
               '“${sentence.text}”',
               style: const TextStyle(
-                  fontFamily: 'serif', fontSize: 13.5, height: 1.7),
+                fontFamily: 'serif',
+                fontSize: 13.5,
+                height: 1.7,
+              ),
             ),
             const SizedBox(height: 8),
             Container(
@@ -117,33 +133,39 @@ class SentenceTranslationSheet extends StatelessWidget {
               child: Text(
                 sentence.translationZh ?? '',
                 style: const TextStyle(
-                    fontSize: 14, height: 1.8, color: Color(0xFF234534)),
+                  fontSize: 14,
+                  height: 1.8,
+                  color: Color(0xFF234534),
+                ),
               ),
             ),
             const SizedBox(height: 12),
-            Row(
-              children: [
-                Expanded(
-                  child: FilledButton.tonalIcon(
-                    onPressed: onPlaySentence,
-                    icon: const Icon(Icons.play_arrow, size: 16),
-                    label: const Text('单句朗读'),
+            if (playbackEnabled)
+              Row(
+                children: [
+                  Expanded(
+                    child: FilledButton.tonalIcon(
+                      onPressed: onPlaySentence,
+                      icon: const Icon(Icons.play_arrow, size: 16),
+                      label: const Text('单句朗读'),
+                    ),
                   ),
-                ),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: OutlinedButton.icon(
-                    onPressed: onPlayContinuous,
-                    icon: const Icon(Icons.play_arrow, size: 16),
-                    label: const Text('从此朗读'),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: OutlinedButton.icon(
+                      onPressed: onPlayContinuous,
+                      icon: const Icon(Icons.play_arrow, size: 16),
+                      label: const Text('从此朗读'),
+                    ),
                   ),
-                ),
-              ],
-            ),
+                ],
+              ),
             const SizedBox(height: 8),
             Center(
-              child: Text('译文只在抽屉中展示，原文区不被插入或改动。',
-                  style: theme.textTheme.bodySmall),
+              child: Text(
+                '译文只在抽屉中展示，原文区不被插入或改动。',
+                style: theme.textTheme.bodySmall,
+              ),
             ),
           ],
         ),

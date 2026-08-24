@@ -18,8 +18,8 @@ class LibraryPlaybackSourceAdapter implements PlaybackSourcePort {
   LibraryPlaybackSourceAdapter({
     required LibraryService library,
     required LeaseRegistry registry,
-  })  : _library = library,
-        _registry = registry;
+  }) : _library = library,
+       _registry = registry;
 
   final LibraryService _library;
   final LeaseRegistry _registry;
@@ -35,14 +35,21 @@ class LibraryPlaybackSourceAdapter implements PlaybackSourcePort {
         'playback.source.stale_ref: requested $ref, current ${content.article.ref}',
       );
     }
+    final audioFilePath = content.audioFilePath;
+    final narration = content.article.narration;
+    // Reading-only articles never fake an audio path; playback must fail
+    // clearly instead of leasing a missing file (lightweight-readpack §7.2).
+    if (audioFilePath == null || narration == null) {
+      throw StateError('playback.source.no_narration: $ref');
+    }
     final labels = content.sentenceLabels;
-    _registry.pin(articleId: ref.articleId, path: content.audioFilePath);
+    _registry.pin(articleId: ref.articleId, path: audioFilePath);
     return PlaybackSourceLease(
       articleRef: ref,
       title: content.article.title,
       author: content.article.author,
-      audioFilePath: content.audioFilePath,
-      totalDuration: Duration(milliseconds: content.article.durationMs),
+      audioFilePath: audioFilePath,
+      totalDuration: Duration(milliseconds: narration.durationMs),
       ranges: [
         for (final sentence in content.sentences)
           if (sentence.hasAudio)
