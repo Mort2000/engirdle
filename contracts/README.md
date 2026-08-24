@@ -11,6 +11,7 @@
 | Readpack v1 | ZIP 布局、manifest、文章、归属和安全导入规则 | [`readpack/v1`](./readpack/v1/) |
 | Readpack v2 | 分层布局：不可变原文基座 + 可选译文/narration 派生物 | [`readpack/v2`](./readpack/v2/) |
 | Translation v1 | PC/mobile 共享的 LLM 文章翻译协议（prompt、wire schema、占位符、黄金投影） | [`translation/v1`](./translation/v1/) |
+| Source v1 | PC/mobile 共享的原文结构化黄金 fixture（Markdown 子集、分句、runs、结构哈希） | [`source/v1`](./source/v1/) |
 | Catalog v1 | 局域网只读目录与当前发布制品 | [`catalog/v1`](./catalog/v1/) |
 | Dictionary v1 | 历史离线词典资源包契约 | [`dictionary/v1`](./dictionary/v1/) |
 | Dictionary v2 | OEWN sense 与 Chinese Open Wordnet lemma 的 ILI 对齐 | [`dictionary/v2`](./dictionary/v2/) |

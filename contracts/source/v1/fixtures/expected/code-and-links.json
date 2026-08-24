@@ -1,0 +1,192 @@
+{
+  "parser_version": "engirdle-gfm@1",
+  "segmenter_version": "engirdle-segmenter@2",
+  "source_sha256": "b12c192e5f48b71174d6d69a17a15f2da2c694c9a5d857a5f2f7b4e7d878b2c5",
+  "normalized_sha256": "b12c192e5f48b71174d6d69a17a15f2da2c694c9a5d857a5f2f7b4e7d878b2c5",
+  "structure_sha256": "94e30d0ad09144962fc1bb5b35dd852942a526001d9baf40534d775edbc65f9e",
+  "warnings": [],
+  "blocks": [
+    {
+      "block_id": "block-1",
+      "kind": "paragraph",
+      "order": 0,
+      "style": "paragraph",
+      "sentences": [
+        {
+          "sentence_id": "sentence-1",
+          "order": 0,
+          "text": "Inline code span and code with ` backtick plus trailing space stripped.",
+          "runs": [
+            {
+              "kind": "plain",
+              "text": "Inline "
+            },
+            {
+              "kind": "code",
+              "text": "code span"
+            },
+            {
+              "kind": "plain",
+              "text": " and "
+            },
+            {
+              "kind": "code",
+              "text": "code with ` backtick"
+            },
+            {
+              "kind": "plain",
+              "text": " plus "
+            },
+            {
+              "kind": "code",
+              "text": "trailing space stripped"
+            },
+            {
+              "kind": "plain",
+              "text": "."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "block_id": "block-2",
+      "kind": "paragraph",
+      "order": 1,
+      "style": "paragraph",
+      "sentences": [
+        {
+          "sentence_id": "sentence-2",
+          "order": 0,
+          "text": "A real link and spaced and titled.",
+          "runs": [
+            {
+              "kind": "plain",
+              "text": "A "
+            },
+            {
+              "kind": "link",
+              "text": "real link",
+              "href": "https://example.com/a?b=c"
+            },
+            {
+              "kind": "plain",
+              "text": " and "
+            },
+            {
+              "kind": "link",
+              "text": "spaced",
+              "href": "https://example.com/spaced%20path"
+            },
+            {
+              "kind": "plain",
+              "text": " and "
+            },
+            {
+              "kind": "link",
+              "text": "titled",
+              "href": "https://example.com/"
+            },
+            {
+              "kind": "plain",
+              "text": "."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "block_id": "block-3",
+      "kind": "paragraph",
+      "order": 2,
+      "style": "paragraph",
+      "sentences": [
+        {
+          "sentence_id": "sentence-3",
+          "order": 0,
+          "text": "Nested link with code and em styles.",
+          "runs": [
+            {
+              "kind": "plain",
+              "text": "Nested "
+            },
+            {
+              "kind": "link",
+              "text": "link with ",
+              "href": "https://example.com/nested"
+            },
+            {
+              "kind": "code",
+              "text": "code"
+            },
+            {
+              "kind": "link",
+              "text": " and em",
+              "href": "https://example.com/nested"
+            },
+            {
+              "kind": "plain",
+              "text": " styles."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "block_id": "block-4",
+      "kind": "paragraph",
+      "order": 3,
+      "style": "paragraph",
+      "sentences": [
+        {
+          "sentence_id": "sentence-4",
+          "order": 0,
+          "text": "An image alt text and an empty [图片未包含] degrade.",
+          "runs": [
+            {
+              "kind": "plain",
+              "text": "An image "
+            },
+            {
+              "kind": "image",
+              "text": "alt text",
+              "href": "https://example.com/img.png"
+            },
+            {
+              "kind": "plain",
+              "text": " and an empty "
+            },
+            {
+              "kind": "image",
+              "text": "[图片未包含]",
+              "href": "https://example.com/none.png"
+            },
+            {
+              "kind": "plain",
+              "text": " degrade."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "block_id": "block-5",
+      "kind": "paragraph",
+      "order": 4,
+      "style": "paragraph",
+      "sentences": [
+        {
+          "sentence_id": "sentence-5",
+          "order": 0,
+          "text": "Bare a < b and c > d stay literal.",
+          "runs": [
+            {
+              "kind": "plain",
+              "text": "Bare a < b and c > d stay literal."
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

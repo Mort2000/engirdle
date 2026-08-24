@@ -674,3 +674,23 @@ def test_enforce_document_limits_rejects_edited_wire_cap_violations() -> None:
     long_language = CodeBlock("block-c", 0, code="x", language="l" * 65)
     with pytest.raises(MarkdownResourceLimit, match="language"):
         enforce_document_limits((long_language,), DEFAULT_LIMITS)
+
+
+def test_multi_paragraph_list_item_sentence_spans_the_junction() -> None:
+    """The paragraph junction inside a list item is a visible softbreak.
+
+    A sentence crossing the junction must keep the runs-concatenate invariant
+    (regression: the junction space was missing from the run stream, which
+    crashed Sentence construction; surfaced by contracts/source/v1 fixtures).
+    """
+    parsed = parse_markdown(
+        "- first paragraph has no terminator\n"
+        "  second paragraph continues the same sentence.\n"
+        "- next\n"
+    )
+    item = parsed.blocks[0]
+    assert isinstance(item, TextBlock)
+    assert [s.text for s in item.sentences] == [
+        "first paragraph has no terminator second paragraph continues the same sentence."
+    ]
+    assert "".join(run.text for run in item.sentences[0].runs) == item.sentences[0].text

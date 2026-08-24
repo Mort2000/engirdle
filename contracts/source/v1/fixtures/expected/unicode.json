@@ -1,0 +1,86 @@
+{
+  "parser_version": "engirdle-gfm@1",
+  "segmenter_version": "engirdle-segmenter@2",
+  "source_sha256": "38462e27f6af077d181501c69793899809d029e347253e690b8943ba62d46888",
+  "normalized_sha256": "38462e27f6af077d181501c69793899809d029e347253e690b8943ba62d46888",
+  "structure_sha256": "e60e2e9faeb637d0fa405cd57f2b7ab5110f3dbb30f44363d99c56844dc08bbb",
+  "warnings": [],
+  "blocks": [
+    {
+      "block_id": "block-1",
+      "kind": "paragraph",
+      "order": 0,
+      "style": "paragraph",
+      "sentences": [
+        {
+          "sentence_id": "sentence-1",
+          "order": 0,
+          "text": "Café naïve résumé with ligature file and fullwidth ! question ?",
+          "runs": [
+            {
+              "kind": "plain",
+              "text": "Café naïve résumé with ligature file and fullwidth ! question ?"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "block_id": "block-2",
+      "kind": "paragraph",
+      "order": 1,
+      "style": "paragraph",
+      "sentences": [
+        {
+          "sentence_id": "sentence-2",
+          "order": 0,
+          "text": "Smart 'quotes' and \"double\" plus en-dash and em--dash variants.",
+          "runs": [
+            {
+              "kind": "plain",
+              "text": "Smart 'quotes' and \"double\" plus en-dash and em--dash variants."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "block_id": "block-3",
+      "kind": "paragraph",
+      "order": 2,
+      "style": "paragraph",
+      "sentences": [
+        {
+          "sentence_id": "sentence-3",
+          "order": 0,
+          "text": "Non breaking space between words and narrow nbsp too.",
+          "runs": [
+            {
+              "kind": "plain",
+              "text": "Non breaking space between words and narrow nbsp too."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "block_id": "block-4",
+      "kind": "paragraph",
+      "order": 3,
+      "style": "paragraph",
+      "sentences": [
+        {
+          "sentence_id": "sentence-4",
+          "order": 0,
+          "text": "Ellipsis ... and CJK 「中文」 mixed into English text.",
+          "runs": [
+            {
+              "kind": "plain",
+              "text": "Ellipsis ... and CJK 「中文」 mixed into English text."
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

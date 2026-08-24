@@ -1,0 +1,215 @@
+{
+  "parser_version": "engirdle-gfm@1",
+  "segmenter_version": "engirdle-segmenter@2",
+  "source_sha256": "7c3dd43886594c9be46e2f12b9043c229dd32d00645ebc356f72f5742f3e012e",
+  "normalized_sha256": "7c3dd43886594c9be46e2f12b9043c229dd32d00645ebc356f72f5742f3e012e",
+  "structure_sha256": "6d4a1a4f935d03e5cd7319bb6776d950df8dcce4cda59bd152695e939f367ee4",
+  "warnings": [],
+  "blocks": [
+    {
+      "block_id": "block-1",
+      "kind": "paragraph",
+      "order": 0,
+      "style": "paragraph",
+      "sentences": [
+        {
+          "sentence_id": "sentence-1",
+          "order": 0,
+          "text": "Mr. Smith went to Washington.",
+          "runs": [
+            {
+              "kind": "plain",
+              "text": "Mr. Smith went to Washington."
+            }
+          ]
+        },
+        {
+          "sentence_id": "sentence-2",
+          "order": 1,
+          "text": "Dr. Jones arrived later (at 5 p.m.)",
+          "runs": [
+            {
+              "kind": "plain",
+              "text": "Dr. Jones arrived later (at 5 p.m.)"
+            }
+          ]
+        },
+        {
+          "sentence_id": "sentence-3",
+          "order": 2,
+          "text": ".",
+          "runs": [
+            {
+              "kind": "plain",
+              "text": "."
+            }
+          ]
+        },
+        {
+          "sentence_id": "sentence-4",
+          "order": 3,
+          "text": "He said.",
+          "runs": [
+            {
+              "kind": "plain",
+              "text": "He said."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "block_id": "block-2",
+      "kind": "paragraph",
+      "order": 1,
+      "style": "paragraph",
+      "sentences": [
+        {
+          "sentence_id": "sentence-5",
+          "order": 0,
+          "text": "Costs rose 3.14 percent, i.e. by almost nothing.",
+          "runs": [
+            {
+              "kind": "plain",
+              "text": "Costs rose 3.14 percent, i.e. by almost nothing."
+            }
+          ]
+        },
+        {
+          "sentence_id": "sentence-6",
+          "order": 1,
+          "text": "See fig. 3 and e.g. table no. 2.",
+          "runs": [
+            {
+              "kind": "plain",
+              "text": "See fig. 3 and e.g. table no. 2."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "block_id": "block-3",
+      "kind": "paragraph",
+      "order": 2,
+      "style": "paragraph",
+      "sentences": [
+        {
+          "sentence_id": "sentence-7",
+          "order": 0,
+          "text": "J. R. R. Tolkien wrote it.",
+          "runs": [
+            {
+              "kind": "plain",
+              "text": "J. R. R. Tolkien wrote it."
+            }
+          ]
+        },
+        {
+          "sentence_id": "sentence-8",
+          "order": 1,
+          "text": "U.S.",
+          "runs": [
+            {
+              "kind": "plain",
+              "text": "U.S."
+            }
+          ]
+        },
+        {
+          "sentence_id": "sentence-9",
+          "order": 2,
+          "text": "A. based authors vs. others.",
+          "runs": [
+            {
+              "kind": "plain",
+              "text": "A. based authors vs. others."
+            }
+          ]
+        },
+        {
+          "sentence_id": "sentence-10",
+          "order": 3,
+          "text": "St. Petersburg!",
+          "runs": [
+            {
+              "kind": "plain",
+              "text": "St. Petersburg!"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "block_id": "block-4",
+      "kind": "paragraph",
+      "order": 3,
+      "style": "paragraph",
+      "sentences": [
+        {
+          "sentence_id": "sentence-11",
+          "order": 0,
+          "text": "Wait!!!",
+          "runs": [
+            {
+              "kind": "plain",
+              "text": "Wait!!!"
+            }
+          ]
+        },
+        {
+          "sentence_id": "sentence-12",
+          "order": 1,
+          "text": "Really?!",
+          "runs": [
+            {
+              "kind": "plain",
+              "text": "Really?!"
+            }
+          ]
+        },
+        {
+          "sentence_id": "sentence-13",
+          "order": 2,
+          "text": "He asked, \"is this the end?\"",
+          "runs": [
+            {
+              "kind": "plain",
+              "text": "He asked, \"is this the end?\""
+            }
+          ]
+        },
+        {
+          "sentence_id": "sentence-14",
+          "order": 3,
+          "text": "Then continued on. lower-case continuation skipped the break.",
+          "runs": [
+            {
+              "kind": "plain",
+              "text": "Then continued on. lower-case continuation skipped the break."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "block_id": "block-5",
+      "kind": "paragraph",
+      "order": 4,
+      "style": "paragraph",
+      "sentences": [
+        {
+          "sentence_id": "sentence-15",
+          "order": 0,
+          "text": "One sentence ends here...the next begins without space.",
+          "runs": [
+            {
+              "kind": "plain",
+              "text": "One sentence ends here...the next begins without space."
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

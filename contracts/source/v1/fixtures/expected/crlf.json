@@ -1,0 +1,59 @@
+{
+  "parser_version": "engirdle-gfm@1",
+  "segmenter_version": "engirdle-segmenter@2",
+  "source_sha256": "d0daa82e2d08e96b1c30f923282249c6306c8415b319888c2d1757f24091fea2",
+  "normalized_sha256": "d0daa82e2d08e96b1c30f923282249c6306c8415b319888c2d1757f24091fea2",
+  "structure_sha256": "074c0b9cf9bdaf660ded736f809387103dd45f081fd30084fd739398f08d5069",
+  "warnings": [],
+  "blocks": [
+    {
+      "block_id": "block-1",
+      "kind": "paragraph",
+      "order": 0,
+      "style": "paragraph",
+      "sentences": [
+        {
+          "sentence_id": "sentence-1",
+          "order": 0,
+          "text": "CRLF line one.",
+          "runs": [
+            {
+              "kind": "plain",
+              "text": "CRLF line one."
+            }
+          ]
+        },
+        {
+          "sentence_id": "sentence-2",
+          "order": 1,
+          "text": "Second CRLF line.",
+          "runs": [
+            {
+              "kind": "plain",
+              "text": "Second CRLF line."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "block_id": "block-2",
+      "kind": "paragraph",
+      "order": 1,
+      "style": "paragraph",
+      "sentences": [
+        {
+          "sentence_id": "sentence-3",
+          "order": 0,
+          "text": "After blank CRLF paragraph.",
+          "runs": [
+            {
+              "kind": "plain",
+              "text": "After blank CRLF paragraph."
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

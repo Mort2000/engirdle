@@ -1,0 +1,54 @@
+{
+  "parser_version": "engirdle-gfm@1",
+  "segmenter_version": "engirdle-segmenter@2",
+  "source_sha256": "b97c494019365ad2194d183066faa23a63b70f2a588c62aff70d32c9460b2267",
+  "normalized_sha256": "b97c494019365ad2194d183066faa23a63b70f2a588c62aff70d32c9460b2267",
+  "structure_sha256": "382394a6da56f15b75d1f7c4066941490eb886c89754d98499f008d03a420e50",
+  "warnings": [],
+  "blocks": [
+    {
+      "block_id": "block-1",
+      "kind": "divider",
+      "order": 0
+    },
+    {
+      "block_id": "block-2",
+      "kind": "divider",
+      "order": 1
+    },
+    {
+      "block_id": "block-3",
+      "kind": "divider",
+      "order": 2
+    },
+    {
+      "block_id": "block-4",
+      "kind": "divider",
+      "order": 3
+    },
+    {
+      "block_id": "block-5",
+      "kind": "paragraph",
+      "order": 4,
+      "style": "paragraph",
+      "sentences": [
+        {
+          "sentence_id": "sentence-1",
+          "order": 0,
+          "text": "paragraph before the last divider",
+          "runs": [
+            {
+              "kind": "plain",
+              "text": "paragraph before the last divider"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "block_id": "block-6",
+      "kind": "divider",
+      "order": 5
+    }
+  ]
+}

@@ -1,0 +1,287 @@
+{
+  "parser_version": "engirdle-gfm@1",
+  "segmenter_version": "engirdle-segmenter@2",
+  "source_sha256": "f2537dfce23c186bd87e1386b3778f2a263d64117b423f8697e84e0695d7528d",
+  "normalized_sha256": "f2537dfce23c186bd87e1386b3778f2a263d64117b423f8697e84e0695d7528d",
+  "structure_sha256": "a63458803d6531d22144987118820d1719870b0d3e85588ecd945875c622046c",
+  "warnings": [],
+  "blocks": [
+    {
+      "block_id": "block-1",
+      "kind": "heading",
+      "order": 0,
+      "style": "heading",
+      "heading_level": 1,
+      "sentences": [
+        {
+          "sentence_id": "sentence-1",
+          "order": 0,
+          "text": "Mixed document",
+          "runs": [
+            {
+              "kind": "plain",
+              "text": "Mixed document"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "block_id": "block-2",
+      "kind": "paragraph",
+      "order": 1,
+      "style": "paragraph",
+      "sentences": [
+        {
+          "sentence_id": "sentence-2",
+          "order": 0,
+          "text": "Opening paragraph with a link and code.",
+          "runs": [
+            {
+              "kind": "plain",
+              "text": "Opening paragraph with a "
+            },
+            {
+              "kind": "link",
+              "text": "link",
+              "href": "https://example.com/"
+            },
+            {
+              "kind": "plain",
+              "text": " and "
+            },
+            {
+              "kind": "code",
+              "text": "code"
+            },
+            {
+              "kind": "plain",
+              "text": "."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "block_id": "block-3",
+      "kind": "quote",
+      "order": 2,
+      "style": "quote",
+      "quote_depth": 1,
+      "sentences": [
+        {
+          "sentence_id": "sentence-3",
+          "order": 0,
+          "text": "A quote containing a list:",
+          "runs": [
+            {
+              "kind": "plain",
+              "text": "A quote containing a list:"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "block_id": "block-4",
+      "kind": "list_item",
+      "order": 3,
+      "style": "list_item",
+      "list_kind": "bullet",
+      "list_depth": 1,
+      "sentences": [
+        {
+          "sentence_id": "sentence-4",
+          "order": 0,
+          "text": "quoted item",
+          "runs": [
+            {
+              "kind": "plain",
+              "text": "quoted item"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "block_id": "block-5",
+      "kind": "list_item",
+      "order": 4,
+      "style": "list_item",
+      "list_kind": "bullet",
+      "list_depth": 1,
+      "sentences": [
+        {
+          "sentence_id": "sentence-5",
+          "order": 0,
+          "text": "another item",
+          "runs": [
+            {
+              "kind": "plain",
+              "text": "another item"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "block_id": "block-8",
+      "kind": "list_item",
+      "order": 5,
+      "style": "list_item",
+      "list_kind": "ordered",
+      "list_depth": 1,
+      "list_ordinal": 1,
+      "sentences": [
+        {
+          "sentence_id": "sentence-8",
+          "order": 0,
+          "text": "Ordered shell",
+          "runs": [
+            {
+              "kind": "plain",
+              "text": "Ordered shell"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "block_id": "block-6",
+      "kind": "list_item",
+      "order": 6,
+      "style": "list_item",
+      "list_kind": "ordered",
+      "list_depth": 2,
+      "list_ordinal": 1,
+      "sentences": [
+        {
+          "sentence_id": "sentence-6",
+          "order": 0,
+          "text": "nested ordered",
+          "runs": [
+            {
+              "kind": "plain",
+              "text": "nested ordered"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "block_id": "block-7",
+      "kind": "list_item",
+      "order": 7,
+      "style": "list_item",
+      "list_kind": "bullet",
+      "list_depth": 2,
+      "sentences": [
+        {
+          "sentence_id": "sentence-7",
+          "order": 0,
+          "text": "mixed bullet sibling",
+          "runs": [
+            {
+              "kind": "plain",
+              "text": "mixed bullet sibling"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "block_id": "block-9",
+      "kind": "table",
+      "order": 8,
+      "alignments": [
+        "default",
+        "default"
+      ],
+      "header": [
+        {
+          "cell_id": "cell-9-0",
+          "text": "h1",
+          "runs": [
+            {
+              "kind": "plain",
+              "text": "h1"
+            }
+          ]
+        },
+        {
+          "cell_id": "cell-9-1",
+          "text": "h2",
+          "runs": [
+            {
+              "kind": "plain",
+              "text": "h2"
+            }
+          ]
+        }
+      ],
+      "rows": [
+        [
+          {
+            "cell_id": "cell-9-2",
+            "text": "x",
+            "runs": [
+              {
+                "kind": "plain",
+                "text": "x"
+              }
+            ]
+          },
+          {
+            "cell_id": "cell-9-3",
+            "text": "y",
+            "runs": [
+              {
+                "kind": "plain",
+                "text": "y"
+              }
+            ]
+          }
+        ]
+      ]
+    },
+    {
+      "block_id": "block-10",
+      "kind": "code",
+      "order": 9,
+      "language": "js",
+      "code": "console.log(\"after table\");\n"
+    },
+    {
+      "block_id": "block-11",
+      "kind": "divider",
+      "order": 10
+    },
+    {
+      "block_id": "block-12",
+      "kind": "paragraph",
+      "order": 11,
+      "style": "paragraph",
+      "sentences": [
+        {
+          "sentence_id": "sentence-9",
+          "order": 0,
+          "text": "Final paragraph after everything.",
+          "runs": [
+            {
+              "kind": "plain",
+              "text": "Final paragraph "
+            },
+            {
+              "kind": "strong",
+              "text": "after everything"
+            },
+            {
+              "kind": "plain",
+              "text": "."
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

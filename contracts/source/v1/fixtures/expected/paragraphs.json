@@ -1,0 +1,74 @@
+{
+  "parser_version": "engirdle-gfm@1",
+  "segmenter_version": "engirdle-segmenter@2",
+  "source_sha256": "caf2cf4d9d98e5f2019c3f244d6e346460e004a62d32dd6657a6d0fa1f53a1bf",
+  "normalized_sha256": "caf2cf4d9d98e5f2019c3f244d6e346460e004a62d32dd6657a6d0fa1f53a1bf",
+  "structure_sha256": "d6b87f2b29803ea2641ff20ee0ff926188df52766b6a4b59a14583f32b4ed42b",
+  "warnings": [],
+  "blocks": [
+    {
+      "block_id": "block-1",
+      "kind": "paragraph",
+      "order": 0,
+      "style": "paragraph",
+      "sentences": [
+        {
+          "sentence_id": "sentence-1",
+          "order": 0,
+          "text": "First paragraph spans multiple source lines that join with softbreaks, and this indented line is a lazy continuation.",
+          "runs": [
+            {
+              "kind": "plain",
+              "text": "First paragraph spans multiple source lines that join with softbreaks, and this indented line is a lazy continuation."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "block_id": "block-2",
+      "kind": "code",
+      "order": 1,
+      "language": null,
+      "code": "Indented code after a blank line\nstays a code block with no language.\n"
+    },
+    {
+      "block_id": "block-3",
+      "kind": "paragraph",
+      "order": 2,
+      "style": "paragraph",
+      "sentences": [
+        {
+          "sentence_id": "sentence-2",
+          "order": 0,
+          "text": "Second paragraph has definition-like text [with brackets] and (parens) plus angle a < b literals.",
+          "runs": [
+            {
+              "kind": "plain",
+              "text": "Second paragraph has definition-like text [with brackets] and (parens) plus angle a < b literals."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "block_id": "block-4",
+      "kind": "paragraph",
+      "order": 3,
+      "style": "paragraph",
+      "sentences": [
+        {
+          "sentence_id": "sentence-3",
+          "order": 0,
+          "text": "Third tabs inside text survive.",
+          "runs": [
+            {
+              "kind": "plain",
+              "text": "Third tabs inside text survive."
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

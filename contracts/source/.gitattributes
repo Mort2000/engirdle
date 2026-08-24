@@ -1,0 +1,3 @@
+# Fixture files are byte-frozen contract data (trailing spaces are hardbreak
+# tests, crlf.md carries real CRLF bytes) — no EOL conversion, ever.
+v1/fixtures/** -text

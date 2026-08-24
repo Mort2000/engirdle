@@ -1,0 +1,388 @@
+{
+  "parser_version": "engirdle-gfm@1",
+  "segmenter_version": "engirdle-segmenter@2",
+  "source_sha256": "51db96b88fdddd40f054fbc3291df4d25c14abd5a96be9b3e05ed6b312affc0d",
+  "normalized_sha256": "51db96b88fdddd40f054fbc3291df4d25c14abd5a96be9b3e05ed6b312affc0d",
+  "structure_sha256": "7855a4d80f4ffbfd3a2d8c36d139481ef7f9ebe86e6647644c940549f2567d0a",
+  "warnings": [],
+  "blocks": [
+    {
+      "block_id": "block-1",
+      "kind": "table",
+      "order": 0,
+      "alignments": [
+        "left",
+        "center",
+        "right",
+        "default"
+      ],
+      "header": [
+        {
+          "cell_id": "cell-1-0",
+          "text": "left",
+          "runs": [
+            {
+              "kind": "plain",
+              "text": "left"
+            }
+          ]
+        },
+        {
+          "cell_id": "cell-1-1",
+          "text": "center",
+          "runs": [
+            {
+              "kind": "plain",
+              "text": "center"
+            }
+          ]
+        },
+        {
+          "cell_id": "cell-1-2",
+          "text": "right",
+          "runs": [
+            {
+              "kind": "plain",
+              "text": "right"
+            }
+          ]
+        },
+        {
+          "cell_id": "cell-1-3",
+          "text": "none",
+          "runs": [
+            {
+              "kind": "plain",
+              "text": "none"
+            }
+          ]
+        }
+      ],
+      "rows": [
+        [
+          {
+            "cell_id": "cell-1-4",
+            "text": "a",
+            "runs": [
+              {
+                "kind": "plain",
+                "text": "a"
+              }
+            ]
+          },
+          {
+            "cell_id": "cell-1-5",
+            "text": "b",
+            "runs": [
+              {
+                "kind": "plain",
+                "text": "b"
+              }
+            ]
+          },
+          {
+            "cell_id": "cell-1-6",
+            "text": "c",
+            "runs": [
+              {
+                "kind": "plain",
+                "text": "c"
+              }
+            ]
+          },
+          {
+            "cell_id": "cell-1-7",
+            "text": "d",
+            "runs": [
+              {
+                "kind": "plain",
+                "text": "d"
+              }
+            ]
+          }
+        ],
+        [
+          {
+            "cell_id": "cell-1-8",
+            "text": "code cell",
+            "runs": [
+              {
+                "kind": "code",
+                "text": "code"
+              },
+              {
+                "kind": "plain",
+                "text": " cell"
+              }
+            ]
+          },
+          {
+            "cell_id": "cell-1-9",
+            "text": "em cell",
+            "runs": [
+              {
+                "kind": "emphasis",
+                "text": "em"
+              },
+              {
+                "kind": "plain",
+                "text": " cell"
+              }
+            ]
+          },
+          {
+            "cell_id": "cell-1-10",
+            "text": "link cell",
+            "runs": [
+              {
+                "kind": "link",
+                "text": "link",
+                "href": "https://example.com/t"
+              },
+              {
+                "kind": "plain",
+                "text": " cell"
+              }
+            ]
+          },
+          {
+            "cell_id": "cell-1-11",
+            "text": "plain",
+            "runs": [
+              {
+                "kind": "plain",
+                "text": "plain"
+              }
+            ]
+          }
+        ],
+        [
+          {
+            "cell_id": "cell-1-12",
+            "text": "fewer cells",
+            "runs": [
+              {
+                "kind": "plain",
+                "text": "fewer cells"
+              }
+            ]
+          },
+          {
+            "cell_id": "cell-1-13",
+            "text": "",
+            "runs": [
+              {
+                "kind": "plain",
+                "text": ""
+              }
+            ]
+          },
+          {
+            "cell_id": "cell-1-14",
+            "text": "",
+            "runs": [
+              {
+                "kind": "plain",
+                "text": ""
+              }
+            ]
+          },
+          {
+            "cell_id": "cell-1-15",
+            "text": "",
+            "runs": [
+              {
+                "kind": "plain",
+                "text": ""
+              }
+            ]
+          }
+        ],
+        [
+          {
+            "cell_id": "cell-1-16",
+            "text": "extra",
+            "runs": [
+              {
+                "kind": "plain",
+                "text": "extra"
+              }
+            ]
+          },
+          {
+            "cell_id": "cell-1-17",
+            "text": "cells",
+            "runs": [
+              {
+                "kind": "plain",
+                "text": "cells"
+              }
+            ]
+          },
+          {
+            "cell_id": "cell-1-18",
+            "text": "get",
+            "runs": [
+              {
+                "kind": "plain",
+                "text": "get"
+              }
+            ]
+          },
+          {
+            "cell_id": "cell-1-19",
+            "text": "dropped",
+            "runs": [
+              {
+                "kind": "plain",
+                "text": "dropped"
+              }
+            ]
+          }
+        ]
+      ]
+    },
+    {
+      "block_id": "block-2",
+      "kind": "table",
+      "order": 1,
+      "alignments": [
+        "default"
+      ],
+      "header": [
+        {
+          "cell_id": "cell-2-0",
+          "text": "single",
+          "runs": [
+            {
+              "kind": "plain",
+              "text": "single"
+            }
+          ]
+        }
+      ],
+      "rows": [
+        [
+          {
+            "cell_id": "cell-2-1",
+            "text": "only column",
+            "runs": [
+              {
+                "kind": "plain",
+                "text": "only column"
+              }
+            ]
+          }
+        ]
+      ]
+    },
+    {
+      "block_id": "block-3",
+      "kind": "table",
+      "order": 2,
+      "alignments": [
+        "default",
+        "center",
+        "right"
+      ],
+      "header": [
+        {
+          "cell_id": "cell-3-0",
+          "text": "Leading and trailing pipes trimmed",
+          "runs": [
+            {
+              "kind": "plain",
+              "text": "Leading and trailing pipes trimmed"
+            }
+          ]
+        },
+        {
+          "cell_id": "cell-3-1",
+          "text": "a",
+          "runs": [
+            {
+              "kind": "plain",
+              "text": "a"
+            }
+          ]
+        },
+        {
+          "cell_id": "cell-3-2",
+          "text": "b",
+          "runs": [
+            {
+              "kind": "plain",
+              "text": "b"
+            }
+          ]
+        }
+      ],
+      "rows": [
+        [
+          {
+            "cell_id": "cell-3-3",
+            "text": "row",
+            "runs": [
+              {
+                "kind": "plain",
+                "text": "row"
+              }
+            ]
+          },
+          {
+            "cell_id": "cell-3-4",
+            "text": "two",
+            "runs": [
+              {
+                "kind": "plain",
+                "text": "two"
+              }
+            ]
+          },
+          {
+            "cell_id": "cell-3-5",
+            "text": "three",
+            "runs": [
+              {
+                "kind": "plain",
+                "text": "three"
+              }
+            ]
+          }
+        ],
+        [
+          {
+            "cell_id": "cell-3-6",
+            "text": "not a pipe row continues table",
+            "runs": [
+              {
+                "kind": "plain",
+                "text": "not a pipe row continues table"
+              }
+            ]
+          },
+          {
+            "cell_id": "cell-3-7",
+            "text": "",
+            "runs": [
+              {
+                "kind": "plain",
+                "text": ""
+              }
+            ]
+          },
+          {
+            "cell_id": "cell-3-8",
+            "text": "",
+            "runs": [
+              {
+                "kind": "plain",
+                "text": ""
+              }
+            ]
+          }
+        ]
+      ]
+    }
+  ]
+}

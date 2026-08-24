@@ -1,0 +1,193 @@
+{
+  "parser_version": "engirdle-gfm@1",
+  "segmenter_version": "engirdle-segmenter@2",
+  "source_sha256": "d3ca396d349af7b0e16a4f90b6ed0ce62b7ed8108c96229428661f639b55ffb1",
+  "normalized_sha256": "d3ca396d349af7b0e16a4f90b6ed0ce62b7ed8108c96229428661f639b55ffb1",
+  "structure_sha256": "afc3efb7e01c0d521972d554caa5fcc5c07b97452598bd5448e95590f0d54326",
+  "warnings": [],
+  "blocks": [
+    {
+      "block_id": "block-1",
+      "kind": "paragraph",
+      "order": 0,
+      "style": "paragraph",
+      "sentences": [
+        {
+          "sentence_id": "sentence-1",
+          "order": 0,
+          "text": "Plain emphasis and underscore em and strong plus dunder strong.",
+          "runs": [
+            {
+              "kind": "plain",
+              "text": "Plain "
+            },
+            {
+              "kind": "emphasis",
+              "text": "emphasis"
+            },
+            {
+              "kind": "plain",
+              "text": " and "
+            },
+            {
+              "kind": "emphasis",
+              "text": "underscore em"
+            },
+            {
+              "kind": "plain",
+              "text": " and "
+            },
+            {
+              "kind": "strong",
+              "text": "strong"
+            },
+            {
+              "kind": "plain",
+              "text": " plus "
+            },
+            {
+              "kind": "strong",
+              "text": "dunder strong"
+            },
+            {
+              "kind": "plain",
+              "text": "."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "block_id": "block-2",
+      "kind": "paragraph",
+      "order": 1,
+      "style": "paragraph",
+      "sentences": [
+        {
+          "sentence_id": "sentence-2",
+          "order": 0,
+          "text": "Mixed outer strong with inner em and em with strong inside.",
+          "runs": [
+            {
+              "kind": "plain",
+              "text": "Mixed "
+            },
+            {
+              "kind": "strong",
+              "text": "outer strong with inner em"
+            },
+            {
+              "kind": "plain",
+              "text": " and "
+            },
+            {
+              "kind": "emphasis",
+              "text": "em with "
+            },
+            {
+              "kind": "strong",
+              "text": "strong"
+            },
+            {
+              "kind": "emphasis",
+              "text": " inside"
+            },
+            {
+              "kind": "plain",
+              "text": "."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "block_id": "block-3",
+      "kind": "paragraph",
+      "order": 2,
+      "style": "paragraph",
+      "sentences": [
+        {
+          "sentence_id": "sentence-3",
+          "order": 0,
+          "text": "Intraword abc stays literal but foobarbaz too.",
+          "runs": [
+            {
+              "kind": "plain",
+              "text": "Intraword a"
+            },
+            {
+              "kind": "emphasis",
+              "text": "b"
+            },
+            {
+              "kind": "plain",
+              "text": "c stays literal but foo"
+            },
+            {
+              "kind": "emphasis",
+              "text": "bar"
+            },
+            {
+              "kind": "plain",
+              "text": "baz too."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "block_id": "block-4",
+      "kind": "paragraph",
+      "order": 3,
+      "style": "paragraph",
+      "sentences": [
+        {
+          "sentence_id": "sentence-4",
+          "order": 0,
+          "text": "~~struck out nesting** and bold with strike inside.",
+          "runs": [
+            {
+              "kind": "plain",
+              "text": "~~struck "
+            },
+            {
+              "kind": "strikethrough",
+              "text": "out"
+            },
+            {
+              "kind": "plain",
+              "text": " nesting** and "
+            },
+            {
+              "kind": "strong",
+              "text": "bold with strike inside"
+            },
+            {
+              "kind": "plain",
+              "text": "."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "block_id": "block-5",
+      "kind": "paragraph",
+      "order": 4,
+      "style": "paragraph",
+      "sentences": [
+        {
+          "sentence_id": "sentence-5",
+          "order": 0,
+          "text": "Unmatched *asterisk and _underscore stay literal.",
+          "runs": [
+            {
+              "kind": "plain",
+              "text": "Unmatched *asterisk and _underscore stay literal."
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

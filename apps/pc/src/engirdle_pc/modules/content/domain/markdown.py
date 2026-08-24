@@ -399,7 +399,15 @@ def _list_item_content(
             if part.text.strip():
                 if inline.text:
                     inline.text += " " + part.text
+                    # The paragraph junction is a softbreak in visible text;
+                    # it must exist in the run stream too, or a sentence
+                    # spanning the junction fails the runs-concatenate
+                    # invariant (surfaced by the shared source fixtures).
+                    inline.runs.append(
+                        InlineRun(_current_style([]), " ")
+                    )
                     inline.runs.extend(part.runs)
+                    _merge_adjacent_plain(inline.runs)
                 else:
                     inline.text = part.text
                     inline.runs = list(part.runs)

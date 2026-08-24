@@ -1,0 +1,99 @@
+{
+  "parser_version": "engirdle-gfm@1",
+  "segmenter_version": "engirdle-segmenter@2",
+  "source_sha256": "671ffc2db36424f4598a3eb6a6c0749720da04016ecb073d52903afe095f52c6",
+  "normalized_sha256": "671ffc2db36424f4598a3eb6a6c0749720da04016ecb073d52903afe095f52c6",
+  "structure_sha256": "e2c9b85a8b8f155edf546c74fe4891149bd2ecc565640998e927d6c58e7de2b7",
+  "warnings": [],
+  "blocks": [
+    {
+      "block_id": "block-1",
+      "kind": "paragraph",
+      "order": 0,
+      "style": "paragraph",
+      "sentences": [
+        {
+          "sentence_id": "sentence-1",
+          "order": 0,
+          "text": "Escaped *not em* and _not em_ plus \\ backslash and [bracket].",
+          "runs": [
+            {
+              "kind": "plain",
+              "text": "Escaped *not em* and _not em_ plus \\ backslash and [bracket]."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "block_id": "block-2",
+      "kind": "paragraph",
+      "order": 1,
+      "style": "paragraph",
+      "sentences": [
+        {
+          "sentence_id": "sentence-2",
+          "order": 0,
+          "text": "Line ending with two spaces\nforces a hard break, and a backslash\nbreaks too.",
+          "runs": [
+            {
+              "kind": "plain",
+              "text": "Line ending with two spaces"
+            },
+            {
+              "kind": "hard_break",
+              "text": "\n"
+            },
+            {
+              "kind": "plain",
+              "text": "forces a hard break, and a backslash"
+            },
+            {
+              "kind": "hard_break",
+              "text": "\n"
+            },
+            {
+              "kind": "plain",
+              "text": "breaks too."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "block_id": "block-3",
+      "kind": "paragraph",
+      "order": 2,
+      "style": "paragraph",
+      "sentences": [
+        {
+          "sentence_id": "sentence-3",
+          "order": 0,
+          "text": "Em with break\ninside kept.",
+          "runs": [
+            {
+              "kind": "plain",
+              "text": "Em with "
+            },
+            {
+              "kind": "emphasis",
+              "text": "break"
+            },
+            {
+              "kind": "hard_break",
+              "text": "\n"
+            },
+            {
+              "kind": "emphasis",
+              "text": "inside"
+            },
+            {
+              "kind": "plain",
+              "text": " kept."
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

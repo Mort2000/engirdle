@@ -1,0 +1,311 @@
+{
+  "parser_version": "engirdle-gfm@1",
+  "segmenter_version": "engirdle-segmenter@2",
+  "source_sha256": "0de86afae5f5a04a19714dc745e4bb9190ecc9dd71ac8c68d1ff7f4036845063",
+  "normalized_sha256": "0de86afae5f5a04a19714dc745e4bb9190ecc9dd71ac8c68d1ff7f4036845063",
+  "structure_sha256": "b95f9e878810d1ecce8965f341cb24d220b754f2464c5eb525d8baa52aeab0e3",
+  "warnings": [],
+  "blocks": [
+    {
+      "block_id": "block-1",
+      "kind": "list_item",
+      "order": 0,
+      "style": "list_item",
+      "list_kind": "bullet",
+      "list_depth": 1,
+      "sentences": [
+        {
+          "sentence_id": "sentence-1",
+          "order": 0,
+          "text": "top one",
+          "runs": [
+            {
+              "kind": "plain",
+              "text": "top one"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "block_id": "block-5",
+      "kind": "list_item",
+      "order": 1,
+      "style": "list_item",
+      "list_kind": "bullet",
+      "list_depth": 1,
+      "sentences": [
+        {
+          "sentence_id": "sentence-5",
+          "order": 0,
+          "text": "top two",
+          "runs": [
+            {
+              "kind": "plain",
+              "text": "top two"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "block_id": "block-4",
+      "kind": "list_item",
+      "order": 2,
+      "style": "list_item",
+      "list_kind": "bullet",
+      "list_depth": 2,
+      "sentences": [
+        {
+          "sentence_id": "sentence-4",
+          "order": 0,
+          "text": "nested under two",
+          "runs": [
+            {
+              "kind": "plain",
+              "text": "nested under two"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "block_id": "block-3",
+      "kind": "list_item",
+      "order": 3,
+      "style": "list_item",
+      "list_kind": "bullet",
+      "list_depth": 3,
+      "sentences": [
+        {
+          "sentence_id": "sentence-3",
+          "order": 0,
+          "text": "deeper still",
+          "runs": [
+            {
+              "kind": "plain",
+              "text": "deeper still"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "block_id": "block-2",
+      "kind": "list_item",
+      "order": 4,
+      "style": "list_item",
+      "list_kind": "bullet",
+      "list_depth": 4,
+      "sentences": [
+        {
+          "sentence_id": "sentence-2",
+          "order": 0,
+          "text": "deepest level four",
+          "runs": [
+            {
+              "kind": "plain",
+              "text": "deepest level four"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "block_id": "block-6",
+      "kind": "list_item",
+      "order": 5,
+      "style": "list_item",
+      "list_kind": "bullet",
+      "list_depth": 1,
+      "sentences": [
+        {
+          "sentence_id": "sentence-6",
+          "order": 0,
+          "text": "top three",
+          "runs": [
+            {
+              "kind": "plain",
+              "text": "top three"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "block_id": "block-7",
+      "kind": "list_item",
+      "order": 6,
+      "style": "list_item",
+      "list_kind": "ordered",
+      "list_depth": 1,
+      "list_ordinal": 1,
+      "sentences": [
+        {
+          "sentence_id": "sentence-7",
+          "order": 0,
+          "text": "first ordered",
+          "runs": [
+            {
+              "kind": "plain",
+              "text": "first ordered"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "block_id": "block-8",
+      "kind": "list_item",
+      "order": 7,
+      "style": "list_item",
+      "list_kind": "ordered",
+      "list_depth": 1,
+      "list_ordinal": 2,
+      "sentences": [
+        {
+          "sentence_id": "sentence-8",
+          "order": 0,
+          "text": "second with style",
+          "runs": [
+            {
+              "kind": "plain",
+              "text": "second with "
+            },
+            {
+              "kind": "emphasis",
+              "text": "style"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "block_id": "block-9",
+      "kind": "list_item",
+      "order": 8,
+      "style": "list_item",
+      "list_kind": "ordered",
+      "list_depth": 1,
+      "list_ordinal": 5,
+      "sentences": [
+        {
+          "sentence_id": "sentence-9",
+          "order": 0,
+          "text": "literal five not starting at one",
+          "runs": [
+            {
+              "kind": "plain",
+              "text": "literal five not starting at one"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "block_id": "block-10",
+      "kind": "list_item",
+      "order": 9,
+      "style": "list_item",
+      "list_kind": "bullet",
+      "list_depth": 1,
+      "sentences": [
+        {
+          "sentence_id": "sentence-10",
+          "order": 0,
+          "text": "star bullet",
+          "runs": [
+            {
+              "kind": "plain",
+              "text": "star bullet"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "block_id": "block-11",
+      "kind": "list_item",
+      "order": 10,
+      "style": "list_item",
+      "list_kind": "bullet",
+      "list_depth": 1,
+      "sentences": [
+        {
+          "sentence_id": "sentence-11",
+          "order": 0,
+          "text": "plus bullet",
+          "runs": [
+            {
+              "kind": "plain",
+              "text": "plus bullet"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "block_id": "block-12",
+      "kind": "list_item",
+      "order": 11,
+      "style": "list_item",
+      "list_kind": "bullet",
+      "list_depth": 1,
+      "sentences": [
+        {
+          "sentence_id": "sentence-12",
+          "order": 0,
+          "text": "item with continued indented text joined",
+          "runs": [
+            {
+              "kind": "plain",
+              "text": "item with continued indented text joined"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "block_id": "block-13",
+      "kind": "list_item",
+      "order": 12,
+      "style": "list_item",
+      "list_kind": "bullet",
+      "list_depth": 1,
+      "sentences": [
+        {
+          "sentence_id": "sentence-13",
+          "order": 0,
+          "text": "second paragraph in item also folded in",
+          "runs": [
+            {
+              "kind": "plain",
+              "text": "second paragraph in item also folded in"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "block_id": "block-14",
+      "kind": "list_item",
+      "order": 13,
+      "style": "list_item",
+      "list_kind": "bullet",
+      "list_depth": 1,
+      "sentences": [
+        {
+          "sentence_id": "sentence-14",
+          "order": 0,
+          "text": "done",
+          "runs": [
+            {
+              "kind": "plain",
+              "text": "done"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
