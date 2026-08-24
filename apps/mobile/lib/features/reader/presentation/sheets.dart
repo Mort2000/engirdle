@@ -7,6 +7,7 @@ import '../../library/domain/installed_article.dart';
 class SentenceMenuSheet extends StatelessWidget {
   const SentenceMenuSheet({
     required this.label,
+    required this.translationAvailable,
     required this.translationEnabled,
     required this.playbackEnabled,
     required this.onTranslate,
@@ -17,8 +18,11 @@ class SentenceMenuSheet extends StatelessWidget {
 
   final String label;
 
-  /// Disabled in zh-only mode (already reading the translation) or when no
-  /// active translation set exists.
+  /// Hidden entirely when the article has no active translation set — the
+  /// sentence drawer is a derivative capability, not a disabled stub.
+  final bool translationAvailable;
+
+  /// Disabled in zh-only mode (already reading the translation).
   final bool translationEnabled;
 
   /// Hidden entirely when the article has no narration asset — there is
@@ -41,13 +45,14 @@ class SentenceMenuSheet extends StatelessWidget {
             padding: const EdgeInsets.only(left: 16, bottom: 4),
             child: Text('句子菜单 · $label', style: theme.textTheme.bodySmall),
           ),
-          _MenuRow(
-            icon: Icons.translate,
-            title: '单句翻译',
-            subtitle: translationEnabled ? '在抽屉中查看本句中文译文，不改动原文区' : '当前已是译文模式',
-            enabled: translationEnabled,
-            onTap: onTranslate,
-          ),
+          if (translationAvailable)
+            _MenuRow(
+              icon: Icons.translate,
+              title: '单句翻译',
+              subtitle: translationEnabled ? '在抽屉中查看本句中文译文，不改动原文区' : '当前已是译文模式',
+              enabled: translationEnabled,
+              onTap: onTranslate,
+            ),
           if (playbackEnabled) ...[
             _MenuRow(
               icon: Icons.play_arrow,

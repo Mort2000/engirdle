@@ -51,9 +51,10 @@ void main() {
     await tester.tapAt(const Offset(10, 10));
     await tester.pumpAndSettle();
 
-    // Sentence menu: no translation drawer content, no play rows.
+    // Sentence menu: no translation drawer row, no play rows.
     await tester.tap(find.text('Hello source.'));
     await tester.pumpAndSettle();
+    expect(find.text('单句翻译'), findsNothing);
     expect(find.text('单句朗读'), findsNothing);
     expect(find.text('从此开始朗读'), findsNothing);
   });

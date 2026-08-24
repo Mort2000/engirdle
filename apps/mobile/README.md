@@ -12,7 +12,8 @@ lib/
 ├── app/                          # 组合根、路由、主题（三预设）、去工程化文案
 ├── shared_kernel/                # 内容身份（ArticleRef/SentenceRef）、错误分类、ID 生成
 ├── contracts/                    # readpack v1 / catalog v1 的 Dart 模型与运行时校验器
-│                                 #   （镜像 ../../contracts 下的 JSON Schema + 兼容规则）
+│                                 #   （镜像 ../../contracts 下的 JSON Schema + 兼容规则；
+│                                 #   readpack v2 由导入阶段二接入 Dart 校验器）
 ├── platform/                     # 与业务无关的技术底座
 │   ├── database/                 #   SQLite 打开 + PRAGMA user_version 迁移链（v1 全量建表）
 │   ├── filesystem/               #   受控目录布局，ID 校验后才可成为路径段
@@ -69,7 +70,7 @@ flutter build apk --debug    # 或直接 cd android && ./gradlew assembleDebug
 
 `test/` 镜像 `lib/` 结构：
 
-- `test/contracts/`：直接消费仓库 `contracts/readpack/v1`、`contracts/catalog/v1` 的 fixtures——valid 包通过完整解压校验，11 个非法 readpack 与 5 个非法 catalog 各自按 fixtures/README 文档的首个失败原因被拒绝；
+- `test/contracts/`：直接消费仓库 `contracts/readpack/v1`、`contracts/readpack/v2`、`contracts/catalog/v1` 的 fixtures——valid 包通过完整解压校验，11+11 个非法 readpack 与 5 个非法 catalog 各自按 fixtures/README 文档的首个失败原因被拒绝；v2 侧另断言 v1 客户端按主版本拒绝 v2 包；
 - `test/platform/`：恶意 ZIP 矩阵（手写最小 ZIP 构造器伪造声明大小/标志位/Unix 模式）、LAN URL 策略、基于回环 `HttpServer` 的传输上限与取消语义；
 - `test/features/`：词典查询顺序与降级、生词快照/撤销/无 FK、导入全链路（真实 fixture 经回环 HTTP 服务器下载，成功/哈希不符/HTTP 失败/两种启动恢复路径）；
 - `test/widget_smoke_test.dart`：首启路由、生词本空态、排版设置页渲染（假播放引擎 + 内存数据库）。

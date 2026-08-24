@@ -13,5 +13,9 @@
 | `invalid/translation-cell-missing.readpack` | 拒绝 | 表格译文缺少 `cell-3-3`，二维覆盖不完整 |
 | `invalid/narration-range-empty.readpack` | 拒绝 | `sentence-2` 的样本区间为空（start == end） |
 | `invalid/audio-without-narration.readpack` | 拒绝 | 声明并携带音频文件，但 `derivatives.narration` 为空 |
+| `invalid/wrong-hash.readpack` | 拒绝 | 音频文件实际 SHA-256 与 manifest 声明不同 |
+| `invalid/duplicate-path.readpack` | 拒绝 | ZIP 中出现两个 `article.json` 条目 |
+| `invalid/unsupported-major.readpack` | 拒绝 | manifest 声明未支持的 `format_version: 3.0` |
+| `invalid/unknown-capability.readpack` | 拒绝 | v2.0 未定义任何能力，非空 `required_capabilities` 必须拒绝 |
 
 无效包只包含触发对应检查所需的最小差异。音频复用 v1 示例的短静音 M4A。容器层攻击面（路径穿越、重复条目、超大条目等）由 v1 fixtures 与各应用的安全 ZIP 单元测试覆盖，不在 v2 重复。

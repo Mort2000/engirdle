@@ -48,6 +48,13 @@ def validate_payloads(
 ) -> None:
     """Structural + integrity + semantic-core validation of one v2 package."""
     _check_schema(contracts, "manifest", manifest, "manifest.json")
+    # v2.0 defines no capabilities (COMPATIBILITY.md): an unknown token must
+    # be rejected before anything else, like a v1.0 client rejects 1.1 packs.
+    if manifest.get("required_capabilities"):
+        raise V2StructuralError(
+            "v2.0 defines no required_capabilities; unknown values must be "
+            "rejected before import"
+        )
 
     declared = {entry["path"] for entry in manifest["files"]}
     if "manifest.json" in declared:
@@ -214,6 +221,10 @@ def test_v2_valid_fixtures_pass_structural_validation(fixture_name: str) -> None
         ("translation-cell-missing.readpack", "cell coverage mismatch"),
         ("narration-range-empty.readpack", "empty narration range"),
         ("audio-without-narration.readpack", "without a narration derivative"),
+        ("wrong-hash.readpack", "size or hash mismatch"),
+        ("duplicate-path.readpack", "duplicate ZIP entry"),
+        ("unsupported-major.readpack", "schema violation"),
+        ("unknown-capability.readpack", "no required_capabilities"),
     ],
 )
 def test_v2_invalid_fixtures_are_rejected(fixture_name: str, reason: str) -> None:

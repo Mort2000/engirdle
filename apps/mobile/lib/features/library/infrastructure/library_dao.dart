@@ -139,8 +139,8 @@ class LibraryDao {
                 fallbackText: text,
               ),
               translationZh: sentenceTranslations[sentenceId],
-              audioStartMs: range?.$1,
-              audioEndMs: range?.$2,
+              audioStartMs: range?.startMs,
+              audioEndMs: range?.endMs,
             ),
           );
     }
@@ -172,8 +172,8 @@ class LibraryDao {
     return byBlock;
   }
 
-  /// sentenceId → (startMs, endMs) for the article's current narration asset.
-  Map<String, (int, int)> _narrationRanges(String articleId) {
+  /// sentenceId → playback bounds for the article's current narration asset.
+  Map<String, ({int startMs, int endMs})> _narrationRanges(String articleId) {
     final rows = _db.select(
       'SELECT r.sentence_id, r.audio_start_ms, r.audio_end_ms '
       'FROM sentence_audio_ranges r '
@@ -185,8 +185,8 @@ class LibraryDao {
     return {
       for (final row in rows)
         row['sentence_id'] as String: (
-          row['audio_start_ms'] as int,
-          row['audio_end_ms'] as int,
+          startMs: row['audio_start_ms'] as int,
+          endMs: row['audio_end_ms'] as int,
         ),
     };
   }
@@ -519,11 +519,9 @@ class LibraryDao {
   }) {
     final articleId = content.articleId;
     final sentenceTranslations = [
-      for (final block in content.blocks)
-        if (block is ParsedTextBlock)
-          for (final sentence in block.sentences)
-            if (sentence.translationZh != null)
-              (sentence.sentenceId, sentence.translationZh!),
+      for (final sentence in _textSentences(content))
+        if (sentence.translationZh != null)
+          (sentence.sentenceId, sentence.translationZh!),
     ];
     final tableTranslations = [
       for (final block in content.blocks)
@@ -575,17 +573,15 @@ class LibraryDao {
     }
 
     final narratedSentences = [
-      for (final block in content.blocks)
-        if (block is ParsedTextBlock)
-          for (final sentence in block.sentences)
-            if (sentence.hasAudio)
-              (
-                sentence.sentenceId,
-                sentence.audioStartMs!,
-                sentence.audioEndMs!,
-                sentence.audioStartSample!,
-                sentence.audioEndSample!,
-              ),
+      for (final sentence in _textSentences(content))
+        if (sentence.hasAudio)
+          (
+            sentence.sentenceId,
+            sentence.audioStartMs!,
+            sentence.audioEndMs!,
+            sentence.audioStartSample!,
+            sentence.audioEndSample!,
+          ),
     ];
     if (narratedSentences.isNotEmpty) {
       final narrationId = newUuid();
@@ -617,6 +613,18 @@ class LibraryDao {
         );
       }
     }
+  }
+
+  /// The article's text-block sentences in reading order (block order, then
+  /// sentence order) — the single traversal installs use for every
+  /// sentence-derived row.
+  static Iterable<SentenceContent> _textSentences(ArticleContent content) {
+    final blocks = [...content.blocks]..sort((a, b) => a.order - b.order);
+    return [
+      for (final block in blocks)
+        if (block is ParsedTextBlock)
+          ...([...block.sentences]..sort((a, b) => a.order - b.order)),
+    ];
   }
 
   /// Wire kind + payload JSON for one parsed block.

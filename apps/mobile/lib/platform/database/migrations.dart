@@ -8,7 +8,10 @@ import 'package:sqlite3/sqlite3.dart';
 ///                  article_reading_mode, article_active_translations,
 ///                  narration_assets, sentence_audio_ranges
 ///   translation  → translation_sets, sentence_translations,
-///                  table_cell_translations
+///                  table_cell_translations (the mobile translation module
+///                  lands with the lightweight-readpack phase 3; until then
+///                  packaged installs write these rows through the library
+///                  DAO, which is also the only reader of the active pointer)
 ///   vocabulary   → vocabulary
 ///   dictionary   → dictionary_manifest (the dictionary DB itself is separate)
 ///   preferences  → preferences

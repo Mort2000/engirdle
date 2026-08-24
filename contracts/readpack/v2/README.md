@@ -26,7 +26,7 @@ ZIP 只包含 manifest 声明的普通文件，实际路径集合必须与 `file
 - 纯代码/分隔线文章合法可读，但没有可翻译单元；含译文派生物的文章必须至少有一个文本句或一张非空表。
 - **translation 派生物**：`article.id`/`revision`、`structure_sha256` 必须与 base 完全一致；`sentences` 精确覆盖全部文本句（同序、无缺失、无多余）；`tables` 按块分组、保持每张表 header→rows 的二维 cell 顺序，精确覆盖全部 cell。每条译文非空且不超过 40,000 字符。包内不允许 partial 集合。`pipeline` 记录 provider、model、prompt 版本、thinking/reasoning 配置、生成时间和客户端版本。译文是恢复占位符之后的最终文本，不含 `‰N‰` 占位符。
 - **narration 派生物**：`structure_sha256` 必须与 base 一致；`audio` 描述唯一音频（首期固定 M4A/AAC-LC、24000 Hz、单声道）；`sentences` 精确覆盖 base 的全部可朗读文本句，样本区间 `[start, end)` 非空、单调、不重叠且不超过音频总长；毫秒边界由样本边界换算（`floor(start*1000/rate)` / `ceil(end*1000/rate)`）。表格、代码与分隔线永不出现。
-- manifest 的 `content.structure_sha256` 必须等于 `article.json` 的 `structure_sha256`；manifest、article 与各派生物的文章 ID/修订完全一致；`derivatives.narration` 存在时必须同时声明 `derivatives/narration.json` 与 `audio/article.m4a`，反之 `files` 不得携带音频或 narration 文件。
+- manifest 的 `content.structure_sha256` 必须等于 `article.json` 的 `structure_sha256`；manifest、article 与各派生物的文章 ID/修订完全一致；`derivatives.narration` 存在时必须同时声明 `derivatives/narration.json` 与 `audio/article.m4a`，反之 `files` 不得携带音频或 narration 文件。`content.parser` 对 Markdown 原文必填、对纯文本原文缺省（纯文本没有 parser）。
 - v2 不使用 `profile` 枚举组合；能力由派生物描述符的存在与完整校验结果推导。`required_capabilities` 只表达不可忽略的语法/语义扩展，未知值仍必须拒绝。
 - `attribution.json`：`article_source` 与 pipeline `software_dependency` 恒必填；携带 translation 派生物时必须声明 `translation_service`，携带 narration 时必须声明两个 tts 模型、voice profile 与 audio encoder。未知/不适用的来源、版本、许可或修改信息沿用 v1 的 `unknown` / `not_applicable` 规则。
 

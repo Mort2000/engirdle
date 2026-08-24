@@ -130,7 +130,8 @@ class _ReaderPageState extends State<ReaderPage> {
       context: context,
       builder: (sheetContext) => SentenceMenuSheet(
         label: _labelOf(sentence),
-        translationEnabled: _mode != ReadingMode.zhOnly && _hasTranslation(),
+        translationAvailable: _hasTranslation(),
+        translationEnabled: _mode != ReadingMode.zhOnly,
         playbackEnabled: _content?.capabilities.hasNarration ?? false,
         onTranslate: () {
           Navigator.of(sheetContext).pop();
