@@ -5,7 +5,9 @@ import '../features/connection/infrastructure/service_config_dao.dart';
 import '../features/dictionary/application/dictionary_service.dart';
 import '../features/dictionary/infrastructure/dictionary_dao.dart';
 import '../features/importer/application/import_service.dart';
+import '../features/importer/application/content_import_service.dart';
 import '../features/importer/infrastructure/import_log_dao.dart';
+import '../features/importer/infrastructure/source_import_dao.dart';
 import '../features/library/application/library_service.dart';
 import '../features/library/infrastructure/library_dao.dart';
 import '../features/playback/application/audio_focus_port.dart';
@@ -36,6 +38,7 @@ class AppDependencies {
     required this.catalog,
     required this.library,
     required this.importer,
+    required this.contentImport,
     required this.playback,
     required this.dictionary,
     required this.vocabulary,
@@ -51,6 +54,7 @@ class AppDependencies {
   final CatalogService catalog;
   final LibraryService library;
   final ImportService importer;
+  final ContentImportService contentImport;
   final PlaybackController playback;
   final DictionaryService dictionary;
   final VocabularyService vocabulary;
@@ -83,6 +87,7 @@ class AppDependencies {
     final serviceConfigDao = ServiceConfigDao(db.db);
     final libraryDao = LibraryDao(db.db);
     final importLogDao = ImportLogDao(db.db);
+    final sourceImportDao = SourceImportDao(db.db);
     final vocabularyDao = VocabularyDao(db.db);
     final dictionaryManifestDao = DictionaryManifestDao(db.db);
     final preferencesDao = PreferencesDao(db.db);
@@ -95,6 +100,11 @@ class AppDependencies {
       dao: libraryDao,
       directories: directories,
       playbackLeases: leaseRegistry,
+    );
+    final contentImport = ContentImportService(
+      dao: sourceImportDao,
+      library: library,
+      directories: directories,
     );
     final catalog = CatalogService(connection: connection, library: library);
     final importer = ImportService(
@@ -134,6 +144,7 @@ class AppDependencies {
       catalog: catalog,
       library: library,
       importer: importer,
+      contentImport: contentImport,
       playback: playback,
       dictionary: dictionary,
       vocabulary: vocabulary,
@@ -147,6 +158,7 @@ class AppDependencies {
   /// build; failures here must not prevent the app from starting.
   Future<void> recoverImports() async {
     await importer.recoverUnfinished();
+    await contentImport.recover();
     await dictionary.recover();
   }
 

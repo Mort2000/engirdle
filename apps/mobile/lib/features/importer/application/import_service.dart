@@ -33,11 +33,11 @@ class ImportService {
     this.zipReader = const SecureZipReader(),
     this.validator = const ReadpackValidator(),
     AppLogger? logger,
-  })  : _logDao = logDao,
-        _library = library,
-        _http = httpClient,
-        _dirs = directories,
-        _logger = logger ?? const AppLogger('importer');
+  }) : _logDao = logDao,
+       _library = library,
+       _http = httpClient,
+       _dirs = directories,
+       _logger = logger ?? const AppLogger('importer');
 
   final ImportLogDao _logDao;
   final LibraryService _library;
@@ -122,7 +122,9 @@ class ImportService {
       if (paths.length != allowedPaths.length ||
           !paths.containsAll(allowedPaths)) {
         throw const AppFailure(
-            FailureKind.packageFormat, 'unexpected package layout');
+          FailureKind.packageFormat,
+          'unexpected package layout',
+        );
       }
 
       // 4. Stream extraction into staging with real byte accounting.
@@ -130,17 +132,23 @@ class ImportService {
       for (final entry in entries) {
         _throwIfCancelled(cancelToken);
         await zipReader.extractEntry(
-            downloadFile, entry, File(p.join(stagingDir.path, entry.path)));
+          downloadFile,
+          entry,
+          File(p.join(stagingDir.path, entry.path)),
+        );
       }
       _logDao.updateState(importId, ImportState.staged);
 
       // 5. Manifest / references / hashes validation.
       onPhase?.call(ImportPhase.validatingContent);
       final stagedFiles = {
-        for (final path in allowedPaths) path: File(p.join(stagingDir.path, path)),
+        for (final path in allowedPaths)
+          path: File(p.join(stagingDir.path, path)),
       };
-      final validated = await validator.validate(stagedFiles,
-          sha256Of: sha256OfFile);
+      final validated = await validator.validate(
+        stagedFiles,
+        sha256Of: sha256OfFile,
+      );
       onPhase?.call(ImportPhase.validatingReferences);
       _requireMatchesCatalog(validated, package);
 
@@ -150,16 +158,20 @@ class ImportService {
       finalDir = _library.artifactDirectory(ref);
       if (await finalDir.exists()) {
         throw const AppFailure(
-            FailureKind.packageFormat, 'artifact already exists');
+          FailureKind.packageFormat,
+          'artifact already exists',
+        );
       }
       _logDao.updateState(importId, ImportState.moving);
       await finalDir.parent.create(recursive: true);
       await stagingDir.rename(finalDir.path);
       movedToFinal = true;
-      final manifestJson =
-          await File(p.join(finalDir.path, 'manifest.json')).readAsString();
-      final attributionJson =
-          await File(p.join(finalDir.path, 'attribution.json')).readAsString();
+      final manifestJson = await File(
+        p.join(finalDir.path, 'manifest.json'),
+      ).readAsString();
+      final attributionJson = await File(
+        p.join(finalDir.path, 'attribution.json'),
+      ).readAsString();
       _library.commitInstall(
         ValidatedArticleImport.fromV1(
           content: validated.article,
@@ -186,23 +198,49 @@ class ImportService {
       _logger.info('import.committed', {'article': ref.toString()});
       return ref;
     } on AppFailure catch (failure) {
-      await _abort(op, downloadFile, stagingDir, finalDir, movedToFinal,
-          committed, failure);
+      await _abort(
+        op,
+        downloadFile,
+        stagingDir,
+        finalDir,
+        movedToFinal,
+        committed,
+        failure,
+      );
       rethrow;
     } on ContractViolation catch (e) {
       // Contract violations are package-format failures by definition
       // (see ContractViolation's class contract), never database ones.
       final failure = AppFailure(
-          FailureKind.packageFormat, 'package contract violation',
-          detail: '$e');
-      await _abort(op, downloadFile, stagingDir, finalDir, movedToFinal,
-          committed, failure);
+        FailureKind.packageFormat,
+        'package contract violation',
+        detail: '$e',
+      );
+      await _abort(
+        op,
+        downloadFile,
+        stagingDir,
+        finalDir,
+        movedToFinal,
+        committed,
+        failure,
+      );
       throw failure;
     } catch (e) {
-      final failure =
-          AppFailure(FailureKind.database, 'import failed', detail: '$e');
-      await _abort(op, downloadFile, stagingDir, finalDir, movedToFinal,
-          committed, failure);
+      final failure = AppFailure(
+        FailureKind.database,
+        'import failed',
+        detail: '$e',
+      );
+      await _abort(
+        op,
+        downloadFile,
+        stagingDir,
+        finalDir,
+        movedToFinal,
+        committed,
+        failure,
+      );
       throw failure;
     }
   }
@@ -219,15 +257,19 @@ class ImportService {
       try {
         await _recoverOne(op);
       } catch (e) {
-        _logger.error('import.recover.failed',
-            {'import_id': op.importId, 'error': '$e'});
+        _logger.error('import.recover.failed', {
+          'import_id': op.importId,
+          'error': '$e',
+        });
       }
     }
   }
 
   Future<void> _recoverOne(ImportOperation op) async {
-    _logger.warn(
-        'import.recover', {'import_id': op.importId, 'state': op.state.name});
+    _logger.warn('import.recover', {
+      'import_id': op.importId,
+      'state': op.state.name,
+    });
     final downloadFile = _dirs.downloadFile(op.importId);
     // Rebuild the staging path from the validated import id instead of
     // trusting the DB-stored path.
@@ -276,13 +318,16 @@ class ImportService {
           for (final path in allowedPaths)
             path: File(p.join(finalDir.path, path)),
         };
-        final validated =
-            await validator.validate(files, sha256Of: sha256OfFile);
-        final manifestJson =
-            await File(p.join(finalDir.path, 'manifest.json')).readAsString();
-        final attributionJson =
-            await File(p.join(finalDir.path, 'attribution.json'))
-                .readAsString();
+        final validated = await validator.validate(
+          files,
+          sha256Of: sha256OfFile,
+        );
+        final manifestJson = await File(
+          p.join(finalDir.path, 'manifest.json'),
+        ).readAsString();
+        final attributionJson = await File(
+          p.join(finalDir.path, 'attribution.json'),
+        ).readAsString();
         _library.commitInstall(
           ValidatedArticleImport.fromV1(
             content: validated.article,
@@ -353,8 +398,12 @@ class ImportService {
       _logger.error('import.abort.temp_cleanup_failed', {'error': '$e'});
     }
     try {
-      _logDao.updateState(op.importId, ImportState.failed,
-          errorKind: failure.kind.name, errorDetail: failure.message);
+      _logDao.updateState(
+        op.importId,
+        ImportState.failed,
+        errorKind: failure.kind.name,
+        errorDetail: failure.message,
+      );
     } catch (e) {
       _logger.error('import.abort.log_update_failed', {'error': '$e'});
     }
@@ -378,13 +427,17 @@ class ImportService {
 
   /// The package content must be exactly what the catalog announced.
   static void _requireMatchesCatalog(
-      ValidatedReadpack validated, CatalogPackage package) {
+    ValidatedReadpack validated,
+    CatalogPackage package,
+  ) {
     final manifest = validated.manifest;
     if (manifest.articleId != package.articleId ||
         manifest.revision != package.revision ||
         manifest.artifactRevision != package.artifactRevision) {
       throw const AppFailure(
-          FailureKind.packageFormat, 'package identity mismatch with catalog');
+        FailureKind.packageFormat,
+        'package identity mismatch with catalog',
+      );
     }
   }
 }

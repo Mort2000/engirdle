@@ -51,11 +51,10 @@ class _DownloadImportPageState extends State<DownloadImportPage> {
       await importer.importPackage(
         widget.package,
         onPhase: (phase) => setState(() => _phase = phase),
-        onDownloadProgress: (received, total) =>
-            setState(() {
-              _received = received;
-              _total = total;
-            }),
+        onDownloadProgress: (received, total) => setState(() {
+          _received = received;
+          _total = total;
+        }),
       );
       if (mounted) Navigator.of(context).pop(true);
     } on AppFailure catch (failure) {
@@ -84,7 +83,8 @@ class _DownloadImportPageState extends State<DownloadImportPage> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final downloading = _phase == ImportPhase.downloading ||
+    final downloading =
+        _phase == ImportPhase.downloading ||
         _phase == ImportPhase.verifyingIntegrity;
     return Scaffold(
       appBar: AppBar(
@@ -142,16 +142,19 @@ class _DownloadImportPageState extends State<DownloadImportPage> {
               ),
             ),
           ] else ...[
-            ..._steps.map((step) => _StepRow(
-                  label: step.label,
-                  state: _stepState(step),
-                  detail: switch (step) {
-                    ImportPhase.saving when _stepState(step) == _StepState.active =>
-                      '正在保存第 ${widget.package.revision} 版…',
-                    ImportPhase.cleaningUp => '完成后将自动清理旧版本',
-                    _ => null,
-                  },
-                )),
+            ..._steps.map(
+              (step) => _StepRow(
+                label: step.label,
+                state: _stepState(step),
+                detail: switch (step) {
+                  ImportPhase.saving
+                      when _stepState(step) == _StepState.active =>
+                    '正在保存第 ${widget.package.revision} 版…',
+                  ImportPhase.cleaningUp => '完成后将自动清理旧版本',
+                  _ => null,
+                },
+              ),
+            ),
             Container(
               margin: const EdgeInsets.only(top: 10),
               decoration: BoxDecoration(
@@ -162,19 +165,24 @@ class _DownloadImportPageState extends State<DownloadImportPage> {
               child: const Row(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Icon(Icons.shield_outlined,
-                      size: 17, color: Color(0xFF234534)),
+                  Icon(
+                    Icons.shield_outlined,
+                    size: 17,
+                    color: Color(0xFF234534),
+                  ),
                   SizedBox(width: 9),
                   Expanded(
                     child: Text.rich(
-                      TextSpan(children: [
-                        TextSpan(
+                      TextSpan(
+                        children: [
+                          TextSpan(
                             text: '失败保护：',
-                            style: TextStyle(fontWeight: FontWeight.w700)),
-                        TextSpan(text: '任一步骤失败都会回滚本次操作；当前已安装的版本与生词不受影响。'),
-                      ]),
-                      style:
-                          TextStyle(fontSize: 12, color: Color(0xFF234534)),
+                            style: TextStyle(fontWeight: FontWeight.w700),
+                          ),
+                          TextSpan(text: '任一步骤失败都会回滚本次操作；当前已安装的版本与生词不受影响。'),
+                        ],
+                      ),
+                      style: TextStyle(fontSize: 12, color: Color(0xFF234534)),
                     ),
                   ),
                 ],
@@ -190,18 +198,24 @@ class _DownloadImportPageState extends State<DownloadImportPage> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Row(children: [
-                      const Icon(Icons.error_outline,
-                          size: 16, color: AppPalette.error),
-                      const SizedBox(width: 6),
-                      Expanded(
-                        child: Text(
-                          failureKindLabel(_failure!.kind),
-                          style: theme.textTheme.titleSmall
-                              ?.copyWith(color: AppPalette.error),
+                    Row(
+                      children: [
+                        const Icon(
+                          Icons.error_outline,
+                          size: 16,
+                          color: AppPalette.error,
                         ),
-                      ),
-                    ]),
+                        const SizedBox(width: 6),
+                        Expanded(
+                          child: Text(
+                            failureKindLabel(_failure!.kind),
+                            style: theme.textTheme.titleSmall?.copyWith(
+                              color: AppPalette.error,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
                     const SizedBox(height: 4),
                     Text(
                       failureMessage(_failure!),
@@ -246,13 +260,19 @@ class _DownloadImportPageState extends State<DownloadImportPage> {
         children: [
           SizedBox(
             width: 72,
-            child: Text(key,
-                style: theme.textTheme.bodySmall
-                    ?.copyWith(color: theme.colorScheme.onSurfaceVariant)),
+            child: Text(
+              key,
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: theme.colorScheme.onSurfaceVariant,
+              ),
+            ),
           ),
           Expanded(
-            child: Text(value,
-                textAlign: TextAlign.end, style: theme.textTheme.bodySmall),
+            child: Text(
+              value,
+              textAlign: TextAlign.end,
+              style: theme.textTheme.bodySmall,
+            ),
           ),
         ],
       ),
@@ -273,21 +293,17 @@ class _StepRow extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final (icon, background, foreground) = switch (state) {
-      _StepState.done => (
-          Icons.check,
-          AppPalette.okContainer,
-          AppPalette.ok
-        ),
+      _StepState.done => (Icons.check, AppPalette.okContainer, AppPalette.ok),
       _StepState.active => (
-          Icons.sync,
-          AppPalette.amberContainer,
-          AppPalette.amber
-        ),
+        Icons.sync,
+        AppPalette.amberContainer,
+        AppPalette.amber,
+      ),
       _StepState.waiting => (
-          Icons.more_horiz,
-          theme.colorScheme.surfaceContainerHighest,
-          theme.colorScheme.onSurfaceVariant
-        ),
+        Icons.more_horiz,
+        theme.colorScheme.surfaceContainerHighest,
+        theme.colorScheme.onSurfaceVariant,
+      ),
     };
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 6),
@@ -309,12 +325,15 @@ class _StepRow extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(label,
-                    style: theme.textTheme.bodyMedium?.copyWith(
-                        fontWeight: FontWeight.w600,
-                        color: state == _StepState.waiting
-                            ? theme.colorScheme.onSurfaceVariant
-                            : null)),
+                Text(
+                  label,
+                  style: theme.textTheme.bodyMedium?.copyWith(
+                    fontWeight: FontWeight.w600,
+                    color: state == _StepState.waiting
+                        ? theme.colorScheme.onSurfaceVariant
+                        : null,
+                  ),
+                ),
                 if (detail != null)
                   Text(detail!, style: theme.textTheme.bodySmall),
               ],

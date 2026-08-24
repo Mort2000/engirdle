@@ -1,0 +1,480 @@
+import 'dart:convert';
+import 'dart:io';
+import 'dart:typed_data';
+
+import 'package:path/path.dart' as p;
+
+import '../../../contracts/contract_violation.dart';
+import '../../../contracts/readpack_v1/article.dart' show ArticleSource;
+import '../../../platform/crypto/sha256.dart';
+import '../../../platform/filesystem/app_directories.dart';
+import '../../../platform/logging/app_logger.dart';
+import '../../../platform/zip/secure_zip_reader.dart';
+import '../../../shared_kernel/content_identity.dart';
+import '../../../shared_kernel/failures.dart';
+import '../../../shared_kernel/id_generator.dart';
+import '../../library/application/library_service.dart';
+import '../../library/domain/article_install.dart';
+import '../../library/domain/installed_article.dart';
+import '../../source_ingestion/application/raw_source_parser.dart';
+import '../../source_ingestion/domain/raw_source.dart';
+import '../../source_ingestion/domain/source_parse_error.dart';
+import '../../source_ingestion/infrastructure/markdown_parser.dart';
+import '../infrastructure/source_import_dao.dart';
+import 'readpack_router.dart';
+
+/// The input-independent content import module (design §6.5/§7.2) for the
+/// raw-source and document ingress. The paste editor and the SAF picker both
+/// hand frozen bytes to [stageRawSource] / [importDocumentPackage]; nothing
+/// enters the library until the user confirms metadata on the confirmation
+/// page, and every step is journaled so process death resumes cleanly.
+class ContentImportService {
+  ContentImportService({
+    required SourceImportDao dao,
+    required LibraryService library,
+    required AppDirectories directories,
+    ReadpackRouter router = const ReadpackRouter(),
+    RawSourceParser rawParser = const RawSourceParser(),
+    AppLogger? logger,
+  }) : _dao = dao,
+       _library = library,
+       _dirs = directories,
+       _router = router,
+       _rawParser = rawParser,
+       _logger = logger ?? const AppLogger('content-import');
+
+  final SourceImportDao _dao;
+  final LibraryService _library;
+  final AppDirectories _dirs;
+  final ReadpackRouter _router;
+  final RawSourceParser _rawParser;
+  final AppLogger _logger;
+
+  /// Unconfirmed previews older than this are garbage on [recover] (design
+  /// §6.5: awaiting_confirmation 只持有 staging，应设置清理期限).
+  static const previewExpiry = Duration(days: 7);
+
+  static const _rawFileNames = {
+    SourceSyntax.plainText: 'raw.txt',
+    SourceSyntax.markdown: 'raw.md',
+  };
+
+  /// Freezes a raw source into staging and the journal, then reports the
+  /// preview the confirmation page needs — including duplicate matches
+  /// (§6.3). No article exists yet; cancelling drops everything.
+  Future<RawSourcePreview> stageRawSource({
+    required List<int> rawBytes,
+    required SourceSyntax syntax,
+    required String origin,
+  }) async {
+    final importId = newUuid();
+    final staging = _dirs.stagingDir(importId);
+    await staging.create(recursive: true);
+    try {
+      var decoded = utf8.decode(rawBytes);
+      // Dart's utf8.decode strips a leading BOM; the raw snapshot must hash
+      // the user's original bytes, so keep the character in the frozen text
+      // (canonicalization strips it again for parsing, §6.1).
+      if (rawBytes.length >= 3 &&
+          rawBytes[0] == 0xEF &&
+          rawBytes[1] == 0xBB &&
+          rawBytes[2] == 0xBF &&
+          decoded.isNotEmpty &&
+          decoded.codeUnitAt(0) != 0xFEFF) {
+        decoded = '﻿$decoded';
+      }
+      final candidate = _rawParser.parsePaste(text: decoded, syntax: syntax);
+      await File(
+        p.join(staging.path, _rawFileNames[syntax]),
+      ).writeAsBytes(rawBytes);
+      await File(
+        p.join(staging.path, 'canonical.txt'),
+      ).writeAsString(candidate.canonical);
+      final now = DateTime.now().toUtc().toIso8601String();
+      _dao.insert(
+        SourceImportRow(
+          importId: importId,
+          state: 'awaiting_confirmation',
+          syntax: syntax.wire,
+          rawSha256: candidate.sourceSha256,
+          normalizedSha256: candidate.normalizedSha256,
+          structureSha256: candidate.structureSha256,
+          suggestedTitle: candidate.suggestedTitle,
+          statsJson: jsonEncode({
+            'origin': origin,
+            'blocks': candidate.counts.blocks,
+            'sentences': candidate.counts.sentences,
+            'tables': candidate.counts.tables,
+            'code_blocks': candidate.counts.codeBlocks,
+            'can_translate': candidate.canTranslate,
+          }),
+          warningsJson: jsonEncode([
+            for (final w in candidate.warnings)
+              {'code': w.code, 'block_index': w.blockIndex},
+          ]),
+          createdAt: now,
+          updatedAt: now,
+        ),
+      );
+      return RawSourcePreview(
+        importId: importId,
+        candidate: candidate,
+        duplicates: _duplicatesOf(candidate),
+        origin: origin,
+      );
+    } on SourceParseException catch (e) {
+      await _dropStaging(staging);
+      throw AppFailure(FailureKind.packageFormat, 'source rejected: ${e.code}');
+    } catch (e) {
+      await _dropStaging(staging);
+      throw AppFailure(FailureKind.database, 'staging failed', detail: '$e');
+    }
+  }
+
+  /// Cancels an unconfirmed preview: staging and journal row both go away,
+  /// never leaving an empty shell article (design §12.2).
+  Future<void> cancelRawSource(String importId) async {
+    final row = _dao.find(importId);
+    if (row == null) return;
+    await _dropStaging(_dirs.stagingDir(importId));
+    _dao.delete(importId);
+  }
+
+  /// Confirms the preview: mints the article identity, writes attribution
+  /// from the user's metadata, moves staging into the immutable artifact
+  /// directory and commits the install in one journaled sequence.
+  Future<ArticleRef> confirmRawSource(
+    String importId, {
+    required ConfirmedSourceMetadata metadata,
+  }) async {
+    final row = _dao.find(importId);
+    if (row == null) {
+      throw const AppFailure(FailureKind.database, 'unknown import');
+    }
+    if (row.state != 'awaiting_confirmation') {
+      throw AppFailure(
+        FailureKind.database,
+        'import not awaiting confirmation (state ${row.state})',
+      );
+    }
+    final syntax = SourceSyntax.fromWire(row.syntax);
+    if (syntax == null) {
+      throw const AppFailure(FailureKind.database, 'unknown syntax');
+    }
+    final staging = _dirs.stagingDir(importId);
+    final canonicalFile = File(p.join(staging.path, 'canonical.txt'));
+    final rawFile = File(p.join(staging.path, _rawFileNames[syntax]));
+    if (!await canonicalFile.exists() || !await rawFile.exists()) {
+      _dao.delete(importId);
+      await _dropStaging(staging);
+      throw const AppFailure(FailureKind.database, 'staging incomplete');
+    }
+
+    // Deterministic re-parse from the frozen canonical text; the journal's
+    // hashes guard against any drift since the preview was frozen (§6.2:
+    // 返回修改则废弃旧快照，确认的一定是预览过的结构).
+    final candidate = _rawParser.parsePaste(
+      text: await canonicalFile.readAsString(),
+      syntax: syntax,
+    );
+    if (candidate.structureSha256 != row.structureSha256 ||
+        candidate.normalizedSha256 != row.normalizedSha256) {
+      throw const AppFailure(
+        FailureKind.database,
+        'staged structure drifted from the frozen preview',
+      );
+    }
+
+    final articleId = newUuid();
+    const revision = 1;
+    const artifactRevision = 1;
+    final ref = ArticleRef(
+      articleId: articleId,
+      revision: revision,
+      artifactRevision: artifactRevision,
+    );
+    final origin = row.stats['origin'] as String? ?? 'paste';
+
+    _dao.updateState(importId, 'moving');
+    final finalDir = _library.artifactDirectory(ref);
+    if (await finalDir.exists()) {
+      throw const AppFailure(FailureKind.database, 'artifact already exists');
+    }
+    await finalDir.parent.create(recursive: true);
+
+    final attributionJson = _rawAttributionJson(
+      title: metadata.title,
+      sourceName: metadata.sourceDisplayName,
+      sourceUrl: metadata.sourceUrl,
+      author: metadata.author,
+      licenseName: metadata.licenseName,
+    );
+    await File(
+      p.join(staging.path, 'attribution.json'),
+    ).writeAsString(attributionJson);
+
+    // Read before the rename moves the directory away.
+    final rawBytes = await rawFile.readAsBytes();
+    await staging.rename(finalDir.path);
+    final install = ValidatedArticleImport(
+      articleId: articleId,
+      revision: revision,
+      artifactRevision: artifactRevision,
+      title: metadata.title,
+      source: ArticleSource(
+        displayName: metadata.sourceDisplayName,
+        url: metadata.sourceUrl,
+        author: metadata.author,
+      ),
+      origin: origin,
+      formatVersion: 'local-1',
+      sourceSha256: candidate.sourceSha256,
+      normalizedSha256: candidate.normalizedSha256,
+      sourceSyntax: syntax.wire,
+      structureSha256: candidate.structureSha256,
+      parserVersion: syntax == SourceSyntax.markdown
+          ? kDartParserVersion
+          : null,
+      segmenterVersion: kDartSegmenterVersion,
+      blocks: candidate.blocks,
+      manifestJson: _syntheticManifestJson(
+        importId: importId,
+        candidate: candidate,
+        syntax: syntax,
+      ),
+      attributionJson: attributionJson,
+      artifactSizeBytes: rawBytes.length,
+      artifactSha256: sha256OfBytes(rawBytes),
+    );
+    try {
+      _library.commitInstall(install);
+    } on AppFailure {
+      // The move already landed; the artifact dir is not yet referenced by
+      // the DB, so rolling it back is safe.
+      if (await finalDir.exists()) await finalDir.delete(recursive: true);
+      _dao.updateState(importId, 'failed');
+      rethrow;
+    }
+    _dao.updateState(importId, 'committed');
+    _dao.delete(importId);
+    _logger.info('content_import.committed', {'article': ref.toString()});
+    return ref;
+  }
+
+  /// One-shot import of a SAF-picked `.readpack` (v1 or v2): package content
+  /// carries its own metadata, so no confirmation page. Journaled for
+  /// recovery like every other ingress.
+  Future<ArticleRef> importDocumentPackage({
+    required Uint8List bytes,
+    String? fileName,
+  }) async {
+    final importId = newUuid();
+    final staging = _dirs.stagingDir(importId);
+    await staging.create(recursive: true);
+    final zipFile = File(p.join(staging.path, 'package.readpack'));
+    try {
+      await zipFile.writeAsBytes(bytes);
+      final entries = await const SecureZipReader().preflight(zipFile);
+      final extracted = <String, File>{};
+      for (final entry in entries) {
+        final out = File(p.join(staging.path, entry.path));
+        await const SecureZipReader().extractEntry(zipFile, entry, out);
+        extracted[entry.path] = out;
+      }
+      final install = await _router.validate(
+        extracted,
+        sha256Of: sha256OfFile,
+        origin: 'document',
+        artifactSizeBytes: bytes.length,
+        artifactSha256: sha256OfBytes(bytes),
+      );
+      final ref = ArticleRef(
+        articleId: install.articleId,
+        revision: install.revision,
+        artifactRevision: install.artifactRevision,
+      );
+      final finalDir = _library.artifactDirectory(ref);
+      if (await finalDir.exists()) {
+        throw const AppFailure(
+          FailureKind.packageFormat,
+          'artifact already exists',
+        );
+      }
+      await finalDir.parent.create(recursive: true);
+      // Move the extracted payload (not the zip) like every other ingress.
+      await Directory(p.join(staging.path, 'payload')).create();
+      for (final entry in extracted.entries) {
+        final target = File(p.join(staging.path, 'payload', entry.key));
+        await target.parent.create(recursive: true);
+        await entry.value.rename(target.path);
+      }
+      await Directory(p.join(staging.path, 'payload')).rename(finalDir.path);
+      try {
+        _library.commitInstall(install);
+      } on AppFailure {
+        if (await finalDir.exists()) await finalDir.delete(recursive: true);
+        rethrow;
+      }
+      await _dropStaging(staging);
+      _logger.info('content_import.package_committed', {
+        'article': ref.toString(),
+        'file': fileName ?? '',
+      });
+      return ref;
+    } on ContractViolation catch (e) {
+      await _dropStaging(staging);
+      throw AppFailure(
+        FailureKind.packageFormat,
+        'package contract violation',
+        detail: '$e',
+      );
+    } on AppFailure {
+      await _dropStaging(staging);
+      rethrow;
+    } catch (e) {
+      await _dropStaging(staging);
+      throw AppFailure(
+        FailureKind.database,
+        'package import failed',
+        detail: '$e',
+      );
+    }
+  }
+
+  /// Startup recovery (design §6.5): waiting previews survive if fresh and
+  /// are dropped once expired; nothing else may linger.
+  Future<void> recover() async {
+    final now = DateTime.now().toUtc();
+    for (final row in _dao.all()) {
+      try {
+        switch (row.state) {
+          case 'awaiting_confirmation':
+            final created = DateTime.parse(row.createdAt);
+            if (now.difference(created) > previewExpiry) {
+              await cancelRawSource(row.importId);
+            }
+          case 'moving':
+          case 'failed':
+            // Nothing entered the library (the commit would have flipped
+            // the row to committed before deleting it); drop the staging.
+            await _dropStaging(_dirs.stagingDir(row.importId));
+            _dao.delete(row.importId);
+          case 'committed':
+          case 'cancelled':
+            _dao.delete(row.importId);
+        }
+      } catch (e) {
+        _logger.error('content_import.recover_failed', {
+          'import_id': row.importId,
+          'error': '$e',
+        });
+      }
+    }
+  }
+
+  ({List<InstalledArticle> exact, List<InstalledArticle> content})
+  _duplicatesOf(RawSourceCandidate candidate) => _library.duplicates(
+    sourceSha256: candidate.sourceSha256,
+    normalizedSha256: candidate.normalizedSha256,
+    sourceSyntax: candidate.syntax.wire,
+  );
+
+  Future<void> _dropStaging(Directory staging) async {
+    if (await staging.exists()) await staging.delete(recursive: true);
+  }
+
+  static String _syntheticManifestJson({
+    required String importId,
+    required RawSourceCandidate candidate,
+    required SourceSyntax syntax,
+  }) => const JsonEncoder.withIndent('  ').convert({
+    'format': 'engirdle-local-source',
+    'format_version': 'local-1',
+    'import_id': importId,
+    'syntax': syntax.wire,
+    'source_sha256': candidate.sourceSha256,
+    'normalized_sha256': candidate.normalizedSha256,
+    'structure_sha256': candidate.structureSha256,
+    'parser': syntax == SourceSyntax.markdown ? kDartParserVersion : null,
+    'segmenter': kDartSegmenterVersion,
+  });
+
+  static String _rawAttributionJson({
+    required String title,
+    String? sourceName,
+    String? sourceUrl,
+    String? author,
+    required String licenseName,
+  }) => const JsonEncoder.withIndent('  ').convert({
+    'format': 'readpack-attribution',
+    'format_version': 'local-1',
+    'article': null,
+    'resources': [
+      {
+        'resource_id': 'article-source',
+        'kind': 'article_source',
+        'role': 'content',
+        'name': title,
+        'source': sourceName == null || sourceName.trim().isEmpty
+            ? {'status': 'unknown'}
+            : {'status': 'known', 'value': sourceName.trim()},
+        'version': {'status': 'not_applicable'},
+        'license': licenseName == 'unknown'
+            ? {'status': 'unknown'}
+            : {'status': 'known', 'name': licenseName},
+        'modifications': {
+          'status': 'known',
+          'value': 'Segmented into sentences and blocks; wording untouched',
+        },
+        'hashes': <Object?>[],
+      },
+      {
+        'resource_id': 'engirdle-mobile-pipeline',
+        'kind': 'software_dependency',
+        'role': 'pipeline',
+        'name': 'Engirdle mobile',
+        'source': {'status': 'known', 'value': 'Engirdle repository'},
+        'version': {'status': 'known', 'value': '0.1.0'},
+        'license': {'status': 'unknown'},
+        'modifications': {'status': 'not_applicable'},
+        'hashes': <Object?>[],
+      },
+    ],
+  });
+}
+
+/// Everything the confirmation page renders for a frozen preview (§6.3).
+class RawSourcePreview {
+  const RawSourcePreview({
+    required this.importId,
+    required this.candidate,
+    required this.duplicates,
+    required this.origin,
+  });
+
+  final String importId;
+  final RawSourceCandidate candidate;
+
+  /// Exact (same raw bytes) and content (same normalized hash + syntax)
+  /// matches already in the library — the page prompts, never merges.
+  final ({List<InstalledArticle> exact, List<InstalledArticle> content})
+  duplicates;
+  final String origin;
+}
+
+/// User-confirmed metadata from the confirmation page (§6.3).
+class ConfirmedSourceMetadata {
+  const ConfirmedSourceMetadata({
+    required this.title,
+    required this.licenseName,
+    this.author,
+    this.sourceDisplayName,
+    this.sourceUrl,
+  });
+
+  final String title;
+  final String licenseName;
+  final String? author;
+  final String? sourceDisplayName;
+  final String? sourceUrl;
+}

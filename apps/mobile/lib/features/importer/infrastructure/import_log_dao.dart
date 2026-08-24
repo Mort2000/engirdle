@@ -37,8 +37,12 @@ class ImportLogDao {
     );
   }
 
-  void updateState(String importId, ImportState state,
-      {String? errorKind, String? errorDetail}) {
+  void updateState(
+    String importId,
+    ImportState state, {
+    String? errorKind,
+    String? errorDetail,
+  }) {
     _db.execute(
       'UPDATE import_operations SET state = ?, error_kind = ?, '
       'error_detail = ?, updated_at = ? WHERE import_id = ?',
@@ -53,15 +57,18 @@ class ImportLogDao {
   }
 
   void delete(String importId) {
-    _db.execute('DELETE FROM import_operations WHERE import_id = ?', [importId]);
+    _db.execute('DELETE FROM import_operations WHERE import_id = ?', [
+      importId,
+    ]);
   }
 
   /// All logged operations in insertion order (recovery replays or rolls
   /// back each state). Rows with an unknown state are skipped — one
   /// corrupt or newer-version row must not block the others.
   List<ImportOperation> unfinished() {
-    final rows = _db
-        .select('SELECT $_cols FROM import_operations ORDER BY created_at, rowid');
+    final rows = _db.select(
+      'SELECT $_cols FROM import_operations ORDER BY created_at, rowid',
+    );
     return [for (final row in rows) ?_fromRow(row)];
   }
 

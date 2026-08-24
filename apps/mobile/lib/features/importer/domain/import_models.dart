@@ -59,21 +59,20 @@ class ImportOperation {
     ImportState? state,
     String? errorKind,
     String? errorDetail,
-  }) =>
-      ImportOperation(
-        importId: importId,
-        articleId: articleId,
-        revision: revision,
-        artifactRevision: artifactRevision,
-        title: title,
-        packageUrl: packageUrl,
-        expectedSize: expectedSize,
-        expectedSha256: expectedSha256,
-        state: state ?? this.state,
-        stagingPath: stagingPath,
-        errorKind: errorKind,
-        errorDetail: errorDetail,
-      );
+  }) => ImportOperation(
+    importId: importId,
+    articleId: articleId,
+    revision: revision,
+    artifactRevision: artifactRevision,
+    title: title,
+    packageUrl: packageUrl,
+    expectedSize: expectedSize,
+    expectedSha256: expectedSha256,
+    state: state ?? this.state,
+    stagingPath: stagingPath,
+    errorKind: errorKind,
+    errorDetail: errorDetail,
+  );
 }
 
 /// User-facing phases of the import UI (screen 04B). Labels are deliberately
