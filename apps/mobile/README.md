@@ -11,7 +11,7 @@ lib/
 ├── main.dart                     # 启动：装配依赖 → 导入恢复 → runApp
 ├── app/                          # 组合根、路由、主题（三预设）、去工程化文案
 ├── shared_kernel/                # 内容身份（ArticleRef/SentenceRef）、错误分类、ID 生成
-├── contracts/                    # readpack v1 / catalog v1 的 Dart 模型与运行时校验器
+├── contracts/                    # readpack v1 / v2 / catalog v1 的 Dart 模型与运行时校验器
 │                                 #   （镜像 ../../contracts 下的 JSON Schema + 兼容规则；
 │                                 #   readpack v2 由导入阶段二接入 Dart 校验器）
 ├── platform/                     # 与业务无关的技术底座
@@ -70,7 +70,13 @@ flutter build apk --debug    # 或直接 cd android && ./gradlew assembleDebug
 
 `test/` 镜像 `lib/` 结构：
 
-- `test/contracts/`：直接消费仓库 `contracts/readpack/v1`、`contracts/readpack/v2`、`contracts/catalog/v1` 的 fixtures——valid 包通过完整解压校验，11+11 个非法 readpack 与 5 个非法 catalog 各自按 fixtures/README 文档的首个失败原因被拒绝；v2 侧另断言 v1 客户端按主版本拒绝 v2 包；
+- `test/contracts/`：直接消费仓库 `contracts/readpack/v1`、`contracts/readpack/v2`、`contracts/catalog/v1`、`contracts/source/v1` 的 fixtures——readpack valid 包走生产 validator 解压校验，11+11 个非法 readpack 与 5 个非法 catalog 各自按 fixtures/README 文档的首个失败原因被拒绝；v2 侧另断言 v1 客户端按主版本拒绝 v2 包；`source_fixtures_test` 用 Dart 解析器复刻共享解析语料（块/句/runs/三个哈希逐字节一致）；
+
+### 原文导入（阶段 2，轻量文章包设计）
+
+- `features/source_ingestion/`：粘贴/文件原文结构化。Markdown 走 `engirdle-gfm-dart@1`（markdown-it 状态机逐行移植 + CommonMark 内联算法），纯文本按空行分块 + `engirdle-segmenter-dart@3` 分句；两端对齐由 `contracts/source/v1` 黄金 fixture 保证。移动端子集明确拒绝 HTML、链接引用定义、autolink 与 HTML 实体。
+- `features/importer/`：`ContentImportService` 状态机（staging → 确认页 → 原子安装），`source_imports` 日志支持进程死亡恢复与过期预览清理；重复内容（字节级 / 规范化级）只提示不合并；`.readpack` 文档导入按 manifest 主版本路由到 v1/v2 validator。
+- 数据库 v6：`articles.normalized_sha256`/`source_syntax` 与 `source_imports`；安装统一走 `ValidatedArticleImport`（catalog/paste/document 三入口）。
 - `test/platform/`：恶意 ZIP 矩阵（手写最小 ZIP 构造器伪造声明大小/标志位/Unix 模式）、LAN URL 策略、基于回环 `HttpServer` 的传输上限与取消语义；
 - `test/features/`：词典查询顺序与降级、生词快照/撤销/无 FK、导入全链路（真实 fixture 经回环 HTTP 服务器下载，成功/哈希不符/HTTP 失败/两种启动恢复路径）；
 - `test/widget_smoke_test.dart`：首启路由、生词本空态、排版设置页渲染（假播放引擎 + 内存数据库）。
