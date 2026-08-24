@@ -64,7 +64,7 @@ from engirdle_pc.shared.infrastructure.runtime import (
 
 def test_parse_and_segmenter_versions_are_bumped_for_the_markdown_model() -> None:
     assert PARSE_VERSION == "engirdle-gfm@1"
-    assert SEGMENTER_VERSION == "engirdle-segmenter@2"
+    assert SEGMENTER_VERSION == "engirdle-segmenter@3"
 
 
 # -- inline runs ------------------------------------------------------------

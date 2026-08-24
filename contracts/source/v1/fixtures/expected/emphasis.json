@@ -1,6 +1,6 @@
 {
   "parser_version": "engirdle-gfm@1",
-  "segmenter_version": "engirdle-segmenter@2",
+  "segmenter_version": "engirdle-segmenter@3",
   "source_sha256": "d3ca396d349af7b0e16a4f90b6ed0ce62b7ed8108c96229428661f639b55ffb1",
   "normalized_sha256": "d3ca396d349af7b0e16a4f90b6ed0ce62b7ed8108c96229428661f639b55ffb1",
   "structure_sha256": "afc3efb7e01c0d521972d554caa5fcc5c07b97452598bd5448e95590f0d54326",

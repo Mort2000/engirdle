@@ -45,7 +45,7 @@
     "path": "article.json",
     "structure_sha256": "f31b435b32ab0294ecb0ab6ffacf96e6fcb103ce34dea83062baffcb0220bbbb",
     "parser": "engirdle-gfm@1",
-    "segmenter": "engirdle-segmenter@2"
+    "segmenter": "engirdle-segmenter@3"
   },
   "derivatives": {
     "translations": [

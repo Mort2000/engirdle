@@ -45,7 +45,9 @@ def test_pc_parse_matches_frozen_expectation(fixture: Path) -> None:
     expected = json.loads(
         (fixture.parent / "expected" / f"{fixture.stem}.json").read_text(encoding="utf-8")
     )
-    assert _generator().generate(fixture.read_text(encoding="utf-8")) == expected
+    # Bytes → str without newline translation, so CRLF fixtures hash their
+    # true raw bytes (same rule the generator and the mobile test use).
+    assert _generator().generate(fixture.read_bytes().decode("utf-8")) == expected
 
 
 @pytest.mark.parametrize(
@@ -63,5 +65,5 @@ def test_pc_rejects_frozen_reject_fixtures(fixture: Path) -> None:
         )
     )
     with pytest.raises((UnsupportedMarkdown, MarkdownResourceLimit)) as raised:
-        parse_markdown(fixture.read_text(encoding="utf-8"))
+        parse_markdown(fixture.read_bytes().decode("utf-8"))
     assert type(raised.value).__name__ == expected["error"]

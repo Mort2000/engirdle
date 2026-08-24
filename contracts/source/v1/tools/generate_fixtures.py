@@ -95,6 +95,12 @@ def _cell_payload(cell) -> dict:
     }
 
 
+def read_raw(path: Path) -> str:
+    """Bytes → str without newline translation (Path.read_text would apply
+    universal newlines and corrupt CRLF fixtures' raw hashes)."""
+    return path.read_bytes().decode("utf-8")
+
+
 def generate(source: str) -> dict:
     parsed = parse_markdown(source)
     return {
@@ -117,14 +123,14 @@ def main() -> None:
     for path in sorted(FIXTURES.glob("*.md")):
         out = expected_dir / f"{path.stem}.json"
         out.write_text(
-            json.dumps(generate(path.read_text()), ensure_ascii=False, indent=2)
+            json.dumps(generate(read_raw(path)), ensure_ascii=False, indent=2)
             + "\n",
             encoding="utf-8",
         )
         print(f"wrote {out.relative_to(FIXTURES)}")
     for path in sorted((FIXTURES / "reject").glob("*.md")):
         try:
-            generate(path.read_text())
+            generate(read_raw(path))
         except Exception as error:  # noqa: BLE001 - the rejection IS the fixture
             expected = {"error": type(error).__name__}
         else:

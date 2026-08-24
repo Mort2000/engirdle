@@ -1,9 +1,9 @@
 {
   "parser_version": "engirdle-gfm@1",
-  "segmenter_version": "engirdle-segmenter@2",
+  "segmenter_version": "engirdle-segmenter@3",
   "source_sha256": "7c3dd43886594c9be46e2f12b9043c229dd32d00645ebc356f72f5742f3e012e",
   "normalized_sha256": "7c3dd43886594c9be46e2f12b9043c229dd32d00645ebc356f72f5742f3e012e",
-  "structure_sha256": "6d4a1a4f935d03e5cd7319bb6776d950df8dcce4cda59bd152695e939f367ee4",
+  "structure_sha256": "0c7f5753fdc6973902c5644b754ffc4cae64fadd47b6cabd9e745138f0806301",
   "warnings": [],
   "blocks": [
     {
@@ -26,28 +26,17 @@
         {
           "sentence_id": "sentence-2",
           "order": 1,
-          "text": "Dr. Jones arrived later (at 5 p.m.)",
+          "text": "Dr. Jones arrived later (at 5 p.m.).",
           "runs": [
             {
               "kind": "plain",
-              "text": "Dr. Jones arrived later (at 5 p.m.)"
+              "text": "Dr. Jones arrived later (at 5 p.m.)."
             }
           ]
         },
         {
           "sentence_id": "sentence-3",
           "order": 2,
-          "text": ".",
-          "runs": [
-            {
-              "kind": "plain",
-              "text": "."
-            }
-          ]
-        },
-        {
-          "sentence_id": "sentence-4",
-          "order": 3,
           "text": "He said.",
           "runs": [
             {
@@ -65,7 +54,7 @@
       "style": "paragraph",
       "sentences": [
         {
-          "sentence_id": "sentence-5",
+          "sentence_id": "sentence-4",
           "order": 0,
           "text": "Costs rose 3.14 percent, i.e. by almost nothing.",
           "runs": [
@@ -76,7 +65,7 @@
           ]
         },
         {
-          "sentence_id": "sentence-6",
+          "sentence_id": "sentence-5",
           "order": 1,
           "text": "See fig. 3 and e.g. table no. 2.",
           "runs": [
@@ -95,7 +84,7 @@
       "style": "paragraph",
       "sentences": [
         {
-          "sentence_id": "sentence-7",
+          "sentence_id": "sentence-6",
           "order": 0,
           "text": "J. R. R. Tolkien wrote it.",
           "runs": [
@@ -106,30 +95,19 @@
           ]
         },
         {
-          "sentence_id": "sentence-8",
+          "sentence_id": "sentence-7",
           "order": 1,
-          "text": "U.S.",
+          "text": "U.S.A. based authors vs. others.",
           "runs": [
             {
               "kind": "plain",
-              "text": "U.S."
+              "text": "U.S.A. based authors vs. others."
             }
           ]
         },
         {
-          "sentence_id": "sentence-9",
+          "sentence_id": "sentence-8",
           "order": 2,
-          "text": "A. based authors vs. others.",
-          "runs": [
-            {
-              "kind": "plain",
-              "text": "A. based authors vs. others."
-            }
-          ]
-        },
-        {
-          "sentence_id": "sentence-10",
-          "order": 3,
           "text": "St. Petersburg!",
           "runs": [
             {
@@ -147,7 +125,7 @@
       "style": "paragraph",
       "sentences": [
         {
-          "sentence_id": "sentence-11",
+          "sentence_id": "sentence-9",
           "order": 0,
           "text": "Wait!!!",
           "runs": [
@@ -158,7 +136,7 @@
           ]
         },
         {
-          "sentence_id": "sentence-12",
+          "sentence_id": "sentence-10",
           "order": 1,
           "text": "Really?!",
           "runs": [
@@ -169,7 +147,7 @@
           ]
         },
         {
-          "sentence_id": "sentence-13",
+          "sentence_id": "sentence-11",
           "order": 2,
           "text": "He asked, \"is this the end?\"",
           "runs": [
@@ -180,7 +158,7 @@
           ]
         },
         {
-          "sentence_id": "sentence-14",
+          "sentence_id": "sentence-12",
           "order": 3,
           "text": "Then continued on. lower-case continuation skipped the break.",
           "runs": [
@@ -199,7 +177,7 @@
       "style": "paragraph",
       "sentences": [
         {
-          "sentence_id": "sentence-15",
+          "sentence_id": "sentence-13",
           "order": 0,
           "text": "One sentence ends here...the next begins without space.",
           "runs": [

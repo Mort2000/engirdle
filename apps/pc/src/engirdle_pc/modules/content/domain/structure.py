@@ -28,8 +28,11 @@ from engirdle_pc.shared.domain.hashing import sha256_text
 # segmenter produced the structure, and stored structure hashes stay traceable
 # to the algorithm revision that produced them. Bumped to @2 with the markdown
 # document model: sentences are now spans of visible plain text with inline
-# runs sliced to match (design §5.3).
-SEGMENTER_VERSION = "engirdle-segmenter@2"
+# runs sliced to match (design §5.3); to @3 when the multi-dot abbreviation
+# rule actually started firing (the regex had been written with a doubled
+# backslash, so "U.S.A." never matched and dead-code-split — surfaced by the
+# shared source fixtures).
+SEGMENTER_VERSION = "engirdle-segmenter@3"
 
 
 def structure_sha256(blocks: Iterable[Block]) -> str:

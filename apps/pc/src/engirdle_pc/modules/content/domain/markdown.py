@@ -955,4 +955,4 @@ def period_is_nonterminal(text: str, index: int) -> bool:
     if len(raw_token) == 1 and raw_token.isupper():
         return True
     dotted = f"{token}."
-    return bool(re.fullmatch(r"(?:[a-z]\\.){2,}", dotted))
+    return bool(re.fullmatch(r"(?:[a-z]\.){2,}", dotted))
