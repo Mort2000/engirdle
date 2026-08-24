@@ -36,8 +36,10 @@ class EngirdleApp extends StatelessWidget {
               // A global mini playback bar above every route (design §8): with
               // background playback, the session outlives the reader, so the
               // user must be able to pause/stop without re-entering it.
-              builder: (context, child) =>
-                  _GlobalPlaybackHost(dependencies: dependencies, child: child!),
+              builder: (context, child) => _GlobalPlaybackHost(
+                dependencies: dependencies,
+                child: child!,
+              ),
             ),
           );
         },
@@ -69,9 +71,9 @@ class _GlobalPlaybackHostState extends State<_GlobalPlaybackHost> {
     super.initState();
     _events = widget.dependencies.playback.events.listen((event) {
       if (!mounted || event is! PlaybackFailed) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('播放失败，请稍后重试。')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('播放失败，请稍后重试。')));
     });
   }
 

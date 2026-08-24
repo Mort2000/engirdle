@@ -16,6 +16,7 @@ class InstalledArticle {
     required this.packageId,
     required this.formatVersion,
     required this.origin,
+    this.hasTranslation = false,
     this.sourceSha256,
     this.normalizedSha256,
     this.sourceSyntax,
@@ -37,6 +38,9 @@ class InstalledArticle {
   /// How the base entered the library: `catalog` (PC readpack), `paste`, or
   /// `document` (SAF-picked package or raw file).
   final String origin;
+
+  /// An active complete translation set covers the article (list badge).
+  final bool hasTranslation;
 
   /// SHA-256 of the raw source text the base was structured from.
   final String? sourceSha256;

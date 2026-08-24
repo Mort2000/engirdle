@@ -66,10 +66,13 @@ String failureMessage(AppFailure failure) {
   switch (failure.kind) {
     case FailureKind.connection:
       return switch (failure.message) {
-        'invalid url' => '地址格式无效：需以 http:// 或 https:// 开头，例如 http://192.168.1.12:8766。',
-        'non-lan http rejected' => '已拒绝：非局域网 HTTP 地址。明文 HTTP 仅限局域网；公网请改用 HTTPS。',
+        'invalid url' =>
+          '地址格式无效：需以 http:// 或 https:// 开头，例如 http://192.168.1.12:8766。',
+        'non-lan http rejected' =>
+          '已拒绝：非局域网 HTTP 地址。明文 HTTP 仅限局域网；公网请改用 HTTPS。',
         'timeout' => '连接超时：几秒内未收到响应。请检查 PC 是否在线，以及手机与电脑是否处于同一局域网。',
-        'connection refused' => '无法连接服务：连接被拒绝。请依次确认：1. PC 端已显式开启「局域网只读服务」；2. 手机与 PC 处于同一局域网；3. 地址与端口填写正确。',
+        'connection refused' =>
+          '无法连接服务：连接被拒绝。请依次确认：1. PC 端已显式开启「局域网只读服务」；2. 手机与 PC 处于同一局域网；3. 地址与端口填写正确。',
         'host unreachable' => '无法连接服务：找不到该地址。请确认 PC 在线且与手机处于同一局域网。',
         'service not configured' => '尚未配置服务地址。请先设置 PC 的局域网只读服务地址。',
         'invalid catalog' => '服务返回的目录无法识别。请确认地址指向 Engirdle 的局域网只读服务。',
@@ -96,10 +99,10 @@ String failureMessage(AppFailure failure) {
 }
 
 String failureKindLabel(FailureKind kind) => switch (kind) {
-      FailureKind.connection => '连接错误',
-      FailureKind.download => '下载错误',
-      FailureKind.packageFormat => '包格式错误',
-      FailureKind.resourceLimit => '资源超限错误',
-      FailureKind.database => '数据库错误',
-      FailureKind.player => '播放器错误',
-    };
+  FailureKind.connection => '连接错误',
+  FailureKind.download => '下载错误',
+  FailureKind.packageFormat => '包格式错误',
+  FailureKind.resourceLimit => '资源超限错误',
+  FailureKind.database => '数据库错误',
+  FailureKind.player => '播放器错误',
+};

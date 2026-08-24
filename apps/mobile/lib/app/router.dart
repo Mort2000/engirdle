@@ -8,6 +8,7 @@ import '../features/library/presentation/bookshelf_page.dart';
 import '../features/preferences/presentation/playback_settings_page.dart';
 import '../features/preferences/presentation/typography_settings_page.dart';
 import '../features/reader/presentation/reader_page.dart';
+import '../features/source_ingestion/presentation/paste_source_page.dart';
 import '../features/vocabulary/presentation/vocab_book_page.dart';
 import '../features/vocabulary/presentation/vocab_detail_page.dart';
 
@@ -26,6 +27,7 @@ class AppRoutes {
   static const playbackSettings = '/playback-settings';
   static const attribution = '/attribution';
   static const dictionaryResources = '/dictionary-resources';
+  static const pasteSource = '/paste-source';
 
   static Route<dynamic> onGenerateRoute(RouteSettings settings) {
     switch (settings.name) {
@@ -58,6 +60,8 @@ class AppRoutes {
         );
       case dictionaryResources:
         return _page(const DictionaryResourcesPage(), settings);
+      case pasteSource:
+        return _page(const PasteSourcePage(), settings);
       default:
         return _page(const BookshelfPage(), settings);
     }

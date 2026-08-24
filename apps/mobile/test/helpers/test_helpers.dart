@@ -1,8 +1,18 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:engirdle_mobile/app/dependencies.dart';
+import 'package:engirdle_mobile/contracts/readpack_v1/article.dart';
+import 'package:engirdle_mobile/features/importer/application/content_import_service.dart';
+import 'package:engirdle_mobile/features/library/application/library_service.dart';
+import 'package:engirdle_mobile/features/library/domain/article_install.dart';
+import 'package:engirdle_mobile/features/source_ingestion/application/raw_source_parser.dart';
+import 'package:engirdle_mobile/features/source_ingestion/domain/raw_source.dart';
+import 'package:engirdle_mobile/features/source_ingestion/infrastructure/markdown_parser.dart';
+import 'package:engirdle_mobile/shared_kernel/content_identity.dart';
+import 'package:engirdle_mobile/shared_kernel/failures.dart';
 import 'package:engirdle_mobile/app/scope.dart';
 import 'package:engirdle_mobile/app/theme.dart';
 import 'package:engirdle_mobile/contracts/readpack_v1/manifest.dart';
@@ -156,4 +166,108 @@ Widget wrapTestWidget(AppDependencies deps, Widget child) {
       child: MaterialApp(theme: buildTheme(palette), home: child),
     ),
   );
+}
+
+/// In-memory ContentImportService for widget tests: real parsing and DB
+/// commits, zero filesystem IO (testWidgets' FakeAsync never advances real
+/// IO, so the production staging writes must not run under `flutter test`).
+class FakeContentImportService implements ContentImportService {
+  final Map<String, RawSourceCandidate> _pending = {};
+  LibraryService? library;
+  var _counter = 0;
+
+  @override
+  Future<RawSourcePreview> stageRawSource({
+    required List<int> rawBytes,
+    required SourceSyntax syntax,
+    required String origin,
+  }) async {
+    final candidate = RawSourceParser().parsePaste(
+      text: utf8.decode(rawBytes),
+      syntax: syntax,
+    );
+    final importId = 'fake-import-${_counter++}';
+    _pending[importId] = candidate;
+    return RawSourcePreview(
+      importId: importId,
+      candidate: candidate,
+      duplicates: (exact: const [], content: const []),
+      origin: origin,
+    );
+  }
+
+  @override
+  Future<void> cancelRawSource(String importId) async {
+    _pending.remove(importId);
+  }
+
+  @override
+  Future<ArticleRef> confirmRawSource(
+    String importId, {
+    required ConfirmedSourceMetadata metadata,
+  }) async {
+    final candidate = _pending.remove(importId);
+    if (candidate == null) {
+      throw const AppFailure(FailureKind.database, 'unknown import');
+    }
+    final articleId = 'fake-article-${_counter++}';
+    library!.commitInstall(
+      ValidatedArticleImport(
+        articleId: articleId,
+        revision: 1,
+        artifactRevision: 1,
+        title: metadata.title,
+        source: ArticleSource(
+          displayName: metadata.sourceDisplayName,
+          url: metadata.sourceUrl,
+          author: metadata.author,
+        ),
+        origin: 'paste',
+        formatVersion: 'local-1',
+        sourceSha256: candidate.sourceSha256,
+        normalizedSha256: candidate.normalizedSha256,
+        sourceSyntax: candidate.syntax.wire,
+        structureSha256: candidate.structureSha256,
+        parserVersion: candidate.syntax == SourceSyntax.markdown
+            ? kDartParserVersion
+            : null,
+        segmenterVersion: kDartSegmenterVersion,
+        blocks: candidate.blocks,
+        manifestJson: '{}',
+        attributionJson: '{}',
+        artifactSizeBytes: 0,
+        artifactSha256: candidate.sourceSha256,
+      ),
+    );
+    return ArticleRef(articleId: articleId, revision: 1, artifactRevision: 1);
+  }
+
+  @override
+  Future<ArticleRef> importDocumentPackage({
+    required Uint8List bytes,
+    String? fileName,
+  }) => throw UnimplementedError('not needed in widget tests');
+
+  @override
+  Future<void> recover() async {}
+}
+
+/// Builds dependencies with the in-memory content import service (widget
+/// tests only; plain tests use the real service).
+Future<AppDependencies> newWidgetTestDependencies() async {
+  final fake = FakeContentImportService();
+  final temp = await Directory.systemTemp.createTemp('engirdle_widget_');
+  final deps = await AppDependencies.build(
+    directories: AppDirectories(temp),
+    database: AppDatabase.inMemory(),
+    focusPort: FakeAudioFocusPort(),
+    driver: FakePlaybackDriver(),
+    contentImport: fake,
+  );
+  fake.library = deps.library;
+  addTearDown(() async {
+    await deps.dispose();
+    if (await temp.exists()) await temp.delete(recursive: true);
+  });
+  return deps;
 }

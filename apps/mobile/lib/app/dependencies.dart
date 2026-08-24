@@ -24,6 +24,7 @@ import '../features/vocabulary/infrastructure/vocabulary_dao.dart';
 import '../platform/database/app_database.dart';
 import '../platform/filesystem/app_directories.dart';
 import '../platform/http/lan_http_client.dart';
+import '../platform/documents/document_picker.dart';
 import '../platform/logging/app_logger.dart';
 import '../platform/translation/local_text_translator.dart';
 
@@ -39,6 +40,7 @@ class AppDependencies {
     required this.library,
     required this.importer,
     required this.contentImport,
+    required this.documentPicker,
     required this.playback,
     required this.dictionary,
     required this.vocabulary,
@@ -55,6 +57,7 @@ class AppDependencies {
   final LibraryService library;
   final ImportService importer;
   final ContentImportService contentImport;
+  final DocumentPicker documentPicker;
   final PlaybackController playback;
   final DictionaryService dictionary;
   final VocabularyService vocabulary;
@@ -75,6 +78,8 @@ class AppDependencies {
     LanHttpClient? httpClient,
     LocalTextTranslator localTextTranslator =
         const MethodChannelLocalTextTranslator(),
+    DocumentPicker documentPicker = const MethodChannelDocumentPicker(),
+    ContentImportService? contentImport,
   }) async {
     await directories.ensureBaseLayout();
     final db = database ?? AppDatabase.open(directories.databaseFile.path);
@@ -101,11 +106,13 @@ class AppDependencies {
       directories: directories,
       playbackLeases: leaseRegistry,
     );
-    final contentImport = ContentImportService(
-      dao: sourceImportDao,
-      library: library,
-      directories: directories,
-    );
+    final resolvedContentImport =
+        contentImport ??
+        ContentImportService(
+          dao: sourceImportDao,
+          library: library,
+          directories: directories,
+        );
     final catalog = CatalogService(connection: connection, library: library);
     final importer = ImportService(
       logDao: importLogDao,
@@ -138,13 +145,14 @@ class AppDependencies {
 
     return AppDependencies._(
       database: db,
+      documentPicker: documentPicker,
       directories: directories,
       httpClient: http,
       connection: connection,
       catalog: catalog,
       library: library,
       importer: importer,
-      contentImport: contentImport,
+      contentImport: resolvedContentImport,
       playback: playback,
       dictionary: dictionary,
       vocabulary: vocabulary,

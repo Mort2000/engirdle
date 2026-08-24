@@ -3,11 +3,14 @@ import 'package:flutter/material.dart';
 import '../../../app/format.dart';
 import '../../../app/router.dart';
 import '../../../app/scope.dart';
+import '../../../app/dependencies.dart';
 import '../../../app/theme.dart';
 import '../../../shared_kernel/failures.dart';
 import '../../catalog/domain/catalog_status.dart';
 import '../../connection/presentation/service_setup_page.dart';
 import '../../importer/presentation/download_import_page.dart';
+import '../../source_ingestion/domain/raw_source.dart';
+import '../../source_ingestion/presentation/source_confirm_page.dart';
 import '../domain/installed_article.dart';
 import 'widgets/article_cover.dart';
 
@@ -128,6 +131,110 @@ class _BookshelfPageState extends State<BookshelfPage> {
     }
   }
 
+  Future<void> _importContent() async {
+    final deps = AppScope.of(context);
+    final action = await showModalBottomSheet<String>(
+      context: context,
+      builder: (sheetContext) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Padding(
+              padding: EdgeInsets.only(top: 14, bottom: 6),
+              child: Text('导入文章'),
+            ),
+            // 粘贴原文 first (design §12.1).
+            ListTile(
+              leading: const Icon(Icons.content_paste),
+              title: const Text('粘贴原文'),
+              subtitle: const Text('直接粘贴文本，选择纯文本或 Markdown'),
+              onTap: () => Navigator.of(sheetContext).pop('paste'),
+            ),
+            ListTile(
+              leading: const Icon(Icons.description_outlined),
+              title: const Text('选择原文文件'),
+              subtitle: const Text('.txt / .md / .markdown'),
+              onTap: () => Navigator.of(sheetContext).pop('file'),
+            ),
+            ListTile(
+              leading: const Icon(Icons.archive_outlined),
+              title: const Text('选择文章包'),
+              subtitle: const Text('.readpack（v1 与 v2）'),
+              onTap: () => Navigator.of(sheetContext).pop('package'),
+            ),
+            const SizedBox(height: 8),
+          ],
+        ),
+      ),
+    );
+    if (action == null || !mounted) return;
+    switch (action) {
+      case 'paste':
+        final changed = await Navigator.of(
+          context,
+        ).pushNamed(AppRoutes.pasteSource);
+        if (changed == true) _reload();
+      case 'file':
+        await _pickSourceFile(deps);
+      case 'package':
+        await _pickPackage(deps);
+    }
+  }
+
+  Future<void> _pickSourceFile(AppDependencies deps) async {
+    final picked = await deps.documentPicker.pickDocument();
+    if (picked == null || !mounted) return;
+    final name = picked.displayName ?? '';
+    final lower = name.toLowerCase();
+    if (!lower.endsWith('.txt') &&
+        !lower.endsWith('.md') &&
+        !lower.endsWith('.markdown')) {
+      _snack('不支持的文件类型「$name」；请选择 .txt、.md 或 .markdown。');
+      return;
+    }
+    try {
+      final preview = await deps.contentImport.stageRawSource(
+        rawBytes: picked.bytes,
+        syntax: SourceSyntax.fromFileName(name),
+        origin: 'document',
+      );
+      if (!mounted) return;
+      final installed = await Navigator.of(context).push<bool>(
+        MaterialPageRoute(builder: (_) => SourceConfirmPage(preview: preview)),
+      );
+      if (installed == true) _reload();
+    } on AppFailure catch (failure) {
+      _snack('导入失败：${failureMessage(failure)}');
+    }
+  }
+
+  Future<void> _pickPackage(AppDependencies deps) async {
+    final picked = await deps.documentPicker.pickDocument();
+    if (picked == null || !mounted) return;
+    final name = picked.displayName ?? '';
+    if (!name.toLowerCase().endsWith('.readpack')) {
+      _snack('不支持的文件类型「$name」；请选择 .readpack 文章包。');
+      return;
+    }
+    try {
+      await deps.contentImport.importDocumentPackage(
+        bytes: picked.bytes,
+        fileName: name,
+      );
+      _reload();
+      _snack('文章包已导入本机，可离线使用。');
+    } on AppFailure catch (failure) {
+      _snack('导入失败：${failureMessage(failure)}');
+    }
+  }
+
+  void _snack(String message) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text(message)));
+  }
+
   Future<void> _confirmDelete(InstalledArticle article) async {
     final deps = AppScope.of(context);
     final vocabCount = deps.vocabulary.countForArticle(article.articleId);
@@ -233,8 +340,13 @@ class _BookshelfPageState extends State<BookshelfPage> {
           ),
         ],
       ),
+      floatingActionButton: FloatingActionButton.extended(
+        onPressed: _importContent,
+        icon: const Icon(Icons.add),
+        label: const Text('导入'),
+      ),
       body: ListView(
-        padding: const EdgeInsets.fromLTRB(14, 4, 14, 14),
+        padding: const EdgeInsets.fromLTRB(14, 4, 14, 88),
         children: [
           _RefreshCard(
             checking: _checking,
@@ -359,6 +471,22 @@ class _ArticleTile extends StatelessWidget {
   final VoidCallback onDelete;
   final VoidCallback onAttribution;
 
+  Widget _badge(String text) => Container(
+    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+    decoration: BoxDecoration(
+      color: AppPalette.okContainer,
+      borderRadius: BorderRadius.circular(6),
+    ),
+    child: Text(
+      text,
+      style: const TextStyle(
+        fontSize: 10.5,
+        fontWeight: FontWeight.w600,
+        color: AppPalette.ok,
+      ),
+    ),
+  );
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
@@ -389,20 +517,17 @@ class _ArticleTile extends StatelessWidget {
                 ],
               ),
             ),
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-              decoration: BoxDecoration(
-                color: AppPalette.okContainer,
-                borderRadius: BorderRadius.circular(6),
-              ),
-              child: const Text(
-                '可用',
-                style: TextStyle(
-                  fontSize: 10.5,
-                  fontWeight: FontWeight.w600,
-                  color: AppPalette.ok,
-                ),
-              ),
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.end,
+              children: [
+                if (article.hasTranslation) _badge('已翻译'),
+                if (article.narration != null) ...[
+                  const SizedBox(height: 4),
+                  _badge('含语音'),
+                ],
+                if (!article.hasTranslation && article.narration == null)
+                  _badge('原文'),
+              ],
             ),
             PopupMenuButton<String>(
               onSelected: (value) {

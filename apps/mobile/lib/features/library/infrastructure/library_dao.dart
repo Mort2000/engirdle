@@ -48,13 +48,26 @@ class LibraryDao {
       'LEFT JOIN narration_assets n ON n.article_id = a.article_id '
       'AND n.artifact_revision = a.current_artifact_revision ';
 
+  /// Base select + the derived has_translation flag. Every article reader
+  /// goes through this so list rows and single reads agree on capabilities.
+  static String get _articleQuery =>
+      'WITH base AS ($_articleSelect) '
+      'SELECT b.*, EXISTS('
+      '  SELECT 1 FROM article_active_translations aat '
+      '  JOIN translation_sets ts ON ts.translation_set_id = '
+      '    aat.translation_set_id '
+      "  WHERE aat.article_id = b.article_id AND ts.status = 'complete'"
+      ') AS has_translation FROM base b ';
+  // Outer predicates address the base CTE through its alias b — the inner
+  // a/ar/n aliases are out of scope.
+
   List<InstalledArticle> listArticles() {
-    final rows = _db.select('$_articleSelect ORDER BY a.title COLLATE NOCASE');
+    final rows = _db.select('$_articleQuery ORDER BY b.title COLLATE NOCASE');
     return [for (final row in rows) _articleFromRow(row)];
   }
 
   InstalledArticle? getArticle(String articleId) {
-    final rows = _db.select('$_articleSelect WHERE a.article_id = ?', [
+    final rows = _db.select('$_articleQuery WHERE b.article_id = ?', [
       articleId,
     ]);
     if (rows.isEmpty) return null;
@@ -607,7 +620,7 @@ class LibraryDao {
   /// Exact raw duplicates (same source_sha256) for the confirmation page.
   List<InstalledArticle> findBySourceSha256(String sourceSha256) => [
     for (final row in _db.select(
-      '$_articleSelect WHERE a.source_sha256 = ? ORDER BY a.title',
+      '$_articleQuery WHERE b.source_sha256 = ? ORDER BY b.title',
       [sourceSha256],
     ))
       _articleFromRow(row),
@@ -620,8 +633,8 @@ class LibraryDao {
     required String sourceSyntax,
   }) => [
     for (final row in _db.select(
-      '$_articleSelect WHERE a.normalized_sha256 = ? '
-      'AND a.source_syntax = ? ORDER BY a.title',
+      '$_articleQuery WHERE b.normalized_sha256 = ? '
+      'AND b.source_syntax = ? ORDER BY b.title',
       [normalizedSha256, sourceSyntax],
     ))
       _articleFromRow(row),
@@ -759,6 +772,7 @@ class LibraryDao {
       packageId: row['package_id'] as String?,
       formatVersion: row['format_version'] as String,
       origin: row['origin'] as String,
+      hasTranslation: (row['has_translation'] as int) == 1,
       sourceSha256: row['source_sha256'] as String?,
       normalizedSha256: row['normalized_sha256'] as String?,
       sourceSyntax: row['source_syntax'] as String?,
