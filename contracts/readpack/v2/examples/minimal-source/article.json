@@ -1,0 +1,150 @@
+{
+  "format": "readpack-article",
+  "format_version": "2.0",
+  "required_capabilities": [],
+  "article_id": "44444444-4444-4444-8444-444444444444",
+  "revision": 1,
+  "title": "Layered Contract Article",
+  "source": {
+    "display_name": "Engirdle contract fixture",
+    "url": null,
+    "author": "Engirdle contributors"
+  },
+  "source_sha256": "374093fb0426372b2c6ecbac84cd711cf5bc8a43bf461633d768cd4d30b55757",
+  "normalized_sha256": "d4e92f5ea0b9a8c7cfdc613ccbfdbf53eaffb049e5706321ef2aea7c5bfe5edd",
+  "structure_sha256": "f31b435b32ab0294ecb0ab6ffacf96e6fcb103ce34dea83062baffcb0220bbbb",
+  "blocks": [
+    {
+      "block_id": "block-1",
+      "kind": "heading",
+      "order": 0,
+      "level": 2,
+      "sentences": [
+        {
+          "sentence_id": "sentence-1",
+          "order": 0,
+          "text": "A layered fixture.",
+          "runs": [
+            {
+              "kind": "plain",
+              "text": "A layered fixture."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "block_id": "block-2",
+      "kind": "paragraph",
+      "order": 1,
+      "sentences": [
+        {
+          "sentence_id": "sentence-2",
+          "order": 0,
+          "text": "The package keeps source text apart from derivatives.",
+          "runs": [
+            {
+              "kind": "plain",
+              "text": "The package keeps "
+            },
+            {
+              "kind": "code",
+              "text": "source text"
+            },
+            {
+              "kind": "plain",
+              "text": " apart from derivatives."
+            }
+          ]
+        },
+        {
+          "sentence_id": "sentence-3",
+          "order": 1,
+          "text": "See https://engirdle.example/schemas for details.",
+          "runs": [
+            {
+              "kind": "plain",
+              "text": "See "
+            },
+            {
+              "kind": "link",
+              "text": "https://engirdle.example/schemas",
+              "href": "https://engirdle.example/schemas"
+            },
+            {
+              "kind": "plain",
+              "text": " for details."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "block_id": "block-3",
+      "kind": "table",
+      "order": 2,
+      "alignments": [
+        "default",
+        "center"
+      ],
+      "header": [
+        {
+          "cell_id": "cell-3-0",
+          "text": "Layer",
+          "runs": [
+            {
+              "kind": "plain",
+              "text": "Layer"
+            }
+          ]
+        },
+        {
+          "cell_id": "cell-3-1",
+          "text": "File",
+          "runs": [
+            {
+              "kind": "plain",
+              "text": "File"
+            }
+          ]
+        }
+      ],
+      "rows": [
+        [
+          {
+            "cell_id": "cell-3-2",
+            "text": "base",
+            "runs": [
+              {
+                "kind": "plain",
+                "text": "base"
+              }
+            ]
+          },
+          {
+            "cell_id": "cell-3-3",
+            "text": "article.json",
+            "runs": [
+              {
+                "kind": "code",
+                "text": "article.json"
+              }
+            ]
+          }
+        ]
+      ]
+    },
+    {
+      "block_id": "block-4",
+      "kind": "code",
+      "order": 3,
+      "language": "python",
+      "code": "def fixture():\n    return 2\n"
+    },
+    {
+      "block_id": "block-5",
+      "kind": "divider",
+      "order": 4
+    }
+  ]
+}

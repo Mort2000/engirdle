@@ -1,0 +1,36 @@
+{
+  "protocol_version": "1",
+  "prompt_version": "full-article-sequential-units@v2",
+  "thinking_mode": "enabled",
+  "reasoning_effort": "max",
+  "target_locale": "zh-Hans",
+  "max_translation_chars": 40000,
+  "placeholder": {
+    "sentinel": "‰",
+    "shape": "‰<ascii-digits>‰",
+    "numbering": "per message, occurrence-based: the source-context message numbers protected literals document-wide in reading order; every unit request numbers only that unit's literals, starting from 0",
+    "protected_runs": [
+      "inline code runs with non-empty text",
+      "link runs whose visible text equals their own href (autolinks); ordinary links translate their display text and the href never enters the wire"
+    ],
+    "verification": "slot-aware: every placeholder must survive exactly once, in the wire slot (sentence or table cell) it was protected from; any stray sentinel, non-canonical spelling (leading zeros, non-ASCII digit lookalikes, invented indices) is a protocol error",
+    "restoration": "single pass, full canonical spelling match; substituted text is never rescanned"
+  },
+  "request_sequence": [
+    "system message: the exact text in system_prompt.txt",
+    "first user message: the code-free full-article source context (source-context schema)",
+    "one user message per translation unit, in article order; every request replays the system message, the source context and all previously accepted user/assistant turns in full",
+    "assistant history contains only the raw accepted content strings; reasoning content is never persisted"
+  ],
+  "response_rules": {
+    "sentence_unit": "a bare JSON array of strings, exactly the same length as the request array, every item non-empty after trimming",
+    "table_unit": "the SAME JSON object shape: block_id, columns, alignments, header, rows; the same cell_id values in the same positions; every cell text non-empty; no added, dropped, merged or reordered cells/rows/columns",
+    "fences": "a leading BOM and at most one surrounding markdown code fence may be stripped before parsing; prose, object wrapping, wrong length, empty items, damaged placeholders or shape changes are protocol errors",
+    "unit_kinds": "sentence batches (one text block's sentences) and whole tables; code blocks, dividers and narration never produce units"
+  },
+  "context_rules": {
+    "code_blocks": "appear only as the content-free marker {\"type\": \"omitted_code_block\"}; code bodies, languages and hashes never enter any request",
+    "tables": "all visible cells in reading order (header first, then rows)",
+    "dividers": "omitted entirely"
+  }
+}

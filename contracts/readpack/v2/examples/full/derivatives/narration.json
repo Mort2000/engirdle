@@ -1,0 +1,39 @@
+{
+  "format": "readpack-narration",
+  "format_version": "2.0",
+  "article": {
+    "id": "44444444-4444-4444-8444-444444444444",
+    "revision": 1
+  },
+  "structure_sha256": "f31b435b32ab0294ecb0ab6ffacf96e6fcb103ce34dea83062baffcb0220bbbb",
+  "audio": {
+    "path": "audio/article.m4a",
+    "codec": "aac-lc",
+    "sample_rate_hz": 24000,
+    "channels": 1,
+    "duration_ms": 1000
+  },
+  "sentences": [
+    {
+      "sentence_id": "sentence-1",
+      "audio_start_sample": 0,
+      "audio_end_sample": 8000,
+      "audio_start_ms": 0,
+      "audio_end_ms": 334
+    },
+    {
+      "sentence_id": "sentence-2",
+      "audio_start_sample": 8000,
+      "audio_end_sample": 16000,
+      "audio_start_ms": 333,
+      "audio_end_ms": 667
+    },
+    {
+      "sentence_id": "sentence-3",
+      "audio_start_sample": 16000,
+      "audio_end_sample": 24000,
+      "audio_start_ms": 666,
+      "audio_end_ms": 1000
+    }
+  ]
+}

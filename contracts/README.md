@@ -9,6 +9,8 @@
 | 契约 | 内容 | 入口 |
 |---|---|---|
 | Readpack v1 | ZIP 布局、manifest、文章、归属和安全导入规则 | [`readpack/v1`](./readpack/v1/) |
+| Readpack v2 | 分层布局：不可变原文基座 + 可选译文/narration 派生物 | [`readpack/v2`](./readpack/v2/) |
+| Translation v1 | PC/mobile 共享的 LLM 文章翻译协议（prompt、wire schema、占位符、黄金投影） | [`translation/v1`](./translation/v1/) |
 | Catalog v1 | 局域网只读目录与当前发布制品 | [`catalog/v1`](./catalog/v1/) |
 | Dictionary v1 | 历史离线词典资源包契约 | [`dictionary/v1`](./dictionary/v1/) |
 | Dictionary v2 | OEWN sense 与 Chinese Open Wordnet lemma 的 ILI 对齐 | [`dictionary/v2`](./dictionary/v2/) |
@@ -27,7 +29,7 @@ JSON 文件必须是无 BOM 的 UTF-8。SHA-256 始终对存储或传输的原�
 
 ## 兼容性
 
-- `format_version` 使用 `major.minor`。v1 实现必须接受自己已实现的 `1.x` 次版本，并拒绝其他主版本。
+- `format_version` 使用 `major.minor`。每个实现必须接受自己已实现的 `x.y` 同主版本，并拒绝其他主版本（v1 客户端拒绝 Readpack v2，反之亦然；两个版本通过各自 validator 投影到统一领域模型，见 `readpack/v2/COMPATIBILITY.md`）。
 - Schema 允许未知 JSON 属性；消费者必须忽略它们，不得据此改变既有语义。
 - Readpack manifest 的 `required_capabilities` 列出不可忽略的能力。v1.0 未定义任何此类能力，因此非空列表必须被 v1.0 实现拒绝。v1.1 定义 `markdown-blocks`（类型化标题/表格/代码/分隔线块与行内 runs）；实现必须只接受自己认识的能力，未知能力在提交导入前拒绝。
 - 增加可忽略字段只增加 minor；删除字段、改变已有语义、必需文件、ID 规则或签名模型必须增加 major。

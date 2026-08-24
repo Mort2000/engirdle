@@ -1,0 +1,62 @@
+{
+  "format": "readpack",
+  "format_version": "2.0",
+  "required_capabilities": [],
+  "package_id": "88888888-8888-4888-8888-888888888888",
+  "created_at": "2026-08-24T08:00:00Z",
+  "article": {
+    "id": "44444444-4444-4444-8444-444444444444",
+    "revision": 1,
+    "artifact_revision": 1
+  },
+  "files": [
+    {
+      "path": "article.json",
+      "size": 3473,
+      "sha256": "238836fcfcc131c3e16215eac8a39b3d4df123fb3b6224414ffe034032b4d74b",
+      "media_type": "application/json"
+    },
+    {
+      "path": "attribution.json",
+      "size": 3925,
+      "sha256": "9881f3cbe7c2d5d5218c805f1c9090b4d6e270b519411e934d0b7972e8fbbdd8",
+      "media_type": "application/json"
+    },
+    {
+      "path": "derivatives/translation.zh-Hans.json",
+      "size": 1264,
+      "sha256": "464410d4f4aeaf98a312fd7f6c26356b92ccb7d7b4cc20fe96f779de445169b8",
+      "media_type": "application/json"
+    },
+    {
+      "path": "derivatives/narration.json",
+      "size": 915,
+      "sha256": "26d89ff0d40ba20ef47970e97d05f51c54cea1689fa422d3a7e1071780f077e2",
+      "media_type": "application/json"
+    },
+    {
+      "path": "audio/article.m4a",
+      "size": 1021,
+      "sha256": "9d1b5eadcb69dbc6da763d2d09d19145b9b1d4ca9e383ea260d5b475180a9bf6",
+      "media_type": "audio/mp4"
+    }
+  ],
+  "content": {
+    "path": "article.json",
+    "structure_sha256": "f31b435b32ab0294ecb0ab6ffacf96e6fcb103ce34dea83062baffcb0220bbbb",
+    "parser": "engirdle-gfm@1",
+    "segmenter": "engirdle-segmenter@2"
+  },
+  "derivatives": {
+    "translations": [
+      {
+        "locale": "zh-Hans",
+        "path": "derivatives/translation.zh-Hans.json"
+      }
+    ],
+    "narration": {
+      "path": "derivatives/narration.json",
+      "audio_path": "audio/article.m4a"
+    }
+  }
+}

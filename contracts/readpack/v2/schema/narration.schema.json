@@ -1,0 +1,86 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:engirdle:contracts:readpack:v2:narration",
+  "title": "Engirdle Readpack v2 narration derivative",
+  "type": "object",
+  "required": [
+    "format",
+    "format_version",
+    "article",
+    "structure_sha256",
+    "audio",
+    "sentences"
+  ],
+  "properties": {
+    "format": {"const": "readpack-narration"},
+    "format_version": {"$ref": "#/$defs/v2Version"},
+    "article": {
+      "type": "object",
+      "required": ["id", "revision"],
+      "properties": {
+        "id": {"$ref": "#/$defs/uuid"},
+        "revision": {"$ref": "#/$defs/positiveInteger"}
+      },
+      "additionalProperties": true
+    },
+    "structure_sha256": {"$ref": "#/$defs/sha256"},
+    "audio": {
+      "type": "object",
+      "required": ["path", "codec", "sample_rate_hz", "channels", "duration_ms"],
+      "properties": {
+        "path": {"const": "audio/article.m4a"},
+        "codec": {"const": "aac-lc"},
+        "sample_rate_hz": {"const": 24000},
+        "channels": {"const": 1},
+        "duration_ms": {"type": "integer", "minimum": 1, "maximum": 86400000}
+      },
+      "additionalProperties": true
+    },
+    "sentences": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 100000,
+      "items": {
+        "type": "object",
+        "required": [
+          "sentence_id",
+          "audio_start_sample",
+          "audio_end_sample",
+          "audio_start_ms",
+          "audio_end_ms"
+        ],
+        "properties": {
+          "sentence_id": {"$ref": "#/$defs/opaqueId"},
+          "audio_start_sample": {"$ref": "#/$defs/samplePosition"},
+          "audio_end_sample": {"$ref": "#/$defs/samplePosition"},
+          "audio_start_ms": {"$ref": "#/$defs/millisecondPosition"},
+          "audio_end_ms": {"$ref": "#/$defs/millisecondPosition"}
+        },
+        "additionalProperties": true
+      }
+    }
+  },
+  "additionalProperties": true,
+  "$defs": {
+    "v2Version": {"type": "string", "pattern": "^2\\.[0-9]+$"},
+    "uuid": {"type": "string", "format": "uuid"},
+    "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "positiveInteger": {"type": "integer", "minimum": 1, "maximum": 2147483647},
+    "samplePosition": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 9007199254740991
+    },
+    "millisecondPosition": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 86400000
+    },
+    "opaqueId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128,
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]*$"
+    }
+  }
+}

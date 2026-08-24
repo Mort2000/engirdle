@@ -1,0 +1,328 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:engirdle:contracts:readpack:v2:article",
+  "title": "Engirdle Readpack v2 article",
+  "type": "object",
+  "required": [
+    "format",
+    "format_version",
+    "article_id",
+    "revision",
+    "title",
+    "source",
+    "source_sha256",
+    "normalized_sha256",
+    "structure_sha256",
+    "blocks"
+  ],
+  "properties": {
+    "format": {"const": "readpack-article"},
+    "format_version": {"$ref": "#/$defs/v2Version"},
+    "article_id": {"$ref": "#/$defs/uuid"},
+    "revision": {"$ref": "#/$defs/positiveInteger"},
+    "title": {"type": "string", "minLength": 1, "maxLength": 512},
+    "source": {
+      "type": "object",
+      "required": ["display_name", "url", "author"],
+      "properties": {
+        "display_name": {
+          "type": ["string", "null"],
+          "minLength": 1,
+          "maxLength": 512
+        },
+        "url": {
+          "anyOf": [
+            {"type": "string", "format": "uri", "maxLength": 2048},
+            {"type": "null"}
+          ]
+        },
+        "author": {
+          "type": ["string", "null"],
+          "minLength": 1,
+          "maxLength": 512
+        }
+      },
+      "additionalProperties": true
+    },
+    "source_sha256": {"$ref": "#/$defs/sha256"},
+    "normalized_sha256": {"$ref": "#/$defs/sha256"},
+    "structure_sha256": {"$ref": "#/$defs/sha256"},
+    "required_capabilities": {
+      "type": "array",
+      "maxItems": 8,
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 64,
+        "pattern": "^[a-z][a-z0-9-]*$"
+      }
+    },
+    "blocks": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 10000,
+      "items": {"$ref": "#/$defs/block"}
+    }
+  },
+  "additionalProperties": true,
+  "$defs": {
+    "v2Version": {"type": "string", "pattern": "^2\\.[0-9]+$"},
+    "uuid": {"type": "string", "format": "uuid"},
+    "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "positiveInteger": {"type": "integer", "minimum": 1, "maximum": 2147483647},
+    "order": {"type": "integer", "minimum": 0, "maximum": 2147483647},
+    "opaqueId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128,
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]*$"
+    },
+    "block": {
+      "type": "object",
+      "required": ["block_id", "kind", "order"],
+      "properties": {
+        "block_id": {"$ref": "#/$defs/opaqueId"},
+        "kind": {
+          "enum": [
+            "paragraph",
+            "list_item",
+            "quote",
+            "heading",
+            "table",
+            "code",
+            "divider"
+          ]
+        },
+        "order": {"$ref": "#/$defs/order"},
+        "sentences": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 10000,
+          "items": {"$ref": "#/$defs/sentence"}
+        },
+        "level": {"type": "integer", "minimum": 1, "maximum": 6},
+        "list_kind": {"enum": ["bullet", "ordered"]},
+        "list_depth": {"type": "integer", "minimum": 0, "maximum": 4},
+        "list_ordinal": {"type": "integer", "minimum": 0, "maximum": 2147483647},
+        "quote_depth": {"type": "integer", "minimum": 1, "maximum": 4},
+        "alignments": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 32,
+          "items": {"enum": ["default", "left", "center", "right"]}
+        },
+        "header": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 32,
+          "items": {"$ref": "#/$defs/tableCell"}
+        },
+        "rows": {
+          "type": "array",
+          "maxItems": 256,
+          "items": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 32,
+            "items": {"$ref": "#/$defs/tableCell"}
+          }
+        },
+        "language": {"type": "string", "minLength": 1, "maxLength": 64},
+        "code": {"type": "string", "minLength": 1, "maxLength": 524288}
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {"kind": {"enum": ["paragraph", "list_item", "quote", "heading"]}}
+          },
+          "then": {
+            "required": ["sentences"],
+            "properties": {"sentences": {"minItems": 1}},
+            "not": {
+              "anyOf": [
+                {"required": ["alignments"]},
+                {"required": ["header"]},
+                {"required": ["rows"]},
+                {"required": ["code"]},
+                {"required": ["language"]}
+              ]
+            }
+          }
+        },
+        {
+          "if": {"properties": {"kind": {"const": "paragraph"}}},
+          "then": {
+            "not": {
+              "anyOf": [
+                {"required": ["level"]},
+                {"required": ["list_kind"]},
+                {"required": ["list_depth"]},
+                {"required": ["list_ordinal"]},
+                {"required": ["quote_depth"]}
+              ]
+            }
+          }
+        },
+        {
+          "if": {"properties": {"kind": {"const": "heading"}}},
+          "then": {
+            "required": ["level"],
+            "not": {
+              "anyOf": [
+                {"required": ["list_kind"]},
+                {"required": ["list_depth"]},
+                {"required": ["list_ordinal"]},
+                {"required": ["quote_depth"]}
+              ]
+            }
+          }
+        },
+        {
+          "if": {"properties": {"kind": {"const": "list_item"}}},
+          "then": {
+            "required": ["list_kind"],
+            "not": {
+              "anyOf": [
+                {"required": ["level"]},
+                {"required": ["quote_depth"]}
+              ]
+            }
+          }
+        },
+        {
+          "if": {"properties": {"kind": {"const": "quote"}}},
+          "then": {
+            "required": ["quote_depth"],
+            "not": {
+              "anyOf": [
+                {"required": ["level"]},
+                {"required": ["list_kind"]},
+                {"required": ["list_depth"]},
+                {"required": ["list_ordinal"]}
+              ]
+            }
+          }
+        },
+        {
+          "if": {"properties": {"kind": {"const": "table"}}},
+          "then": {
+            "required": ["alignments", "header", "rows"],
+            "not": {
+              "anyOf": [
+                {"required": ["sentences"]},
+                {"required": ["code"]},
+                {"required": ["language"]},
+                {"required": ["level"]},
+                {"required": ["list_kind"]},
+                {"required": ["list_depth"]},
+                {"required": ["list_ordinal"]},
+                {"required": ["quote_depth"]}
+              ]
+            }
+          }
+        },
+        {
+          "if": {"properties": {"kind": {"const": "code"}}},
+          "then": {
+            "required": ["code"],
+            "not": {
+              "anyOf": [
+                {"required": ["sentences"]},
+                {"required": ["alignments"]},
+                {"required": ["header"]},
+                {"required": ["rows"]},
+                {"required": ["level"]},
+                {"required": ["list_kind"]},
+                {"required": ["list_depth"]},
+                {"required": ["list_ordinal"]},
+                {"required": ["quote_depth"]}
+              ]
+            }
+          }
+        },
+        {
+          "if": {"properties": {"kind": {"const": "divider"}}},
+          "then": {
+            "not": {
+              "anyOf": [
+                {"required": ["sentences"]},
+                {"required": ["alignments"]},
+                {"required": ["header"]},
+                {"required": ["rows"]},
+                {"required": ["code"]},
+                {"required": ["language"]},
+                {"required": ["level"]},
+                {"required": ["list_kind"]},
+                {"required": ["list_depth"]},
+                {"required": ["list_ordinal"]},
+                {"required": ["quote_depth"]}
+              ]
+            }
+          }
+        }
+      ],
+      "additionalProperties": true
+    },
+    "tableCell": {
+      "type": "object",
+      "required": ["cell_id", "text"],
+      "properties": {
+        "cell_id": {"$ref": "#/$defs/opaqueId"},
+        "text": {"type": "string", "minLength": 0, "maxLength": 4000},
+        "runs": {
+          "type": "array",
+          "maxItems": 2048,
+          "items": {"$ref": "#/$defs/run"}
+        }
+      },
+      "additionalProperties": true
+    },
+    "run": {
+      "type": "object",
+      "required": ["kind", "text"],
+      "properties": {
+        "kind": {
+          "enum": [
+            "plain",
+            "emphasis",
+            "strong",
+            "strikethrough",
+            "code",
+            "link",
+            "image",
+            "hard_break"
+          ]
+        },
+        "text": {"type": "string", "maxLength": 20000},
+        "href": {"type": "string", "maxLength": 2048}
+      },
+      "additionalProperties": true
+    },
+    "sentence": {
+      "type": "object",
+      "required": ["sentence_id", "order", "text", "runs"],
+      "properties": {
+        "sentence_id": {"$ref": "#/$defs/opaqueId"},
+        "order": {"$ref": "#/$defs/order"},
+        "text": {"type": "string", "minLength": 1, "maxLength": 20000},
+        "runs": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 2048,
+          "items": {"$ref": "#/$defs/run"}
+        }
+      },
+      "not": {
+        "anyOf": [
+          {"required": ["translation_zh"]},
+          {"required": ["audio_start_sample"]},
+          {"required": ["audio_end_sample"]},
+          {"required": ["audio_start_ms"]},
+          {"required": ["audio_end_ms"]}
+        ]
+      },
+      "additionalProperties": true
+    }
+  }
+}

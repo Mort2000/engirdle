@@ -1,0 +1,59 @@
+{
+  "format": "readpack-attribution",
+  "format_version": "2.0",
+  "article": {
+    "id": "44444444-4444-4444-8444-444444444444",
+    "revision": 1
+  },
+  "resources": [
+    {
+      "resource_id": "article-source",
+      "kind": "article_source",
+      "role": "content",
+      "name": "Layered Contract Article",
+      "source": {
+        "status": "known",
+        "value": "Generated for the Engirdle contract fixture"
+      },
+      "version": {
+        "status": "not_applicable"
+      },
+      "license": {
+        "status": "known",
+        "name": "CC0-1.0",
+        "url": "https://creativecommons.org/publicdomain/zero/1.0/"
+      },
+      "modifications": {
+        "status": "known",
+        "value": "Synthetic fixture; no external article was used"
+      },
+      "hashes": [
+        {
+          "algorithm": "sha256",
+          "value": "374093fb0426372b2c6ecbac84cd711cf5bc8a43bf461633d768cd4d30b55757"
+        }
+      ]
+    },
+    {
+      "resource_id": "engirdle-pipeline",
+      "kind": "software_dependency",
+      "role": "pipeline",
+      "name": "Engirdle PC pipeline",
+      "source": {
+        "status": "known",
+        "value": "Engirdle repository"
+      },
+      "version": {
+        "status": "known",
+        "value": "0.1.0"
+      },
+      "license": {
+        "status": "unknown"
+      },
+      "modifications": {
+        "status": "not_applicable"
+      },
+      "hashes": []
+    }
+  ]
+}

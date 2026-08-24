@@ -81,9 +81,9 @@ def test_builder_aligns_ordered_chinese_lemmas_to_oewn_senses_by_ili(
 
     with sqlite3.connect(database) as connection:
         assert connection.execute("SELECT COUNT(*) FROM entries").fetchone() == (5,)
-        assert connection.execute(
-            "SELECT DISTINCT source_id FROM entries"
-        ).fetchall() == [("oewn-2025",)]
+        assert connection.execute("SELECT DISTINCT source_id FROM entries").fetchall() == [
+            ("oewn-2025",)
+        ]
         assert connection.execute(
             "SELECT raw_lemma, display_lemma, source_sense_id, source_id, ord "
             "FROM sense_translations WHERE sense_id = 'oewn-2025/oewn-mend-v-1' "
@@ -105,8 +105,7 @@ def test_builder_aligns_ordered_chinese_lemmas_to_oewn_senses_by_ili(
             ),
         ]
         assert connection.execute(
-            "SELECT COUNT(*) FROM sense_translations "
-            "WHERE sense_id = 'oewn-2025/oewn-mend-n-1'"
+            "SELECT COUNT(*) FROM sense_translations WHERE sense_id = 'oewn-2025/oewn-mend-n-1'"
         ).fetchone() == (0,)
         assert connection.execute(
             "SELECT lemma FROM forms WHERE normalized_form = 'went'"

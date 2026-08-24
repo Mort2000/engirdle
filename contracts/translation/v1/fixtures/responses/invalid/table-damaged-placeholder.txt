@@ -1,0 +1,1 @@
+{"block_id": "block-3", "columns": 2, "alignments": ["default", "center"], "header": [{"cell_id": "cell-3-0", "text": "层"}, {"cell_id": "cell-3-1", "text": "文件"}], "rows": [[{"cell_id": "cell-3-2", "text": "基座"}, {"cell_id": "cell-3-3", "text": "‰00‰"}]]}
