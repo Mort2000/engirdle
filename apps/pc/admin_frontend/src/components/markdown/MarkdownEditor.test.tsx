@@ -48,6 +48,15 @@ describe("MarkdownEditor", () => {
     expect(editor?.textContent).toContain("bold")
   })
 
+  it("enables line wrapping so long text folds instead of expanding", () => {
+    renderEditor("A very long paragraph that must fold inside the editor.", vi.fn())
+
+    // lineWrapping 扩展给 contentDOM 挂 cm-lineWrapping 类（基础主题据此
+    // 应用 break-spaces + overflow-wrap: anywhere），防止长文本横向撑爆页面。
+    const content = document.querySelector(".cm-content")
+    expect(content).toHaveClass("cm-lineWrapping")
+  })
+
   it("shows word and sentence counts for the current value", () => {
     renderEditor("First sentence. Second sentence, with more words!", vi.fn())
 

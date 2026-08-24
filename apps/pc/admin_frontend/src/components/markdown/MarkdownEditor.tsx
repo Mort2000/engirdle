@@ -4,6 +4,9 @@
  *   base markdownLanguage 内建 GFM（表格/删除线/任务列表/自动链接）解析
  *   与高亮；
  * - 主题基于 §6.2 token（editorTheme.ts），颜色走 CSS 变量随亮暗联动；
+ * - EditorView.lineWrapping 开启软换行：长段在编辑器宽度内折行，
+ *   超长 token 也按 overflow-wrap: anywhere 断行，编辑器永不随文本
+ *   水平扩张（根节点 min-w-0 兜底，防止撑破 grid 表单布局）；
  * - 粘贴接管（§7.2）：clipboardData 含 text/html 时经 lib/paste 转换，
  *   非空则替换默认粘贴（可 Ctrl+Z 撤销）并 Toast 提示；失败/为空回退
  *   纯文本，绝不阻塞录入；
@@ -64,6 +67,10 @@ export function MarkdownEditor({
   const extensions = useMemo(
     () => [
       markdown({ base: markdownLanguage, addKeymap: true }),
+      // 软换行（§7.1 长文录入）：CodeMirror 默认 white-space: pre 不折行，
+      // 长段会横向撑开内容与页面；lineWrapping 挂 cm-lineWrapping 类
+      // （break-spaces + overflow-wrap: anywhere），超长 token 也能断行。
+      EditorView.lineWrapping,
       engirdleSyntaxHighlighting,
       engirdleProseTypography,
       pasteExtension,
@@ -74,9 +81,9 @@ export function MarkdownEditor({
   const stats = useMemo(() => markdownStats(value), [value])
 
   return (
-    <div className="space-y-1.5">
+    <div className="min-w-0 space-y-1.5">
       <div
-        className="overflow-hidden rounded-lg border bg-card"
+        className="max-w-full overflow-hidden rounded-lg border bg-card"
         data-testid="markdown-editor"
         aria-label={label}
       >
