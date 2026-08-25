@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:path/path.dart' as p;
@@ -28,6 +29,20 @@ class LibraryService {
   /// artifact a background playback session still holds (design §6.3). Null in
   /// tests that don't care about playback.
   final LeaseRegistry? _leases;
+
+  final StreamController<void> _changes = StreamController.broadcast();
+
+  /// Notifies whenever installed content or capabilities changed (install,
+  /// delete, active-translation switch). The reader refreshes its projection
+  /// from this instead of polling (lightweight-readpack design §12.3).
+  Stream<void> get changes => _changes.stream;
+
+  void _notify() {
+    if (!_changes.isClosed) _changes.add(null);
+  }
+
+  /// Releases the change stream (composition-root disposal).
+  void dispose() => _changes.close();
 
   List<InstalledArticle> listArticles() => _dao.listArticles();
 
@@ -70,6 +85,7 @@ class LibraryService {
   void activateTranslation(String articleId, String translationSetId) {
     try {
       _dao.activateTranslation(articleId, translationSetId);
+      _notify();
     } catch (e) {
       throw AppFailure(
         FailureKind.database,
@@ -99,6 +115,7 @@ class LibraryService {
   void commitInstall(ValidatedArticleImport install) {
     try {
       _dao.installArticle(install);
+      _notify();
     } catch (e) {
       throw AppFailure(
         FailureKind.database,
@@ -141,6 +158,7 @@ class LibraryService {
     }
     try {
       _dao.deleteArticle(articleId);
+      _notify();
     } catch (e) {
       throw AppFailure(
         FailureKind.database,

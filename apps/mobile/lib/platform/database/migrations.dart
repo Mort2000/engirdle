@@ -8,10 +8,11 @@ import 'package:sqlite3/sqlite3.dart';
 ///                  article_reading_mode, article_active_translations,
 ///                  narration_assets, sentence_audio_ranges
 ///   translation  → translation_sets, sentence_translations,
-///                  table_cell_translations (the mobile translation module
-///                  lands with the lightweight-readpack phase 3; until then
-///                  packaged installs write these rows through the library
-///                  DAO, which is also the only reader of the active pointer)
+///                  table_cell_translations (packaged installs write these
+///                  through the library DAO; the mobile translation module
+///                  writes its building sets directly and activates them via
+///                  the library interface only), translation_jobs,
+///                  translation_units, llm_profiles
 ///   vocabulary   → vocabulary
 ///   dictionary   → dictionary_manifest (the dictionary DB itself is separate)
 ///   preferences  → preferences
@@ -539,6 +540,71 @@ const kMigrations = <List<String>>[
       warnings_json TEXT NOT NULL,
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL
+    )
+    ''',
+  ],
+  // v6 → v7: mobile translation pipeline (lightweight-readpack design §8/§11).
+  // llm_profiles stores only the non-secret configuration — the key itself
+  // lives in the Android Keystore-backed secret store under secret_alias.
+  // translation_jobs is the task source of truth (status/lease generation/
+  // progress/error + a frozen config_json snapshot per job); translation_units
+  // is the append-only accepted journal each checkpoint commits against. The
+  // partial unique index enforces "one active job per article + locale" at
+  // the storage layer (§8.4); terminal statuses free the slot for a retry.
+  [
+    '''
+    CREATE TABLE llm_profiles (
+      id INTEGER PRIMARY KEY CHECK (id = 1),
+      provider TEXT NOT NULL,
+      origin TEXT NOT NULL,
+      model TEXT NOT NULL,
+      secret_alias TEXT NOT NULL,
+      wifi_only INTEGER NOT NULL DEFAULT 0,
+      charging_only INTEGER NOT NULL DEFAULT 0,
+      updated_at TEXT NOT NULL
+    )
+    ''',
+    '''
+    CREATE TABLE translation_jobs (
+      job_id TEXT PRIMARY KEY,
+      article_id TEXT NOT NULL REFERENCES articles(article_id) ON DELETE CASCADE,
+      structure_sha256 TEXT NOT NULL,
+      target_locale TEXT NOT NULL,
+      translation_set_id TEXT REFERENCES translation_sets(translation_set_id)
+        ON DELETE SET NULL,
+      config_json TEXT NOT NULL,
+      status TEXT NOT NULL,
+      generation INTEGER NOT NULL DEFAULT 0,
+      completed_units INTEGER NOT NULL DEFAULT 0,
+      total_units INTEGER NOT NULL,
+      retry_round INTEGER NOT NULL DEFAULT 0,
+      error_kind TEXT,
+      error_detail TEXT,
+      privacy_confirmed_at TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      started_at TEXT,
+      finished_at TEXT
+    )
+    ''',
+    '''
+    CREATE UNIQUE INDEX idx_translation_jobs_one_active
+      ON translation_jobs(article_id, target_locale)
+      WHERE status IN ('queued', 'running', 'waiting_retry', 'paused')
+    ''',
+    '''
+    CREATE TABLE translation_units (
+      job_id TEXT NOT NULL
+        REFERENCES translation_jobs(job_id) ON DELETE CASCADE,
+      unit_order INTEGER NOT NULL,
+      unit_id TEXT NOT NULL,
+      unit_kind TEXT NOT NULL,
+      accepted_content TEXT NOT NULL,
+      request_id TEXT,
+      usage_json TEXT,
+      completed_at TEXT NOT NULL,
+      PRIMARY KEY (job_id, unit_order),
+      UNIQUE (job_id, unit_id)
     )
     ''',
   ],

@@ -9,6 +9,8 @@ import '../features/preferences/presentation/playback_settings_page.dart';
 import '../features/preferences/presentation/typography_settings_page.dart';
 import '../features/reader/presentation/reader_page.dart';
 import '../features/source_ingestion/presentation/paste_source_page.dart';
+import '../features/translation/presentation/llm_settings_page.dart';
+import '../features/translation/presentation/translation_task_page.dart';
 import '../features/vocabulary/presentation/vocab_book_page.dart';
 import '../features/vocabulary/presentation/vocab_detail_page.dart';
 
@@ -28,6 +30,8 @@ class AppRoutes {
   static const attribution = '/attribution';
   static const dictionaryResources = '/dictionary-resources';
   static const pasteSource = '/paste-source';
+  static const translationSettings = '/translation-settings';
+  static const translationTask = '/translation-task';
 
   static Route<dynamic> onGenerateRoute(RouteSettings settings) {
     switch (settings.name) {
@@ -62,6 +66,13 @@ class AppRoutes {
         return _page(const DictionaryResourcesPage(), settings);
       case pasteSource:
         return _page(const PasteSourcePage(), settings);
+      case translationSettings:
+        return _page(const LlmSettingsPage(), settings);
+      case translationTask:
+        return _page(
+          TranslationTaskPage(jobId: settings.arguments! as String),
+          settings,
+        );
       default:
         return _page(const BookshelfPage(), settings);
     }

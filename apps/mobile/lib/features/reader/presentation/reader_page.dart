@@ -12,6 +12,9 @@ import '../../dictionary/domain/dictionary_models.dart';
 import '../../dictionary/presentation/dictionary_sheet.dart';
 import '../../library/domain/installed_article.dart';
 import '../../playback/domain/playback_models.dart';
+import '../../translation/application/translation_module.dart';
+import '../../translation/domain/translation_models.dart';
+import '../../translation/presentation/translation_messages.dart';
 import 'content_block_view.dart';
 import 'sentence_view.dart';
 import 'sheets.dart';
@@ -35,6 +38,11 @@ class _ReaderPageState extends State<ReaderPage> {
   InstalledContent? _content;
   ReadingMode _mode = ReadingMode.enOnly;
   StreamSubscription<PlaybackEvent>? _playbackEvents;
+  StreamSubscription<void>? _libraryEvents;
+  StreamSubscription<void>? _translationEvents;
+
+  /// Active translation job of this article, for the status bar (§12.3).
+  TranslationJobSnapshot? _activeJob;
 
   /// sentenceId → 「第 X 段第 Y 句」 display label.
   Map<String, String> _labels = const {};
@@ -77,6 +85,18 @@ class _ReaderPageState extends State<ReaderPage> {
     for (final sentence in content.sentences) {
       _viewKeys[sentence.sentenceId] = GlobalKey<SentenceViewState>();
     }
+    _activeJob = deps.translation.activeJobs()[widget.articleId];
+    // Capability refresh (§12.3): activation switches the reader projection
+    // without leaving the page; the reading mode itself never auto-switches.
+    _libraryEvents = deps.library.changes.listen((_) => _refreshContent());
+    _translationEvents = deps.translation.changes.listen((_) {
+      if (!mounted) return;
+      setState(() {
+        _activeJob = AppScope.of(context)
+            .translation
+            .activeJobs()[widget.articleId];
+      });
+    });
     // Background playback (design §6.1): leaving the reader no longer stops
     // the session, and app backgrounding no longer pauses it. The page only
     // subscribes to state for highlight and to the continuous-replacement
@@ -92,7 +112,24 @@ class _ReaderPageState extends State<ReaderPage> {
   @override
   void dispose() {
     _playbackEvents?.cancel();
+    _libraryEvents?.cancel();
+    _translationEvents?.cancel();
     super.dispose();
+  }
+
+  /// Reloads the projection after a library change (translation activated,
+  /// reinstall). The current mode is kept when still valid and falls back to
+  /// en-only otherwise; a zh/bilingual preference is never auto-activated.
+  void _refreshContent() {
+    if (!mounted) return;
+    final content = AppScope.of(context).library.getContent(widget.articleId);
+    if (content == null) return;
+    setState(() {
+      _content = content;
+      if (!content.capabilities.hasTranslation && _mode != ReadingMode.enOnly) {
+        _mode = ReadingMode.enOnly;
+      }
+    });
   }
 
   String _labelOf(InstalledSentence sentence) =>
@@ -331,13 +368,52 @@ class _ReaderPageState extends State<ReaderPage> {
                   Navigator.of(
                     context,
                   ).pushNamed(AppRoutes.dictionaryResources);
+                case 'translate':
+                  _startTranslateFlow();
+                case 'task':
+                  final job = _activeJob ??
+                      AppScope.of(context)
+                          .translation
+                          .latestJobForArticle(widget.articleId);
+                  if (job != null) {
+                    Navigator.of(context).pushNamed(
+                      AppRoutes.translationTask,
+                      arguments: job.jobId,
+                    );
+                  }
               }
             },
-            itemBuilder: (_) => const [
-              PopupMenuItem(value: 'typography', child: Text('排版与主题')),
-              PopupMenuItem(value: 'playback', child: Text('播放设置')),
-              PopupMenuItem(value: 'attribution', child: Text('归属信息')),
-              PopupMenuItem(value: 'dictionary', child: Text('词典资源')),
+            itemBuilder: (_) => [
+              const PopupMenuItem(
+                value: 'typography',
+                child: Text('排版与主题'),
+              ),
+              const PopupMenuItem(
+                value: 'playback',
+                child: Text('播放设置'),
+              ),
+              const PopupMenuItem(
+                value: 'attribution',
+                child: Text('归属信息'),
+              ),
+              const PopupMenuItem(
+                value: 'dictionary',
+                child: Text('词典资源'),
+              ),
+              // Only without an active complete set: the whole point of the
+              // lightweight path is making translation optional (§12.3).
+              if (!content.capabilities.hasTranslation &&
+                  _activeJob == null) ...[
+                const PopupMenuItem(
+                  value: 'translate',
+                  child: Text('翻译文章'),
+                ),
+              ],
+              if (_activeJob != null)
+                const PopupMenuItem(
+                  value: 'task',
+                  child: Text('翻译任务'),
+                ),
             ],
           ),
         ],
@@ -353,6 +429,8 @@ class _ReaderPageState extends State<ReaderPage> {
               24,
             ),
             children: [
+              if (_activeJob != null)
+                _TranslationStatusBar(job: _activeJob!),
               _Header(
                 content: content,
                 mode: _mode,
@@ -386,6 +464,156 @@ class _ReaderPageState extends State<ReaderPage> {
   /// zh-only shows the translated title when we don't have one we fall back
   /// to the original (title translation is not part of readpack v1).
   String _zhTitleFallback(String title) => title;
+
+  /// 翻译确认流（§8.6/§10.2）：隐私声明、保守估算与配置快照都在开始前
+  /// 明确展示；全文发送的确认时间会记录在任务上。
+  Future<void> _startTranslateFlow() async {
+    final module = AppScope.of(context).translation;
+    final latest = module.latestJobForArticle(widget.articleId);
+    if (latest != null && latest.status == TranslationJobStatus.failed) {
+      final retry = await showDialog<bool>(
+        context: context,
+        builder: (dialogContext) => AlertDialog(
+          title: const Text('继续翻译这篇文章？'),
+          content: Text(
+            '上次的翻译在第 ${latest.completedUnits}/${latest.totalUnits} 个单元'
+            '停止；重试会从上次进度继续，不会重复已完成的单元。',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(dialogContext).pop(false),
+              child: const Text('取消'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.of(dialogContext).pop(true),
+              child: const Text('重试'),
+            ),
+          ],
+        ),
+      );
+      if (retry == true) module.retry(latest.jobId);
+      return;
+    }
+    final TranslationEstimate estimate;
+    try {
+      estimate = module.estimate(widget.articleId);
+    } on TranslationQueueRefusal catch (refusal) {
+      _snack(translationRefusalText(refusal));
+      return;
+    }
+    final profile = AppScope.of(context).translationSettings.profile();
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('翻译这篇文章？'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              '${estimate.articleChars} 字符 · ${estimate.sentenceCount} 句 · '
+              '${estimate.tableCount} 个表格，共 ${estimate.unitCount} 个翻译单元。',
+            ),
+            const SizedBox(height: 8),
+            Text(
+              '预计输入约 ${formatThousands(estimate.minInputTokens)}–'
+              '${formatThousands(estimate.maxInputTokens)} tokens'
+              '（按完整历史回放保守估算，仅供参考，非费用承诺）。',
+            ),
+            const SizedBox(height: 8),
+            Text('服务商：DeepSeek（${profile?.model ?? 'deepseek-chat'}）'),
+            const SizedBox(height: 8),
+            const Text(
+              '开始后，文章全文将发送到 DeepSeek 官方服务进行翻译；'
+              '你的 API Key 仅用于本次请求。',
+              style: TextStyle(fontWeight: FontWeight.w600),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(false),
+            child: const Text('取消'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(dialogContext).pop(true),
+            child: const Text('开始翻译'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
+    try {
+      await module.queueTranslation(
+        articleId: widget.articleId,
+        privacyConfirmedAt: DateTime.now(),
+      );
+      _snack('翻译任务已开始；阅读不受影响。');
+    } on TranslationQueueRefusal catch (refusal) {
+      _snack(translationRefusalText(refusal));
+    }
+  }
+
+  void _snack(String message) {
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text(message)));
+  }
+}
+
+/// 小型非阻塞状态条（§12.3）：正文上方展示任务进度，点击查看任务详情；
+/// 阅读不被锁住。
+class _TranslationStatusBar extends StatelessWidget {
+  const _TranslationStatusBar({required this.job});
+
+  final TranslationJobSnapshot job;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 10),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(8),
+        onTap: () => Navigator.of(context).pushNamed(
+          AppRoutes.translationTask,
+          arguments: job.jobId,
+        ),
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+          decoration: BoxDecoration(
+            color: AppPalette.amberContainer,
+            borderRadius: BorderRadius.circular(8),
+          ),
+          child: Row(
+            children: [
+              const SizedBox(
+                width: 12,
+                height: 12,
+                child: CircularProgressIndicator(strokeWidth: 2),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  translationProgressLabel(job),
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: AppPalette.amber,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ),
+              Text(
+                '查看',
+                style: theme.textTheme.bodySmall?.copyWith(
+                  color: AppPalette.amber,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
 }
 
 class _Header extends StatelessWidget {

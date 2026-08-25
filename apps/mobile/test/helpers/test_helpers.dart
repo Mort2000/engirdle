@@ -12,6 +12,9 @@ import 'package:engirdle_mobile/features/source_ingestion/application/raw_source
 import 'package:engirdle_mobile/features/source_ingestion/domain/raw_source.dart';
 import 'package:engirdle_mobile/features/importer/infrastructure/source_import_dao.dart';
 import 'package:engirdle_mobile/features/source_ingestion/infrastructure/markdown_parser.dart';
+import 'package:engirdle_mobile/features/translation/application/llm_client.dart';
+import 'package:engirdle_mobile/features/translation/application/secret_store.dart';
+import 'package:engirdle_mobile/features/translation/infrastructure/secret_stores.dart';
 import 'package:engirdle_mobile/shared_kernel/content_identity.dart';
 import 'package:engirdle_mobile/shared_kernel/failures.dart';
 import 'package:engirdle_mobile/app/scope.dart';
@@ -132,6 +135,8 @@ Future<AppDependencies> newTestDependencies({
   PlaybackDriver? driver,
   LanHttpClient? httpClient,
   LocalTextTranslator localTextTranslator = const _FakeLocalTextTranslator(),
+  TranslationSecretStore? translationSecrets,
+  LlmCompletionClient? translationClient,
 }) async {
   final temp = await Directory.systemTemp.createTemp('engirdle_test_');
   final deps = await AppDependencies.build(
@@ -141,6 +146,8 @@ Future<AppDependencies> newTestDependencies({
     focusPort: FakeAudioFocusPort(),
     httpClient: httpClient ?? LanHttpClient(),
     localTextTranslator: localTextTranslator,
+    translationSecrets: translationSecrets ?? InMemorySecretStore(),
+    translationClient: translationClient,
   );
   addTearDown(() async {
     await deps.dispose();

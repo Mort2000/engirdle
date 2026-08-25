@@ -31,6 +31,8 @@ lib/
     ├── dictionary/               # 独立版本化词典资源、原样→规范化→lemma 查询顺序
     ├── vocabulary/               # 一步保存 + 撤销；快照无 FK，文章删除后仍可读
     ├── preferences/              # 字号/行高/边距/三预设主题
+    ├── source_ingestion/         # 粘贴/文件原文结构化（阶段 2，冻结 GFM 子集）
+    ├── translation/              # 移动端 LLM 文章翻译深模块（阶段 3，见下）
     └── attribution/              # 归属信息页（15 屏）
 ```
 
@@ -77,7 +79,17 @@ flutter build apk --debug    # 或直接 cd android && ./gradlew assembleDebug
 - `features/source_ingestion/`：粘贴/文件原文结构化。Markdown 走 `engirdle-gfm-dart@1`（markdown-it 状态机逐行移植 + CommonMark 内联算法），纯文本按空行分块 + `engirdle-segmenter-dart@3` 分句；两端对齐由 `contracts/source/v1` 黄金 fixture 保证。移动端子集明确拒绝 HTML、链接引用定义、autolink 与 HTML 实体。
 - `features/importer/`：`ContentImportService` 状态机（staging → 确认页 → 原子安装），`source_imports` 日志支持进程死亡恢复与过期预览清理；重复内容（字节级 / 规范化级）只提示不合并；`.readpack` 文档导入按 manifest 主版本路由到 v1/v2 validator。
 - 数据库 v6：`articles.normalized_sha256`/`source_syntax` 与 `source_imports`；安装统一走 `ValidatedArticleImport`（catalog/paste/document 三入口）。
-- `test/platform/`：恶意 ZIP 矩阵（手写最小 ZIP 构造器伪造声明大小/标志位/Unix 模式）、LAN URL 策略、基于回环 `HttpServer` 的传输上限与取消语义；
+
+### 前台可恢复翻译（阶段 3，轻量文章包设计）
+
+- `features/translation/`：用户自备 DeepSeek Key 的文章翻译深模块。`TranslationModule` 暴露 queue/cancel/pause/resume/retry/watch/recover；plan 派生、prompt 投影、占位符保护、checkpoint 日志、限次重试与原子激活全部藏在接口后面。
+- 协议与 PC 逐字节对齐：`contracts/translation/v1` 的 system prompt、wire schema 与黄金消息投影由 `test/contracts/translation_v1_test.dart` 复刻（含 Python 风格 JSON 分隔符），valid/invalid 响应 fixtures 双端同判。
+- 任务事实源在 SQLite（v7：`translation_jobs`/`translation_units`/`llm_profiles`，部分唯一索引保证每文章每语言至多一个活跃任务）；调度器只是触发器，进程内串行执行，正确性依赖每单元 checkpoint 与租约代际（取消/暂停后的迟到响应一律丢弃）。building 译文集对阅读器不可见，全部单元完成、精确覆盖校验后才经 library 的原子激活接口上线。
+- 密钥只进 Android Keystore 加密的 no-backup 存储（`SecretStore.kt` + MethodChannel），数据库仅存 alias；DeepSeek 官方 HTTPS 端点在构造与每次请求前双重校验，无 TLS 例外开关。
+- UI：阅读页「翻译文章」确认流（隐私声明 + 保守 token 估算）、非阻塞进度条与能力刷新；任务详情页提供暂停/继续/取消/同配置重试；书架显示「翻译中 n/m」徽标；设置页管理密钥（从不回显）、模型与连接测试。
+- `test/features/translation/`：黄金协议、DAO、DeepSeek 适配器（含错误分类矩阵与 429 Retry-After）与模块管线（checkpoint 跨进程恢复、取消竞态、错误矩阵、partial 永不可见、既有 active 集不受失败影响）。
+- 待阶段 4：WorkManager 后台化、前台通知、网络/充电约束生效与真机矩阵验收。
+- `test/platform/`：恶意 ZIP 矩阵（手写最小 ZIP 构造器伪造声明大小/标志位/Unix 模式）、LAN URL 策略、基于回环 `HttpServer` 的传输上限与取消语义、数据库迁移链（v3/v4/v5/v6/v7 逐级）；
 - `test/features/`：词典查询顺序与降级、生词快照/撤销/无 FK、导入全链路（真实 fixture 经回环 HTTP 服务器下载，成功/哈希不符/HTTP 失败/两种启动恢复路径）；
 - `test/widget_smoke_test.dart`：首启路由、生词本空态、排版设置页渲染（假播放引擎 + 内存数据库）。
 

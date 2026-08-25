@@ -19,6 +19,14 @@ import '../features/playback/infrastructure/just_audio_driver.dart';
 import '../features/playback/infrastructure/library_playback_source_adapter.dart';
 import '../features/preferences/application/preferences_service.dart';
 import '../features/preferences/infrastructure/preferences_dao.dart';
+import '../features/translation/application/llm_client.dart';
+import '../features/translation/application/secret_store.dart';
+import '../features/translation/application/translation_module.dart';
+import '../features/translation/application/translation_settings_service.dart';
+import '../features/translation/infrastructure/deepseek_adapter.dart';
+import '../features/translation/infrastructure/in_process_scheduler.dart';
+import '../features/translation/infrastructure/keystore_secret_store.dart';
+import '../features/translation/infrastructure/translation_dao.dart';
 import '../features/vocabulary/application/vocabulary_service.dart';
 import '../features/vocabulary/infrastructure/vocabulary_dao.dart';
 import '../platform/database/app_database.dart';
@@ -47,6 +55,8 @@ class AppDependencies {
     required this.preferences,
     required this.attribution,
     required this.localTextTranslator,
+    required this.translation,
+    required this.translationSettings,
   });
 
   final AppDatabase database;
@@ -64,6 +74,8 @@ class AppDependencies {
   final PreferencesService preferences;
   final AttributionService attribution;
   final LocalTextTranslator localTextTranslator;
+  final TranslationModule translation;
+  final TranslationSettingsService translationSettings;
 
   /// Builds the full graph. [driver], [sourcePort], [focusPort] and [httpClient]
   /// are injectable for tests; [database] lets tests use in-memory databases.
@@ -80,6 +92,8 @@ class AppDependencies {
         const MethodChannelLocalTextTranslator(),
     DocumentPicker documentPicker = const MethodChannelDocumentPicker(),
     ContentImportService? contentImport,
+    TranslationSecretStore? translationSecrets,
+    LlmCompletionClient? translationClient,
   }) async {
     await directories.ensureBaseLayout();
     final db = database ?? AppDatabase.open(directories.databaseFile.path);
@@ -96,6 +110,7 @@ class AppDependencies {
     final vocabularyDao = VocabularyDao(db.db);
     final dictionaryManifestDao = DictionaryManifestDao(db.db);
     final preferencesDao = PreferencesDao(db.db);
+    final translationDao = TranslationDao(db.db);
 
     final connection = ConnectionService(
       dao: serviceConfigDao,
@@ -143,6 +158,27 @@ class AppDependencies {
       dictionary: dictionary,
     );
 
+    // Translation pipeline: the secret store and LLM client are injectable
+    // so tests script them without touching the platform or the network.
+    final secrets =
+        translationSecrets ?? const KeystoreSecretStore();
+    final llmClient =
+        translationClient ?? DeepSeekMobileAdapter(secrets: secrets);
+    final translationScheduler = InProcessTranslationScheduler();
+    final translation = TranslationModule(
+      dao: translationDao,
+      library: library,
+      client: llmClient,
+      secrets: secrets,
+      scheduler: translationScheduler,
+    );
+    translationScheduler.runner = translation.runJob;
+    final translationSettings = TranslationSettingsService(
+      dao: translationDao,
+      secrets: secrets,
+      client: llmClient,
+    );
+
     return AppDependencies._(
       database: db,
       documentPicker: documentPicker,
@@ -159,6 +195,8 @@ class AppDependencies {
       preferences: preferences,
       attribution: attribution,
       localTextTranslator: localTextTranslator,
+      translation: translation,
+      translationSettings: translationSettings,
     );
   }
 
@@ -168,11 +206,14 @@ class AppDependencies {
     await importer.recoverUnfinished();
     await contentImport.recover();
     await dictionary.recover();
+    await translation.recover();
   }
 
   Future<void> dispose() async {
     await playback.dispose();
     dictionary.dispose();
+    translation.dispose();
+    library.dispose();
     database.close();
   }
 }

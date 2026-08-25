@@ -47,6 +47,39 @@ class MainActivity : AudioServiceActivity() {
                 else -> result.notImplemented()
             }
         }
+
+        val secretStore = SecretStore(this)
+        MethodChannel(
+            flutterEngine.dartExecutor.binaryMessenger,
+            "com.engirdle.mobile/secrets",
+        ).setMethodCallHandler { call, result ->
+            val alias = call.argument<String>("alias")
+            if (alias.isNullOrEmpty()) {
+                result.error("invalid_argument", "alias is required", null)
+                return@setMethodCallHandler
+            }
+            try {
+                when (call.method) {
+                    "read" -> result.success(secretStore.read(alias))
+                    "write" -> {
+                        val secret = call.argument<String>("secret")
+                        if (secret.isNullOrEmpty()) {
+                            result.error("invalid_argument", "secret is required", null)
+                        } else {
+                            secretStore.write(alias, secret)
+                            result.success(null)
+                        }
+                    }
+                    "delete" -> {
+                        secretStore.delete(alias)
+                        result.success(null)
+                    }
+                    else -> result.notImplemented()
+                }
+            } catch (e: Exception) {
+                result.error("secret_store", e.message, null)
+            }
+        }
     }
 
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {

@@ -79,7 +79,7 @@ void main() {
       addTearDown(appDb.close);
       final db = appDb.db;
 
-      expect(db.userVersion, 6);
+      expect(db.userVersion, kMigrations.length);
       final blockColumns = db.select("PRAGMA table_info('blocks')");
       final payloadColumn = blockColumns.singleWhere(
         (row) => row['name'] == 'payload_json',

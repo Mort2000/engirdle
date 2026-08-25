@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import '../../../app/format.dart';
@@ -10,6 +12,8 @@ import '../../catalog/domain/catalog_status.dart';
 import '../../connection/presentation/service_setup_page.dart';
 import '../../importer/presentation/download_import_page.dart';
 import '../../source_ingestion/presentation/source_confirm_page.dart';
+import '../../translation/domain/translation_models.dart';
+import '../../translation/presentation/translation_messages.dart';
 import '../domain/installed_article.dart';
 import 'widgets/article_cover.dart';
 
@@ -33,6 +37,10 @@ class _BookshelfPageState extends State<BookshelfPage> {
   bool _checking = false;
   bool _loaded = false;
   bool _firstRunChecked = false;
+  StreamSubscription<void>? _translationEvents;
+
+  /// articleId → active job (translation progress badges, §12.1).
+  Map<String, TranslationJobSnapshot> _activeJobs = const {};
 
   @override
   void initState() {
@@ -48,6 +56,21 @@ class _BookshelfPageState extends State<BookshelfPage> {
     if (_loaded) return;
     _loaded = true;
     _reload();
+    _translationEvents = AppScope.of(context).translation.changes.listen((_) {
+      if (mounted) _reloadBadges();
+    });
+  }
+
+  @override
+  void dispose() {
+    _translationEvents?.cancel();
+    super.dispose();
+  }
+
+  void _reloadBadges() {
+    setState(() {
+      _activeJobs = AppScope.of(context).translation.activeJobs();
+    });
   }
 
   void _reload() {
@@ -55,6 +78,7 @@ class _BookshelfPageState extends State<BookshelfPage> {
     final deps = AppScope.of(context);
     setState(() {
       _articles = deps.library.listArticles();
+      _activeJobs = deps.translation.activeJobs();
       // §6.5/§14.4: a preview frozen before process death resumes here.
       _resumableImport = deps.contentImport
           .pendingPreviews()
@@ -341,6 +365,10 @@ class _BookshelfPageState extends State<BookshelfPage> {
                   Navigator.of(
                     context,
                   ).pushNamed(AppRoutes.dictionaryResources);
+                case 'translation':
+                  Navigator.of(
+                    context,
+                  ).pushNamed(AppRoutes.translationSettings);
               }
             },
             itemBuilder: (_) => const [
@@ -350,6 +378,7 @@ class _BookshelfPageState extends State<BookshelfPage> {
               PopupMenuItem(value: 'offline', child: Text('连接与离线')),
               PopupMenuItem(value: 'service', child: Text('服务设置')),
               PopupMenuItem(value: 'dictionary', child: Text('词典资源')),
+              PopupMenuItem(value: 'translation', child: Text('翻译服务')),
             ],
           ),
         ],
@@ -398,6 +427,7 @@ class _BookshelfPageState extends State<BookshelfPage> {
             ..._articles.map(
               (article) => _ArticleTile(
                 article: article,
+                activeJob: _activeJobs[article.articleId],
                 onOpen: () => _openReader(article),
                 onDelete: () => _confirmDelete(article),
                 onAttribution: () => Navigator.of(context).pushNamed(
@@ -489,9 +519,14 @@ class _ArticleTile extends StatelessWidget {
     required this.onOpen,
     required this.onDelete,
     required this.onAttribution,
+    this.activeJob,
   });
 
   final InstalledArticle article;
+
+  /// Active translation job (翻译中 badge); an existing complete set keeps
+  /// showing 已翻译 while a retry runs (§12.1).
+  final TranslationJobSnapshot? activeJob;
   final VoidCallback onOpen;
   final VoidCallback onDelete;
   final VoidCallback onAttribution;
@@ -508,6 +543,22 @@ class _ArticleTile extends StatelessWidget {
         fontSize: 10.5,
         fontWeight: FontWeight.w600,
         color: AppPalette.ok,
+      ),
+    ),
+  );
+
+  Widget _progressBadge(String text) => Container(
+    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+    decoration: BoxDecoration(
+      color: AppPalette.amberContainer,
+      borderRadius: BorderRadius.circular(6),
+    ),
+    child: Text(
+      text,
+      style: const TextStyle(
+        fontSize: 10.5,
+        fontWeight: FontWeight.w600,
+        color: AppPalette.amber,
       ),
     ),
   );
@@ -545,12 +596,18 @@ class _ArticleTile extends StatelessWidget {
             Column(
               crossAxisAlignment: CrossAxisAlignment.end,
               children: [
+                if (activeJob != null) ...[
+                  _progressBadge(translationProgressLabel(activeJob!)),
+                  const SizedBox(height: 4),
+                ],
                 if (article.hasTranslation) _badge('已翻译'),
                 if (article.narration != null) ...[
                   const SizedBox(height: 4),
                   _badge('含语音'),
                 ],
-                if (!article.hasTranslation && article.narration == null)
+                if (!article.hasTranslation &&
+                    article.narration == null &&
+                    activeJob == null)
                   _badge('原文'),
               ],
             ),
