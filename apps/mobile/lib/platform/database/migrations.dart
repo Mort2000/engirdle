@@ -1,3 +1,5 @@
+import 'dart:io' as io;
+
 import 'package:sqlite3/sqlite3.dart';
 
 /// Ordered migration chain. `kMigrations[i]` upgrades version i → i+1.
@@ -610,21 +612,58 @@ const kMigrations = <List<String>>[
   ],
 ];
 
-/// Applies pending migrations inside a single transaction.
+/// Applies pending migrations, one write-locked transaction per step.
+///
+/// Safe under concurrent startup from the UI engine and a background worker
+/// engine (§9.2): the version is re-read inside the transaction, so a
+/// connection that lost the race for the write lock sees the version the
+/// winner committed and skips the step instead of replaying DDL.
 void migrate(Database db) {
-  var version = db.userVersion;
-  while (version < kMigrations.length) {
-    db.execute('BEGIN IMMEDIATE');
+  while (true) {
+    final version = _readUserVersion(db);
+    if (version >= kMigrations.length) return;
+    _beginImmediate(db);
     try {
+      if (db.userVersion != version) {
+        // Another connection committed this step while we waited for the
+        // write lock. Nothing was written; re-read and continue.
+        db.execute('COMMIT');
+        continue;
+      }
       for (final statement in kMigrations[version]) {
         db.execute(statement);
       }
       db.userVersion = version + 1;
       db.execute('COMMIT');
-      version += 1;
     } catch (_) {
       db.execute('ROLLBACK');
       rethrow;
     }
   }
 }
+
+/// On a fresh install another engine may still be converting the journal
+/// mode (rollback → WAL). While that conversion holds PENDING/EXCLUSIVE
+/// locks, SQLite returns SQLITE_BUSY immediately — WITHOUT invoking the busy
+/// handler — both to readers taking their first lock and to writers
+/// upgrading to a write lock. The conversion window is milliseconds; the
+/// generous bounded retry matches the busy_timeout budget.
+const _busyRetryAttempts = 200;
+const _busyRetryDelay = Duration(milliseconds: 25);
+
+T _retryOnBusy<T>(T Function() step) {
+  for (var attempt = 0;; attempt++) {
+    try {
+      return step();
+    } on SqliteException catch (error) {
+      if (attempt >= _busyRetryAttempts || error.resultCode != 5) rethrow;
+      io.sleep(_busyRetryDelay);
+    }
+  }
+}
+
+int _readUserVersion(Database db) =>
+    _retryOnBusy(() => db.userVersion);
+
+void _beginImmediate(Database db) =>
+    _retryOnBusy(() => db.execute('BEGIN IMMEDIATE'));

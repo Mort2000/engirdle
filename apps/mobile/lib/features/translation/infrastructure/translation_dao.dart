@@ -5,6 +5,20 @@ import 'package:sqlite3/sqlite3.dart';
 import '../application/response_validation.dart';
 import '../domain/translation_models.dart';
 
+/// Outcome of trying to claim a queued job.
+enum TranslationClaim {
+  /// The caller now holds the lease (status running, generation bumped).
+  claimed,
+
+  /// Another job is executing — §8.4 allows only one running job at a
+  /// time. The job stays queued; the host scheduler retries later.
+  busy,
+
+  /// The job is not in a claimable state (cancelled, already running,
+  /// building set gone).
+  unavailable,
+}
+
 /// DAO for translation-owned tables (design §11.1): llm_profiles,
 /// translation_jobs and the translation_units journal. The building set rows
 /// in the translation_sets family are written here too; the active pointer
@@ -174,22 +188,31 @@ class TranslationDao {
     return _snapshot(rows.first);
   }
 
-  /// Claims a queued job: status → running with a fresh generation token.
-  /// Returns the new generation, or null when the job is no longer claimable
-  /// (cancelled, already running, …). A queued job whose building set was
-  /// removed cannot claim either — §8.4 recovery resumes from real rows.
-  int? claim(String jobId) {
+  /// Claims a queued job EXCLUSIVELY (§8.4: at most one executing job at a
+  /// time — in-process execution got this from the serial scheduler; OS
+  /// scheduling needs it in the claim itself). Race-free: the busy check and
+  /// the status flip are one statement.
+  TranslationClaim claim(String jobId) {
     final now = _now();
     _db.execute(
       "UPDATE translation_jobs SET status = 'running', "
       'generation = generation + 1, '
       'started_at = COALESCE(started_at, ?), updated_at = ? '
       "WHERE job_id = ? AND status = 'queued' AND translation_set_id "
-      'IS NOT NULL',
-      [now, now, jobId],
+      'IS NOT NULL '
+      'AND NOT EXISTS ('
+      "  SELECT 1 FROM translation_jobs other WHERE other.status = 'running' "
+      '  AND other.job_id != ?)',
+      [now, now, jobId, jobId],
     );
-    if (_db.updatedRows != 1) return null;
-    return getJob(jobId)!.generation;
+    if (_db.updatedRows == 1) return TranslationClaim.claimed;
+    final job = getJob(jobId);
+    if (job != null &&
+        job.status == TranslationJobStatus.queued &&
+        job.translationSetId != null) {
+      return TranslationClaim.busy;
+    }
+    return TranslationClaim.unavailable;
   }
 
   /// Guard for every unit write and post-response commit (§9.2): the worker

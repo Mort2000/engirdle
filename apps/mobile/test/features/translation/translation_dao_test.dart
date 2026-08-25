@@ -20,27 +20,35 @@ void main() {
     );
   });
 
-  TranslationJobSnapshot queueJob() {
+  TranslationJobSnapshot queueJobAs(
+    String jobId,
+    String setId, {
+    String articleId = 'a1',
+  }) {
     dao.insertBuildingSet(
-      translationSetId: 'set-1',
-      articleId: 'a1',
+      translationSetId: setId,
+      articleId: articleId,
       artifactRevision: 1,
       structureSha256: 'hash-1',
       targetLocale: 'zh-Hans',
       pipelineJson: '{}',
     );
     dao.insertJob(
-      jobId: 'job-1',
-      articleId: 'a1',
+      jobId: jobId,
+      articleId: articleId,
       structureSha256: 'hash-1',
       targetLocale: 'zh-Hans',
-      translationSetId: 'set-1',
+      translationSetId: setId,
       config: _config,
       totalUnits: 2,
       privacyConfirmedAt: DateTime.utc(2026, 1, 1),
     );
-    return dao.getJob('job-1')!;
+    return dao.getJob(jobId)!;
   }
+
+  TranslationJobSnapshot queueJob() => queueJobAs('job-1', 'set-1');
+
+  void queueSecondJob() => queueJobAs('job-2', 'set-2', articleId: 'a2');
 
   test('profile upsert round-trips non-secret fields only', () {
     expect(dao.readProfile(), isNull);
@@ -75,30 +83,54 @@ void main() {
     expect(job.status, TranslationJobStatus.queued);
     expect(job.completedUnits, 0);
 
-    final generation = dao.claim('job-1')!;
-    expect(generation, 1);
+    expect(dao.claim('job-1'), TranslationClaim.claimed);
     final running = dao.getJob('job-1')!;
+    final generation = running.generation;
+    expect(generation, 1);
     expect(running.status, TranslationJobStatus.running);
     expect(running.startedAt, isNotNull);
     expect(dao.holdsLease('job-1', generation), isTrue);
     expect(dao.holdsLease('job-1', generation - 1), isFalse);
 
     // A second claim of a running job is refused.
-    expect(dao.claim('job-1'), isNull);
+    expect(dao.claim('job-1'), TranslationClaim.unavailable);
     // Re-queue (retry/resume) issues a new generation on next claim.
     dao.requeue('job-1');
-    expect(dao.claim('job-1'), 2);
+    expect(dao.claim('job-1'), TranslationClaim.claimed);
+    expect(dao.getJob('job-1')!.generation, 2);
+  });
+
+  test('claim is exclusive: at most one running job at a time (§8.4)', () {
+    queueJob();
+    // A second ACTIVE job needs a different article (partial unique index:
+    // one active job per article+locale).
+    db.db.execute(
+      'INSERT INTO articles (article_id, title, revision, origin, '
+      'current_artifact_revision, installed_at) VALUES '
+      "('a2', 'Second', 1, 'paste', 1, '2026-01-01T00:00:00Z')",
+    );
+    queueSecondJob();
+    expect(dao.claim('job-1'), TranslationClaim.claimed);
+
+    // The second job stays queued while the first executes; OS schedulers
+    // may deliver both works at once, so this must be race-free in the DB.
+    expect(dao.claim('job-2'), TranslationClaim.busy);
+    expect(dao.getJob('job-2')!.status, TranslationJobStatus.queued);
+
+    dao.updateStatus('job-1', TranslationJobStatus.completed);
+    expect(dao.claim('job-2'), TranslationClaim.claimed);
   });
 
   test('claim refuses jobs whose building set is gone', () {
     queueJob();
     dao.deleteSet('set-1');
-    expect(dao.claim('job-1'), isNull);
+    expect(dao.claim('job-1'), TranslationClaim.unavailable);
   });
 
   test('acceptUnit journals, writes typed rows and derives progress', () {
     queueJob();
-    final generation = dao.claim('job-1')!;
+    dao.claim('job-1');
+    final generation = dao.getJob('job-1')!.generation;
     dao.acceptUnit(
       jobId: 'job-1',
       generation: generation,
@@ -166,10 +198,11 @@ void main() {
 
   test('acceptUnit refuses writes from a stale lease', () {
     queueJob();
-    final oldGeneration = dao.claim('job-1')!;
+    dao.claim('job-1');
+    final oldGeneration = dao.getJob('job-1')!.generation;
     dao.requeue('job-1');
-    final newGeneration = dao.claim('job-1')!;
-    expect(newGeneration, oldGeneration + 1);
+    dao.claim('job-1');
+    expect(dao.getJob('job-1')!.generation, oldGeneration + 1);
     expect(
       () => dao.acceptUnit(
         jobId: 'job-1',
@@ -189,7 +222,8 @@ void main() {
 
   test('cancelJob discards the building set and frees the slot', () {
     queueJob();
-    final generation = dao.claim('job-1')!;
+    dao.claim('job-1');
+    final generation = dao.getJob('job-1')!.generation;
     dao.acceptUnit(
       jobId: 'job-1',
       generation: generation,

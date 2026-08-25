@@ -9,10 +9,13 @@ import '../application/secret_store.dart';
 /// encryption key requires no biometric unlock — background translation must
 /// run unattended; a stronger per-use-authenticating key would make that
 /// impossible (§10.1).
+///
+/// The channel lives in the engirdle_native plugin (not MainActivity) so the
+/// WorkManager worker engine can read the key too (§9.2).
 class KeystoreSecretStore implements TranslationSecretStore {
   const KeystoreSecretStore();
 
-  static const _channel = MethodChannel('com.engirdle.mobile/secrets');
+  static const _channel = MethodChannel('engirdle.native/secrets');
 
   @override
   Future<String?> read(String alias) async {

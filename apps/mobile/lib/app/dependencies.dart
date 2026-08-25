@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import '../features/attribution/application/attribution_service.dart';
 import '../features/catalog/application/catalog_service.dart';
 import '../features/connection/application/connection_service.dart';
@@ -22,11 +24,16 @@ import '../features/preferences/infrastructure/preferences_dao.dart';
 import '../features/translation/application/llm_client.dart';
 import '../features/translation/application/secret_store.dart';
 import '../features/translation/application/translation_module.dart';
+import '../features/translation/application/translation_scheduler.dart';
 import '../features/translation/application/translation_settings_service.dart';
 import '../features/translation/infrastructure/deepseek_adapter.dart';
 import '../features/translation/infrastructure/in_process_scheduler.dart';
 import '../features/translation/infrastructure/keystore_secret_store.dart';
+import '../features/translation/infrastructure/translation_background.dart';
 import '../features/translation/infrastructure/translation_dao.dart';
+import '../features/translation/infrastructure/translation_notification_prompt.dart';
+import '../features/translation/infrastructure/workmanager_enqueue.dart';
+import '../features/translation/infrastructure/workmanager_scheduler.dart';
 import '../features/vocabulary/application/vocabulary_service.dart';
 import '../features/vocabulary/infrastructure/vocabulary_dao.dart';
 import '../platform/database/app_database.dart';
@@ -57,7 +64,10 @@ class AppDependencies {
     required this.localTextTranslator,
     required this.translation,
     required this.translationSettings,
-  });
+    StreamSubscription<void>? translationExternalSync,
+  }) : _translationExternalSync = translationExternalSync;
+
+  final StreamSubscription<void>? _translationExternalSync;
 
   final AppDatabase database;
   final AppDirectories directories;
@@ -77,10 +87,23 @@ class AppDependencies {
   final TranslationModule translation;
   final TranslationSettingsService translationSettings;
 
+  /// Best-effort notification permission prompt used by the queue flow
+  /// (§9.3). Always the platform-silent default: it swallows unavailable
+  /// channels, so tests and in-process execution never notice it.
+  final TranslationNotificationPrompt translationNotificationPrompt =
+      const TranslationNotificationPrompt();
+
   /// Builds the full graph. [driver], [sourcePort], [focusPort] and [httpClient]
   /// are injectable for tests; [database] lets tests use in-memory databases.
   /// [focusPort] is required because the real one (AudioSessionAdapter) touches
   /// the platform and must not be constructed inside `flutter test`.
+  ///
+  /// [translationBackgroundExecution] switches translation execution to
+  /// WorkManager (design §9.2): jobs run on a background engine with its own
+  /// database connection, so this engine also starts the cross-engine job
+  /// observer to keep badges and the reader status bar live. Off (tests,
+  /// in-process execution) everything runs through the serial in-process
+  /// scheduler. [translationScheduler] overrides the adapter either way.
   static Future<AppDependencies> build({
     required AppDirectories directories,
     AppDatabase? database,
@@ -94,6 +117,8 @@ class AppDependencies {
     ContentImportService? contentImport,
     TranslationSecretStore? translationSecrets,
     LlmCompletionClient? translationClient,
+    TranslationScheduler? translationScheduler,
+    bool translationBackgroundExecution = false,
   }) async {
     await directories.ensureBaseLayout();
     final db = database ?? AppDatabase.open(directories.databaseFile.path);
@@ -164,15 +189,46 @@ class AppDependencies {
         translationSecrets ?? const KeystoreSecretStore();
     final llmClient =
         translationClient ?? DeepSeekMobileAdapter(secrets: secrets);
-    final translationScheduler = InProcessTranslationScheduler();
+    final scheduler =
+        translationScheduler ??
+        (translationBackgroundExecution
+            ? WorkManagerTranslationScheduler(
+                enqueuer: const WorkmanagerOneOffWorkEnqueuer(),
+                profile: translationDao.readProfile,
+                articleTitleOf: (jobId) =>
+                    translationArticleTitleOf(translationDao, library, jobId),
+              )
+            : InProcessTranslationScheduler());
     final translation = TranslationModule(
       dao: translationDao,
       library: library,
       client: llmClient,
       secrets: secrets,
-      scheduler: translationScheduler,
+      scheduler: scheduler,
+      // Pause/cancel from the UI engine clears the job's notifications
+      // (§12.4); completion/failure summaries are the worker's job.
+      onJobTerminated: translationBackgroundExecution
+          ? (jobId) {
+              unawaited(
+                const NativeTranslationProgressReporter().dismiss(
+                  jobId: jobId,
+                ),
+              );
+            }
+          : null,
     );
-    translationScheduler.runner = translation.runJob;
+    if (scheduler is InProcessTranslationScheduler) {
+      scheduler.runner = translation.runJob;
+    }
+    StreamSubscription<void>? externalSync;
+    if (translationBackgroundExecution) {
+      translation.startExternalSync();
+      // Any local transition (queue, pause, resume, retry) re-arms the
+      // observer; it stops itself once no job is active.
+      externalSync = translation.changes.listen(
+        (_) => translation.startExternalSync(),
+      );
+    }
     final translationSettings = TranslationSettingsService(
       dao: translationDao,
       secrets: secrets,
@@ -197,6 +253,7 @@ class AppDependencies {
       localTextTranslator: localTextTranslator,
       translation: translation,
       translationSettings: translationSettings,
+      translationExternalSync: externalSync,
     );
   }
 
@@ -213,6 +270,7 @@ class AppDependencies {
     await playback.dispose();
     dictionary.dispose();
     translation.dispose();
+    await _translationExternalSync?.cancel();
     library.dispose();
     database.close();
   }

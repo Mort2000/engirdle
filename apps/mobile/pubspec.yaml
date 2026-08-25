@@ -28,6 +28,13 @@ dependencies:
   crypto: ^3.0.7
   # Contract-compatible Unicode NFC lookup keys.
   unorm_dart: ^0.3.2
+  # Persistent background execution for article translation (design §9.2):
+  # unique one-off work with constraints, delivered by WorkManager.
+  workmanager: ^0.10.9
+  # Native services attached to every engine (main + WorkManager worker):
+  # Keystore secrets and translation notifications.
+  engirdle_native:
+    path: packages/engirdle_native
 
 dev_dependencies:
   flutter_test:

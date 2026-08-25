@@ -41,6 +41,13 @@ class LibraryService {
     if (!_changes.isClosed) _changes.add(null);
   }
 
+  /// Re-emits a change event for work committed by another engine: with
+  /// background translation (§9.2) the worker engine activates sets on its
+  /// own connection, and this engine's in-process notify never fires. The
+  /// cross-engine observer in the translation module calls this; nothing is
+  /// re-read or validated here.
+  void notifyExternalChange() => _notify();
+
   /// Releases the change stream (composition-root disposal).
   void dispose() => _changes.close();
 

@@ -1,0 +1,19 @@
+name: engirdle_native
+description: Engirdle native services shared by every Flutter engine — Keystore secrets and translation notifications.
+version: 0.1.0
+publish_to: "none"
+
+environment:
+  sdk: ^3.10.0
+  flutter: ">=3.44.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+flutter:
+  plugin:
+    platforms:
+      android:
+        package: com.engirdle.native_services
+        pluginClass: EngirdleNativePlugin

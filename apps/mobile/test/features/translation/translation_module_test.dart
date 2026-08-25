@@ -13,7 +13,8 @@ import 'package:engirdle_mobile/features/translation/application/translation_sch
 import 'package:engirdle_mobile/features/translation/domain/translation_models.dart';
 import 'package:engirdle_mobile/features/translation/infrastructure/deepseek_adapter.dart';
 import 'package:engirdle_mobile/features/translation/infrastructure/secret_stores.dart';
-import 'package:engirdle_mobile/features/translation/infrastructure/translation_dao.dart';
+import 'package:engirdle_mobile/features/translation/infrastructure/translation_dao.dart'
+    show TranslationDao, TranslationClaim;
 import 'package:engirdle_mobile/platform/database/app_database.dart';
 import 'package:engirdle_mobile/platform/filesystem/app_directories.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -73,9 +74,17 @@ class ScriptedLlmClient implements LlmCompletionClient {
 
 class ManualScheduler implements TranslationScheduler {
   final scheduled = <String>[];
+  final scheduledAfter = <(String, Duration)>[];
+  final cancelled = <String>[];
 
   @override
-  void schedule(String jobId) => scheduled.add(jobId);
+  void schedule(String jobId, {Duration after = Duration.zero}) {
+    scheduled.add(jobId);
+    scheduledAfter.add((jobId, after));
+  }
+
+  @override
+  void cancelScheduled(String jobId) => cancelled.add(jobId);
 }
 
 void main() {
@@ -437,29 +446,6 @@ void main() {
   });
 
 
-  test('PROBE queue + one failed run', () async {
-    installArticle();
-    client.defaultFailure = const LlmException(LlmErrorKind.rateLimit, 'x');
-    final module = buildModule(
-      client,
-      backoff: (round) =>
-          round == 0 ? Duration.zero : const Duration(milliseconds: 10),
-    );
-    final job = await module.queueTranslation(
-      articleId: 'a1',
-      privacyConfirmedAt: DateTime.utc(2026, 1, 1),
-    );
-    // ignore: avoid_print
-    print('PROBE queued');
-    await module.runJob(job.jobId);
-    // ignore: avoid_print
-    print('PROBE after run: ${dao.getJob(job.jobId)!.status.name}');
-    await Future<void>.delayed(const Duration(milliseconds: 100));
-    // ignore: avoid_print
-    print('PROBE after backoff: ${dao.getJob(job.jobId)!.status.name}');
-    expect(dao.getJob(job.jobId)!.status, TranslationJobStatus.queued);
-  });
-
   test('transient failures cycle waiting_retry then fail after the budget',
       () async {
     installArticle();
@@ -665,7 +651,8 @@ void main() {
     // Terminal states are immutable: a late failure can't flip a cancelled
     // job (the finalize/cancel race guard).
     dao.requeue(job.jobId);
-    final generation = dao.claim(job.jobId)!;
+    expect(dao.claim(job.jobId), TranslationClaim.claimed);
+    final generation = dao.getJob(job.jobId)!.generation;
     module.cancel(job.jobId);
     // The DAO refuses terminal-state overwrites loudly (finalize race guard).
     expect(
@@ -698,5 +685,183 @@ void main() {
     expect(statuses, contains(TranslationJobStatus.running));
     expect(statuses.last, TranslationJobStatus.completed);
     await sub.cancel();
+  });
+
+  test('a delivered backoff execution takes over the waiting_retry job',
+      () async {
+    installArticle();
+    client
+      ..reply('["标题译文"]')
+      ..fail(const LlmException(LlmErrorKind.server, 'boom'))
+      ..fail(const LlmException(LlmErrorKind.server, 'boom'))
+      ..fail(const LlmException(LlmErrorKind.server, 'boom'));
+    final module = buildModule(
+      client,
+      backoff: (round) => round == 0
+          ? Duration.zero
+          : const Duration(hours: 1),
+    );
+    final job = await module.queueTranslation(
+      articleId: 'a1',
+      privacyConfirmedAt: DateTime.utc(2026, 1, 1),
+    );
+    await module.runJob(job.jobId);
+    expect(dao.getJob(job.jobId)!.status, TranslationJobStatus.waitingRetry);
+    // The module delegated the backoff window to the scheduler (§8.3) and
+    // sleeps nothing itself — the delay survives process death because the
+    // adapter persists it, not the process.
+    expect(
+      scheduler.scheduledAfter.last,
+      (job.jobId, const Duration(hours: 1)),
+    );
+
+    // The delayed execution is delivered (fired timer or OS backoff):
+    // re-entry flips waiting_retry → queued and resumes from the journal.
+    client
+      ..reply('["保持 ‰0‰ 分离。", "参见 ‰1‰ 了解详情。"]')
+      ..reply(
+        '{"block_id": "block-3", "columns": 2, '
+        '"alignments": ["default", "center"], '
+        '"header": [{"cell_id": "c0", "text": "层"}, '
+        '{"cell_id": "c1", "text": "文件"}], '
+        '"rows": [[{"cell_id": "c2", "text": "基座"}, '
+        '{"cell_id": "c3", "text": "‰0‰"}]]}',
+      );
+    await module.runJob(job.jobId);
+    expect(dao.getJob(job.jobId)!.status, TranslationJobStatus.completed);
+    expect(library.getContent('a1')!.capabilities.hasTranslation, isTrue);
+  });
+
+  test('a redelivered execution takes over a job left running by process death',
+      () async {
+    installArticle();
+    queueValidReplies();
+    final module = buildModule(client);
+    final job = await module.queueTranslation(
+      articleId: 'a1',
+      privacyConfirmedAt: DateTime.utc(2026, 1, 1),
+    );
+    // The process died mid-run: the job stays claimed (running) and its
+    // executor is gone; the OS scheduler redelivers the interrupted work.
+    expect(dao.claim(job.jobId), isNotNull);
+    await module.runJob(job.jobId);
+    expect(dao.getJob(job.jobId)!.status, TranslationJobStatus.completed);
+    expect(client.requests, hasLength(3));
+  });
+
+  test('pause and cancel drop pending scheduled executions', () async {
+    installArticle();
+    final module = buildModule(client);
+    final job = await module.queueTranslation(
+      articleId: 'a1',
+      privacyConfirmedAt: DateTime.utc(2026, 1, 1),
+    );
+    module.pause(job.jobId);
+    expect(scheduler.cancelled, [job.jobId]);
+    module.resume(job.jobId);
+    module.cancel(job.jobId);
+    expect(scheduler.cancelled, [job.jobId, job.jobId]);
+  });
+
+  test('external sync re-emits worker-engine completion to this engine',
+      () async {
+    installArticle();
+    queueValidReplies();
+    final moduleA = buildModule(client);
+    final job = await moduleA.queueTranslation(
+      articleId: 'a1',
+      privacyConfirmedAt: DateTime.utc(2026, 1, 1),
+    );
+    var libraryNotifications = 0;
+    library.changes.listen((_) => libraryNotifications++);
+    // Long interval: the test drives ticks manually (a UI-engine observer
+    // with a worker engine committing on another connection, §9.2).
+    moduleA.startExternalSync(interval: const Duration(hours: 1));
+
+    // The "worker engine": a second module instance running on the same
+    // database. Its in-process notify reaches only its own listeners.
+    final moduleB = TranslationModule(
+      dao: dao,
+      library: library,
+      client: client,
+      secrets: secrets,
+      scheduler: scheduler,
+    );
+    await moduleB.runJob(job.jobId);
+    expect(moduleA.jobById(job.jobId)!.status, TranslationJobStatus.completed);
+
+    // The observer notices the terminal transition through the jobs table,
+    // re-emits changes and pings the library so readers refresh (§12.3).
+    moduleA.pollExternalChanges();
+    expect(libraryNotifications, 1);
+    moduleA.dispose();
+  });
+
+  test('deleting an article drops its pending scheduled execution (§12.1)',
+      () async {
+    installArticle();
+    final module = buildModule(client);
+    final job = await module.queueTranslation(
+      articleId: 'a1',
+      privacyConfirmedAt: DateTime.utc(2026, 1, 1),
+    );
+    module.startExternalSync(interval: const Duration(hours: 1));
+    expect(scheduler.cancelled, isEmpty);
+
+    // The article (and with it the job row) is deleted while the execution
+    // is still pending.
+    await library.deleteArticle('a1');
+    expect(dao.getJob(job.jobId), isNull);
+
+    module.pollExternalChanges();
+    expect(scheduler.cancelled, [job.jobId]);
+    module.dispose();
+  });
+
+  test('a second job defers while another is executing (§8.4)', () async {
+    installArticle();
+    installArticle(articleId: 'a2', structureSha256: 'sha-2');
+    final module = buildModule(client);
+    final jobA = await module.queueTranslation(
+      articleId: 'a1',
+      privacyConfirmedAt: DateTime.utc(2026, 1, 1),
+    );
+    final jobB = await module.queueTranslation(
+      articleId: 'a2',
+      privacyConfirmedAt: DateTime.utc(2026, 1, 1),
+    );
+
+    // Job A holds the single execution slot with an in-flight request.
+    final gate = Completer<String>();
+    client.gate(gate);
+    client
+      ..reply('["保持 ‰0‰ 分离。", "参见 ‰1‰ 了解详情。"]')
+      ..reply(
+        '{"block_id": "block-3", "columns": 2, '
+        '"alignments": ["default", "center"], '
+        '"header": [{"cell_id": "c0", "text": "层"}, '
+        '{"cell_id": "c1", "text": "文件"}], '
+        '"rows": [[{"cell_id": "c2", "text": "基座"}, '
+        '{"cell_id": "c3", "text": "‰0‰"}]]}',
+      );
+    final runningA = module.runJob(jobA.jobId);
+    await Future<void>.delayed(Duration.zero);
+    expect(dao.getJob(jobA.jobId)!.status, TranslationJobStatus.running);
+
+    // Job B's delivery (WorkManager may run both works at once) defers
+    // without touching B's state — B stays queued for its next delivery.
+    final resultB = await module.runJob(jobB.jobId);
+    expect(resultB, TranslationRunResult.deferredBusy);
+    expect(dao.getJob(jobB.jobId)!.status, TranslationJobStatus.queued);
+
+    // A finishes, releasing the slot.
+    gate.complete('["标题译文"]');
+    await runningA;
+    expect(dao.getJob(jobA.jobId)!.status, TranslationJobStatus.completed);
+
+    // B's next delivery proceeds.
+    queueValidReplies();
+    expect(await module.runJob(jobB.jobId), TranslationRunResult.ran);
+    expect(dao.getJob(jobB.jobId)!.status, TranslationJobStatus.completed);
   });
 }

@@ -5,6 +5,7 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
 import android.provider.OpenableColumns
+import com.engirdle.native_services.TranslationNotifications
 import com.ryanheise.audioservice.AudioServiceActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
@@ -13,11 +14,32 @@ import java.io.ByteArrayOutputStream
 // Extends AudioServiceActivity so the audio_service foreground media Service
 // shares the Flutter engine with the activity (design §7.2). This keeps media
 // playback alive across screen-off, backgrounding and recents-dismissal.
+//
+// The Keystore secret store moved to the engirdle_native plugin so the
+// WorkManager worker engine reaches it too (§9.2); MainActivity keeps only
+// activity-bound channels (text processing, document picking) and forwards
+// notification cancel intents.
 class MainActivity : AudioServiceActivity() {
     // Content URIs are not stable across process restarts; the import module
     // reads the bytes inside pickDocument and never persists the grant, so a
     // member holds the pending result only for the lifetime of one pick.
     private var pendingDocumentResult: MethodChannel.Result? = null
+
+    // A cancel intent that arrived before Dart installed its handler (cold
+    // start from a notification action); Dart pulls it once via
+    // takePendingTranslationCancel.
+    private var pendingCancelJobId: String? = null
+    private var appChannel: MethodChannel? = null
+
+    override fun onCreate(savedInstanceState: android.os.Bundle?) {
+        super.onCreate(savedInstanceState)
+        consumeCancelIntent(intent)
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        consumeCancelIntent(intent)
+    }
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
@@ -48,38 +70,29 @@ class MainActivity : AudioServiceActivity() {
             }
         }
 
-        val secretStore = SecretStore(this)
-        MethodChannel(
+        appChannel = MethodChannel(
             flutterEngine.dartExecutor.binaryMessenger,
-            "com.engirdle.mobile/secrets",
-        ).setMethodCallHandler { call, result ->
-            val alias = call.argument<String>("alias")
-            if (alias.isNullOrEmpty()) {
-                result.error("invalid_argument", "alias is required", null)
-                return@setMethodCallHandler
-            }
-            try {
-                when (call.method) {
-                    "read" -> result.success(secretStore.read(alias))
-                    "write" -> {
-                        val secret = call.argument<String>("secret")
-                        if (secret.isNullOrEmpty()) {
-                            result.error("invalid_argument", "secret is required", null)
-                        } else {
-                            secretStore.write(alias, secret)
-                            result.success(null)
-                        }
-                    }
-                    "delete" -> {
-                        secretStore.delete(alias)
-                        result.success(null)
-                    }
-                    else -> result.notImplemented()
+            "com.engirdle.mobile/app",
+        ).also { channel ->
+            channel.setMethodCallHandler { call, result ->
+                if (call.method == "takePendingTranslationCancel") {
+                    result.success(pendingCancelJobId)
+                    pendingCancelJobId = null
+                } else {
+                    result.notImplemented()
                 }
-            } catch (e: Exception) {
-                result.error("secret_store", e.message, null)
             }
         }
+    }
+
+    /** Buffers a notification cancel action for the Dart side (§12.4). */
+    private fun consumeCancelIntent(intent: Intent?) {
+        if (intent?.action != TranslationNotifications.ACTION_CANCEL_TRANSLATION) return
+        val jobId = intent.getStringExtra(TranslationNotifications.EXTRA_JOB_ID) ?: return
+        pendingCancelJobId = jobId
+        // Warm engine: push immediately. Cold start: Dart pulls via the
+        // channel above as soon as it installs its handler.
+        appChannel?.invokeMethod("translationCancelRequested", jobId)
     }
 
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {

@@ -14,6 +14,13 @@
     <uses-permission android:name="android.permission.WAKE_LOCK"/>
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE"/>
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK"/>
+    <!-- Background translation (design §9): POST_NOTIFICATIONS and
+         FOREGROUND_SERVICE_DATA_SYNC (plus the dataSync-typed
+         SystemForegroundService declaration) merge in from the
+         workmanager_android library because
+         workmanager.enableDataSyncForegroundService=true is set in
+         gradle.properties. POST_NOTIFICATIONS is runtime-requested from the
+         queue flow; denial only hides progress notifications (§9.3). -->
 
     <application
         android:label="Engirdle"

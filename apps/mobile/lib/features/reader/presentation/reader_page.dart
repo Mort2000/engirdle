@@ -468,7 +468,8 @@ class _ReaderPageState extends State<ReaderPage> {
   /// 翻译确认流（§8.6/§10.2）：隐私声明、保守估算与配置快照都在开始前
   /// 明确展示；全文发送的确认时间会记录在任务上。
   Future<void> _startTranslateFlow() async {
-    final module = AppScope.of(context).translation;
+    final deps = AppScope.of(context);
+    final module = deps.translation;
     final latest = module.latestJobForArticle(widget.articleId);
     if (latest != null && latest.status == TranslationJobStatus.failed) {
       final retry = await showDialog<bool>(
@@ -543,6 +544,9 @@ class _ReaderPageState extends State<ReaderPage> {
       ),
     );
     if (confirmed != true) return;
+    // §9.3: best-effort POST_NOTIFICATIONS ask right before the first
+    // background run; denial never blocks translation.
+    unawaited(deps.translationNotificationPrompt.requestIfNeeded());
     try {
       await module.queueTranslation(
         articleId: widget.articleId,

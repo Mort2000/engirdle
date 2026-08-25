@@ -1,18 +1,35 @@
 import 'dart:async';
+import 'dart:io' show Platform;
 
 import 'package:audio_service/audio_service.dart';
 import 'package:flutter/widgets.dart';
 import 'package:path_provider/path_provider.dart';
+import 'package:workmanager/workmanager.dart';
 
 import 'app/app.dart';
 import 'app/dependencies.dart';
 import 'features/playback/application/audio_focus_port.dart';
 import 'features/playback/infrastructure/audio_session_adapter.dart';
 import 'features/playback/infrastructure/audio_service_handler_adapter.dart';
+import 'features/translation/infrastructure/translation_background.dart';
+import 'features/translation/infrastructure/translation_cancel_bridge.dart';
 import 'platform/filesystem/app_directories.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  // Persistent background translation (design §9.2): register the Dart
+  // dispatcher before anything can enqueue work. The native side persists
+  // the callback handle and re-invokes it on a dedicated headless engine —
+  // including after process or device restarts.
+  var backgroundExecution = false;
+  if (Platform.isAndroid) {
+    try {
+      await Workmanager().initialize(translationCallbackDispatcher);
+      backgroundExecution = true;
+    } catch (_) {
+      // Without the dispatcher the app still translates in-process.
+    }
+  }
   final supportDir = await getApplicationSupportDirectory();
   // Configure the speech/audiobook audio session before building the graph so
   // the playback focus adapter observes interruptions/route changes from the
@@ -27,7 +44,11 @@ Future<void> main() async {
   final dependencies = await AppDependencies.build(
     directories: AppDirectories(supportDir),
     focusPort: focusPort,
+    translationBackgroundExecution: backgroundExecution,
   );
+  // Notification cancel actions arrive as MainActivity intents (§12.4);
+  // route them into the same module.cancel path as the on-screen buttons.
+  TranslationCancelBridge(onCancel: dependencies.translation.cancel).install();
   // Register the foreground media Service / MediaSession and bind it to the
   // coordinator (design §7.1, step 4). Best-effort: a failure must not block
   // the app — playback still works without the system media service.

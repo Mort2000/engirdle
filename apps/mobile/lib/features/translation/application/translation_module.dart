@@ -37,6 +37,19 @@ class TranslationQueueRefusal implements Exception {
   String toString() => 'TranslationQueueRefusal(${kind.name}: $message)';
 }
 
+/// Outcome of one execution attempt (runJob).
+enum TranslationRunResult {
+  /// The attempt ran (possibly to a parked/terminal state).
+  ran,
+
+  /// Nothing was claimable to run (wrong state, vanished job, …).
+  notRunnable,
+
+  /// §8.4: another job is executing. The job stays queued; the caller's
+  /// scheduler should retry this execution later.
+  deferredBusy,
+}
+
 /// The mobile translation deep module (design §7.2/§8): queue, cancel,
 /// pause/resume, retry and watch. Everything else — plan derivation, prompt
 /// projection, placeholder protection, checkpoint journal, bounded retries,
@@ -54,13 +67,15 @@ class TranslationModule {
     required TranslationScheduler scheduler,
     Future<void> Function(Duration)? sleeper,
     Duration Function(int retryRound)? backoffFor,
+    void Function(String jobId)? onJobTerminated,
   }) : _dao = dao,
        _library = library,
        _client = client,
        _secrets = secrets,
        _scheduler = scheduler,
        _sleeper = sleeper ?? Future<void>.delayed,
-       _backoffFor = backoffFor ?? _defaultBackoff;
+       _backoffFor = backoffFor ?? _defaultBackoff,
+       _onJobTerminated = onJobTerminated;
 
   final TranslationDao _dao;
   final LibraryService _library;
@@ -70,7 +85,19 @@ class TranslationModule {
   final Future<void> Function(Duration) _sleeper;
   final Duration Function(int retryRound) _backoffFor;
 
-  final StreamController<void> _changes = StreamController.broadcast();
+  /// Fired whenever a job leaves the active set through cancel, pause or
+  /// stale-source cancellation — composition roots use it to clear the
+  /// job's notifications (§12.4). Not fired for completion/failure: the
+  /// worker posts those summaries itself.
+  final void Function(String jobId)? _onJobTerminated;
+
+  // Sync delivery: notify() fires listeners immediately (never during a DB
+  // transaction — every call site commits first). The background worker's
+  // progress notifications ride this stream; an async controller would only
+  // deliver after the run finishes.
+  final StreamController<void> _changes = StreamController.broadcast(
+    sync: true,
+  );
 
   /// Notifies on every job change (bookshelf badges, reader status bar).
   Stream<void> get changes => _changes.stream;
@@ -252,6 +279,8 @@ class TranslationModule {
   /// and an in-flight worker's next write fails the lease guard.
   void cancel(String jobId) {
     _dao.cancelJob(jobId);
+    _scheduler.cancelScheduled(jobId);
+    _onJobTerminated?.call(jobId);
     _notify();
   }
 
@@ -259,6 +288,10 @@ class TranslationModule {
     final job = _dao.getJob(jobId);
     if (job == null || !job.isActive) return;
     _dao.updateStatus(jobId, TranslationJobStatus.paused);
+    // Pending executions (including a not-yet-fired backoff delivery) are
+    // dropped; an executor already running is stopped by the lease guard.
+    _scheduler.cancelScheduled(jobId);
+    _onJobTerminated?.call(jobId);
     _notify();
   }
 
@@ -284,8 +317,12 @@ class TranslationModule {
   /// process death resumes from its journal; paused jobs stay paused (§8.3 —
   /// only the user resumes them); jobs whose source drifted or whose
   /// building set vanished are cancelled and never activated.
+  ///
+  /// A running job is never re-queued here: its executor may still be alive
+  /// (the UI opened mid-run), and if it died the OS scheduler redelivers the
+  /// interrupted work — [runJob] takes over from either path. The
+  /// keep-policy schedule merely guarantees that some execution is pending.
   Future<void> recover() async {
-    final stale = <String>[];
     for (final job in _dao.activeJobs().values) {
       if (job.status == TranslationJobStatus.paused) continue;
       final article = _library.getArticle(job.articleId);
@@ -296,11 +333,11 @@ class TranslationModule {
         _notify();
         continue;
       }
-      _dao.requeue(job.jobId);
-      stale.add(job.jobId);
-    }
-    for (final jobId in stale) {
-      _scheduler.schedule(jobId);
+      if (job.status != TranslationJobStatus.running) {
+        _dao.requeue(job.jobId);
+        _notify();
+      }
+      _scheduler.schedule(job.jobId);
     }
   }
 
@@ -309,28 +346,51 @@ class TranslationModule {
   /// One execution attempt: claim → replay history from the journal →
   /// translate pending units → verify coverage → activate atomically.
   /// Invoked by the scheduler; safe to call repeatedly (idempotent guards).
-  Future<void> runJob(String jobId) async {
+  Future<TranslationRunResult> runJob(String jobId) async {
     var job = _dao.getJob(jobId);
-    if (job == null || job.status != TranslationJobStatus.queued) return;
+    if (job == null) return TranslationRunResult.notRunnable;
+    // Scheduler re-entry (§8.3/§9.2): a waiting_retry job is only re-invoked
+    // by its backoff delivery, and a running job only by the OS scheduler
+    // redelivering interrupted work — the previous executor is gone by then
+    // (unique work never runs two executors at once), so re-queue and take
+    // over from the journal. Every other non-queued state (paused, terminal)
+    // is left untouched.
+    if (job.status == TranslationJobStatus.waitingRetry ||
+        job.status == TranslationJobStatus.running) {
+      _dao.requeue(jobId);
+      job = _dao.getJob(jobId)!;
+    }
+    if (job.status != TranslationJobStatus.queued) {
+      return TranslationRunResult.notRunnable;
+    }
 
     final article = _library.getArticle(job.articleId);
     if (article == null || article.structureSha256 != job.structureSha256) {
       await _cancelStale(job, 'the article source changed');
-      return;
+      return TranslationRunResult.ran;
     }
     final content = _library.getContent(job.articleId);
     if (content == null) {
       await _cancelStale(job, 'the article is no longer readable');
-      return;
+      return TranslationRunResult.ran;
     }
     final plan = buildTranslationPlan(content.blocks);
     if (plan.units.length != job.totalUnits) {
       await _cancelStale(job, 'the article structure changed');
-      return;
+      return TranslationRunResult.ran;
     }
 
-    final generation = _dao.claim(jobId);
-    if (generation == null) return;
+    switch (_dao.claim(jobId)) {
+      case TranslationClaim.busy:
+        // §8.4: another job holds the single execution slot. Leave the job
+        // queued — the host scheduler retries this execution.
+        return TranslationRunResult.deferredBusy;
+      case TranslationClaim.unavailable:
+        return TranslationRunResult.notRunnable;
+      case TranslationClaim.claimed:
+        break;
+    }
+    final generation = _dao.getJob(jobId)!.generation;
     job = _dao.getJob(jobId)!;
     final config = job.config;
 
@@ -340,7 +400,7 @@ class TranslationModule {
       if (journal[i].unitId != plan.units[i].blockId) {
         await _cancelStale(job, 'the accepted journal does not match the '
             'article structure');
-        return;
+        return TranslationRunResult.ran;
       }
     }
 
@@ -365,6 +425,7 @@ class TranslationModule {
         error.message,
       );
     }
+    return TranslationRunResult.ran;
   }
 
   Future<void> _translatePendingUnits({
@@ -401,22 +462,31 @@ class TranslationModule {
       // A late response from a cancelled/paused worker is discarded without
       // writing — the lease guard is the second gate after the network call.
       if (!_dao.holdsLease(jobId, generation)) return;
-      _dao.acceptUnit(
-        jobId: jobId,
-        generation: generation,
-        unitOrder: i,
-        requestId: result.completion.requestId,
-        rawContent: result.completion.content,
-        usageJson: result.completion.usage == null
-            ? null
-            : jsonEncode({
-                'prompt_tokens': result.completion.usage!.promptTokens,
-                'completion_tokens':
-                    result.completion.usage!.completionTokens,
-                'reasoning_tokens': result.completion.usage!.reasoningTokens,
-              }),
-        translation: result.validated,
-      );
+      try {
+        _dao.acceptUnit(
+          jobId: jobId,
+          generation: generation,
+          unitOrder: i,
+          requestId: result.completion.requestId,
+          rawContent: result.completion.content,
+          usageJson: result.completion.usage == null
+              ? null
+              : jsonEncode({
+                  'prompt_tokens': result.completion.usage!.promptTokens,
+                  'completion_tokens':
+                      result.completion.usage!.completionTokens,
+                  'reasoning_tokens': result.completion.usage!.reasoningTokens,
+                }),
+          translation: result.validated,
+        );
+      } on StateError {
+        // The lease was lost between the guard and the write (pause/cancel,
+        // or a redelivered executor re-claimed the job). That is not a unit
+        // failure — stop silently; the new lease holder owns the job. A
+        // missing building set (the other StateError) is rethrown.
+        if (!_dao.holdsLease(jobId, generation)) return;
+        rethrow;
+      }
       journal.add(
         (unitOrder: i, unitId: unit.blockId, content: result.completion.content),
       );
@@ -492,7 +562,11 @@ class TranslationModule {
         errorDetail: detail,
       );
       _notify();
-      unawaited(_requeueAfterBackoff(jobId, round));
+      // The backoff window belongs to the scheduler (§8.3): an OS-backed
+      // adapter persists the delay, so a process death during the window
+      // loses nothing — the re-entry path in [runJob] picks the job up when
+      // the delayed execution is delivered.
+      _scheduler.schedule(jobId, after: _backoffFor(round));
       return;
     }
     _dao.updateStatus(
@@ -502,17 +576,6 @@ class TranslationModule {
       errorDetail: detail,
     );
     _notify();
-  }
-
-  Future<void> _requeueAfterBackoff(String jobId, int round) async {
-    await _sleeper(_backoffFor(round));
-    final job = _dao.getJob(jobId);
-    if (job == null || job.status != TranslationJobStatus.waitingRetry) {
-      return;
-    }
-    _dao.requeue(jobId);
-    _notify();
-    _scheduler.schedule(jobId);
   }
 
   /// Exact-coverage verification → set complete → activation via the library
@@ -590,6 +653,10 @@ class TranslationModule {
       errorKind: TranslationErrorKind.staleSource,
       errorDetail: reason,
     );
+    // Stale results must never activate — and their scheduled executions
+    // (e.g. a pending backoff delivery) must not fire either.
+    _scheduler.cancelScheduled(job.jobId);
+    _onJobTerminated?.call(job.jobId);
     _notify();
   }
 
@@ -597,8 +664,73 @@ class TranslationModule {
     if (!_changes.isClosed) _changes.add(null);
   }
 
+  // ---- cross-engine observation ----
+
+  Timer? _syncTimer;
+  final Map<String, String> _observedJobs = {};
+
+  /// While any job is active, polls the jobs table so progress committed by
+  /// the background worker engine (§9.2 — its own connection and its own
+  /// in-process notify) still reaches this engine's listeners: bookshelf
+  /// badges, the reader status bar and the task page. Stops itself once
+  /// every observed job reached a terminal state. Only the UI engine starts
+  /// this (opt-in from the composition root when execution is OS-scheduled);
+  /// the worker engine observes directly.
+  void startExternalSync({Duration interval = const Duration(seconds: 1)}) {
+    pollExternalChanges();
+    if (_observedJobs.isNotEmpty && _syncTimer == null) {
+      _syncTimer = Timer.periodic(interval, (_) => pollExternalChanges());
+    }
+  }
+
+  /// One observation tick. Public so tests can drive it deterministically.
+  void pollExternalChanges() {
+    try {
+      final active = _dao.activeJobs();
+      var changed = false;
+      final activeIds = <String>{};
+      for (final job in active.values) {
+        activeIds.add(job.jobId);
+        final signature = '${job.status.name}:${job.completedUnits}:'
+            '${job.retryRound}:${job.errorKind?.name}';
+        if (_observedJobs[job.jobId] != signature) {
+          _observedJobs[job.jobId] = signature;
+          changed = true;
+        }
+      }
+      // Jobs absent from the active set reached a terminal state (or were
+      // deleted with the article). A completion implies the worker engine
+      // also activated the set — refresh library projections too (§12.3); a
+      // deletion (no row left) also drops any pending scheduled execution
+      // (§12.1).
+      for (final jobId in _observedJobs.keys.toList()) {
+        if (activeIds.contains(jobId)) continue;
+        final finalJob = _dao.getJob(jobId);
+        _observedJobs.remove(jobId);
+        changed = true;
+        if (finalJob == null) {
+          _scheduler.cancelScheduled(jobId);
+          continue;
+        }
+        if (finalJob.status == TranslationJobStatus.completed) {
+          _library.notifyExternalChange();
+        }
+      }
+      if (changed) _notify();
+      if (_observedJobs.isEmpty) {
+        _syncTimer?.cancel();
+        _syncTimer = null;
+      }
+    } catch (_) {
+      // A transiently busy or closing database skips this tick.
+    }
+  }
+
   /// Closes the change stream (composition-root disposal).
-  void dispose() => _changes.close();
+  void dispose() {
+    _syncTimer?.cancel();
+    _changes.close();
+  }
 
   static String _pipelineJson(String model) => jsonEncode({
     'provider': kDeepSeekProvider,

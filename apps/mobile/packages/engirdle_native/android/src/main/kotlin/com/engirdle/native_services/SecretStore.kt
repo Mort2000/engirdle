@@ -1,4 +1,4 @@
-package com.engirdle.mobile
+package com.engirdle.native_services
 
 import android.content.Context
 import android.security.keystore.KeyGenParameterSpec

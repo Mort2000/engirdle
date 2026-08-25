@@ -32,8 +32,12 @@ lib/
     ├── vocabulary/               # 一步保存 + 撤销；快照无 FK，文章删除后仍可读
     ├── preferences/              # 字号/行高/边距/三预设主题
     ├── source_ingestion/         # 粘贴/文件原文结构化（阶段 2，冻结 GFM 子集）
-    ├── translation/              # 移动端 LLM 文章翻译深模块（阶段 3，见下）
+    ├── translation/              # 移动端 LLM 文章翻译深模块（阶段 3/4，见下）
     └── attribution/              # 归属信息页（15 屏）
+
+packages/engirdle_native/          # 本地原生插件：Keystore 密钥存储 + 翻译通知，
+                                   #   以真插件注册到每个 Flutter 引擎（含 WorkManager
+                                   #   后台引擎），MainActivity 的通道做不到这一点
 ```
 
 ## 关键技术决策
@@ -85,10 +89,21 @@ flutter build apk --debug    # 或直接 cd android && ./gradlew assembleDebug
 - `features/translation/`：用户自备 DeepSeek Key 的文章翻译深模块。`TranslationModule` 暴露 queue/cancel/pause/resume/retry/watch/recover；plan 派生、prompt 投影、占位符保护、checkpoint 日志、限次重试与原子激活全部藏在接口后面。
 - 协议与 PC 逐字节对齐：`contracts/translation/v1` 的 system prompt、wire schema 与黄金消息投影由 `test/contracts/translation_v1_test.dart` 复刻（含 Python 风格 JSON 分隔符），valid/invalid 响应 fixtures 双端同判。
 - 任务事实源在 SQLite（v7：`translation_jobs`/`translation_units`/`llm_profiles`，部分唯一索引保证每文章每语言至多一个活跃任务）；调度器只是触发器，进程内串行执行，正确性依赖每单元 checkpoint 与租约代际（取消/暂停后的迟到响应一律丢弃）。building 译文集对阅读器不可见，全部单元完成、精确覆盖校验后才经 library 的原子激活接口上线。
-- 密钥只进 Android Keystore 加密的 no-backup 存储（`SecretStore.kt` + MethodChannel），数据库仅存 alias；DeepSeek 官方 HTTPS 端点在构造与每次请求前双重校验，无 TLS 例外开关。
+- 密钥只进 Android Keystore 加密的 no-backup 存储（`packages/engirdle_native` 插件内的 `SecretStore.kt`），数据库仅存 alias；DeepSeek 官方 HTTPS 端点在构造与每次请求前双重校验，无 TLS 例外开关。
 - UI：阅读页「翻译文章」确认流（隐私声明 + 保守 token 估算）、非阻塞进度条与能力刷新；任务详情页提供暂停/继续/取消/同配置重试；书架显示「翻译中 n/m」徽标；设置页管理密钥（从不回显）、模型与连接测试。
 - `test/features/translation/`：黄金协议、DAO、DeepSeek 适配器（含错误分类矩阵与 429 Retry-After）与模块管线（checkpoint 跨进程恢复、取消竞态、错误矩阵、partial 永不可见、既有 active 集不受失败影响）。
-- 待阶段 4：WorkManager 后台化、前台通知、网络/充电约束生效与真机矩阵验收。
+
+### Android 后台化（阶段 4，轻量文章包设计 §9）
+
+- **调度**：`TranslationScheduler` 的 WorkManager 适配器（`infrastructure/workmanager_scheduler.dart`）为每个任务注册 unique one-off work（keep 策略，绝不重复排队）；WorkManager input data 只带 `job_id`（§9.2），文章内容、配置快照与密钥永远从数据库和 Keystore 读取。约束在每次 schedule 时按当前 profile 解析：始终要求联网，`仅 Wi-Fi`→ unmetered、`仅充电`→ requiresCharging。
+- **退避交给系统**：瞬态失败进入 `waiting_retry` 后，模块把退避窗口作为 work 的 initialDelay 委托给 WorkManager（§8.3）——进程死亡不丢定时；延迟投递到达时 `runJob` 的重入路径把任务接回 queued 继续跑。
+- **全局单执行（§8.4）**：进程内串行调度器天然一次只跑一个任务；OS 调度可能并发投递多个 work，因此排他语义下沉到 `claim` 本身（单条 UPDATE 内完成「无其他 running 任务」检查与状态翻转，竞态安全）。第二个任务的 worker 拿不到槽位时向 WorkManager 返回 retry，按指数退避等待。
+- **后台执行**：work 以 `dataSync` 前台服务运行（`workmanager.enableDataSyncForegroundService=true` 选择加入；独立「文章翻译」通知频道，不复用媒体播放服务）。worker 引擎上由 `translation_background.dart` 组装精简依赖（§9.2）：自己的 SQLite 连接（WAL + busy_timeout）、library 投影、翻译模块、密钥与 DeepSeek 适配器——没有 Widget、AudioService、播放器或词典。所有写入都在任务租约下事务化，进程任意时刻死亡都安全：WorkManager 重投递，下一个执行者从 journal 接力。
+- **进度与通知**：worker 重发同一通知 id 展示「正在翻译：标题 n/m」进度条 + 取消动作；完成/失败用独立 id 发摘要。通知取消动作以 intent 启动 MainActivity，经 `TranslationCancelBridge` 走与界面按钮完全相同的 `module.cancel` 路径。通知内容只有标题与单元计数，绝无正文或译文（§12.4）。Android 13+ 在确认翻译时请求 POST_NOTIFICATIONS，拒绝只隐藏通知、绝不阻塞翻译（§9.3）。
+- **双引擎并发**：迁移入口在写锁事务内重读 `user_version`（§9.2），fresh install 上 rollback→WAL 转换窗口内的即时 BUSY 有有界重试；`test/platform/app_db_concurrent_open_test.dart` 用多 isolate 并发首开验证。UI 引擎通过模块内的跨引擎观察者（`startExternalSync`）轮询任务表，书架徽标、阅读页状态条与任务详情页在后台引擎提交进度后照常刷新，激活完成时同时触发 library 变更通知。
+- **恢复**：`recover()` 不再改写 running 状态——执行者可能还活着（UI 打开时任务正在跑），死了 WorkManager 会重投递中断的 work；两种路径都由 `runJob` 的接管语义收敛。
+- **隐私**：密钥在后台引擎经同一 Keystore 通道读取（`engirdle_native` 插件在后台引擎同样注册）；密钥从不进入 WorkManager 数据、数据库、日志或通知。运维诊断：`translation-worker` / `translation-scheduler` 日志只记 job id、状态分类、用量与耗时。
+- **系统限制的诚实预期（§9.3）**：正确性依赖单元 checkpoint 而非连续线程；Android 15+ 的 dataSync 6 小时/24h 限额与厂商省电只会让任务回到等待/重调度。真机验收矩阵见 `docs/phase4_device_acceptance.md`（本仓库无真机环境，矩阵为待执行的清单）。
 - `test/platform/`：恶意 ZIP 矩阵（手写最小 ZIP 构造器伪造声明大小/标志位/Unix 模式）、LAN URL 策略、基于回环 `HttpServer` 的传输上限与取消语义、数据库迁移链（v3/v4/v5/v6/v7 逐级）；
 - `test/features/`：词典查询顺序与降级、生词快照/撤销/无 FK、导入全链路（真实 fixture 经回环 HTTP 服务器下载，成功/哈希不符/HTTP 失败/两种启动恢复路径）；
 - `test/widget_smoke_test.dart`：首启路由、生词本空态、排版设置页渲染（假播放引擎 + 内存数据库）。
@@ -97,4 +112,4 @@ flutter build apk --debug    # 或直接 cd android && ./gradlew assembleDebug
 
 - 真实词典资源格式与安装流（依赖 PC 端 G4 词典构建器）；
 - 选词手势的真机交互微调；
-- Android 真机/模拟器运行验证（debug APK 构建已在本机验证通过，尚未上机运行）。
+- Android 真机/模拟器运行验证：阶段 4 后台化的真机验收矩阵见 `docs/phase4_device_acceptance.md`（需 API 31/33/35/36 真机与一台激进省电机型，本仓库开发环境不可上机）。上架 Google Play 前还需完成 `dataSync` 前台服务类型的 Play Console 申报。
