@@ -43,7 +43,9 @@ enum TranslationJobStatus {
 
 /// Failure categories (design §8.5). `transport`/`protocol` are transient —
 /// they surface as waiting_retry rounds, then failed(transient exhausted).
-/// Everything else stops the job as an actionable failure.
+/// Everything else stops the job as an actionable failure. `internal` is the
+/// runJob fallback for unclassified client errors: it fails the job so the
+/// row never lingers in running while the host scheduler reports success.
 enum TranslationErrorKind {
   transport,
   protocol,
@@ -51,7 +53,8 @@ enum TranslationErrorKind {
   balance,
   contextLimit,
   config,
-  staleSource;
+  staleSource,
+  internal;
 
   static TranslationErrorKind? fromName(String? name) =>
       name == null

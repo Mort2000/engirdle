@@ -261,6 +261,57 @@ void main() {
     expect(outcome, isTrue);
     expect(dao.getJob(job.jobId)!.status, TranslationJobStatus.completed);
   });
+
+  test('a system stop parks the running job into a visible waiting state',
+      () async {
+    installArticle();
+    final client = ScriptedClient();
+    final reporter = RecordingReporter();
+    final session = buildSession(client, reporter);
+    final module = session.translationForTest;
+    final job = await module.queueTranslation(
+      articleId: 'a1',
+      privacyConfirmedAt: DateTime.utc(2026, 1, 1),
+    );
+    // The OS interrupts the executor mid-run (claimed, no unit accepted);
+    // without parking, the row would stay running with no waiting hint
+    // until WorkManager redelivers.
+    expect(dao.claim(job.jobId), TranslationClaim.claimed);
+
+    await session.parkInterruptedOnSystemStop('network');
+
+    final parked = dao.getJob(job.jobId)!;
+    expect(parked.status, TranslationJobStatus.waitingRetry);
+    expect(parked.errorKind, TranslationErrorKind.transport);
+    // A system stop is not a model failure: the retry budget is untouched.
+    expect(parked.retryRound, 0);
+    expect(reporter.calls, contains('waiting:Worker Article'));
+
+    // The redelivered execution takes over from waiting_retry and finishes
+    // from the journal.
+    client.reply('["第一句。", "第二句。"]');
+    final outcome = await session.run(job.jobId);
+    expect(outcome, isTrue);
+    expect(dao.getJob(job.jobId)!.status, TranslationJobStatus.completed);
+  });
+
+  test('a system stop after completion parks nothing', () async {
+    installArticle();
+    final client = ScriptedClient()..reply('["第一句。", "第二句。"]');
+    final reporter = RecordingReporter();
+    final session = buildSession(client, reporter);
+    final module = session.translationForTest;
+    final job = await module.queueTranslation(
+      articleId: 'a1',
+      privacyConfirmedAt: DateTime.utc(2026, 1, 1),
+    );
+    await session.run(job.jobId);
+
+    await session.parkInterruptedOnSystemStop('cancelled');
+
+    expect(dao.getJob(job.jobId)!.status, TranslationJobStatus.completed);
+    expect(reporter.calls.where((c) => c.startsWith('waiting')), isEmpty);
+  });
 }
 
 class _ThrowingReporter implements TranslationProgressReporter {

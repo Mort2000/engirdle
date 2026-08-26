@@ -162,6 +162,65 @@ class TranslationWorkerSession {
   /// The session's module — tests queue jobs through the real path.
   TranslationModule get translationForTest => _translation;
 
+  /// System-stop parking (§8.3/§9.3): an executor the OS interrupted never
+  /// runs its own failure path, so the job row would linger in running with
+  /// no waiting hint until WorkManager redelivers the stopped work (which
+  /// only happens once the network constraint is satisfied again). Park
+  /// every running job into waiting_retry — a system stop is a transport
+  /// wait, not a model failure, so the retry budget is untouched — and post
+  /// the waiting notification the stopped executor owed the user (§8.5/§9.2).
+  /// The redelivered execution resumes from the journal via runJob's
+  /// waiting_retry re-entry.
+  Future<void> parkInterruptedOnSystemStop(String reason) async {
+    final running = _dao
+        .activeJobs()
+        .values
+        .where((job) => job.status == TranslationJobStatus.running)
+        .toList();
+    for (final job in running) {
+      try {
+        _dao.updateStatus(
+          job.jobId,
+          TranslationJobStatus.waitingRetry,
+          errorKind: TranslationErrorKind.transport,
+          errorDetail: '后台执行被系统中断（$reason），满足运行条件后自动继续',
+        );
+      } catch (_) {
+        // Deleted or already terminal — nothing to park.
+        continue;
+      }
+      final title = _library.getArticle(job.articleId)?.title ?? '文章';
+      try {
+        await _reporter.waiting(jobId: job.jobId, title: title);
+      } catch (_) {
+        // Notification failures never undo the park.
+      }
+    }
+  }
+
+  /// [parkInterruptedOnSystemStop] on a private session, for the dispatcher's
+  /// onTaskStopped hook — best effort: the engine is about to be torn down,
+  /// and a hard process kill skips this path entirely (recover() then
+  /// re-drives the job on the next app start).
+  static Future<void> parkInterruptedJobs(String reason) async {
+    TranslationWorkerSession? session;
+    try {
+      session = await TranslationWorkerSession.open();
+      await session.parkInterruptedOnSystemStop(reason);
+    } catch (error) {
+      _workerLogger.error('worker_stop_park_failed', {
+        'reason': reason,
+        'error': '$error',
+      });
+    } finally {
+      try {
+        await session?.close();
+      } catch (_) {
+        // The engine is being discarded either way.
+      }
+    }
+  }
+
   /// Runs the job once and reports progress to the notification seam.
   /// Resolves `false` ONLY for a §8.4 busy deferral (another job holds the
   /// single execution slot) — WorkManager then retries this execution after
@@ -278,14 +337,17 @@ void translationCallbackDispatcher() {
       }
     },
     onTaskStopped: (taskName, stopReason) async {
-      // The engine is about to be torn down (system stop, quota, cancel).
-      // Nothing needs persisting: every write is already transactional under
-      // the job's lease, and WorkManager redelivers interrupted work — the
-      // next executor takes over from the journal (§8.4/§9.3).
+      // The engine is about to be torn down (system stop, quota, constraint
+      // change, cancel). Durability needs nothing here: every write is
+      // already transactional under the job's lease, and WorkManager
+      // redelivers the interrupted work (§8.4/§9.3). Visibility does: the
+      // interrupted executor never runs its own failure path, so park its
+      // running job into a visible waiting state (§8.5/§9.2).
       _workerLogger.info('worker_stopped', {
         'task': taskName,
         'reason': stopReason.name,
       });
+      await TranslationWorkerSession.parkInterruptedJobs(stopReason.name);
     },
   );
 }

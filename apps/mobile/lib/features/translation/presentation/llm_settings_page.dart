@@ -151,7 +151,7 @@ class _LlmSettingsPageState extends State<LlmSettingsPage> {
                     controller: _modelController,
                     enabled: _keyStored,
                     decoration: const InputDecoration(
-                      hintText: 'deepseek-chat',
+                      hintText: 'deepseek-v4-flash',
                       isDense: true,
                     ),
                     onSubmitted: (value) {

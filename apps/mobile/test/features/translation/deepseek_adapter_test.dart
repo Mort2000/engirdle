@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:engirdle_mobile/features/translation/application/llm_client.dart';
 import 'package:engirdle_mobile/features/translation/domain/translation_errors.dart';
@@ -215,5 +216,39 @@ void main() {
     );
     expect(models, ['deepseek-chat', 'deepseek-reasoner']);
     expect(transport.uri.toString(), 'https://api.deepseek.com/models');
+  });
+
+  test('IoHttpTransport sends non-ASCII bodies as UTF-8 bytes', () async {
+    // Regression: request.write() encodes as latin-1 when the content-type
+    // header carries no charset, crashing on Chinese prompts.
+    final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+    List<int>? received;
+    String? contentLength;
+    final serving = server.forEach((request) async {
+      received = await request.fold<List<int>>(
+        [],
+        (acc, chunk) => acc..addAll(chunk),
+      );
+      contentLength = request.headers.value('content-length');
+      request.response.statusCode = 200;
+      await request.response.close();
+    });
+    addTearDown(() async {
+      await server.close(force: true);
+      await serving;
+    });
+
+    const body = '{"messages":[{"role":"user","content":"译为简体中文"}]}';
+    final response = await IoHttpTransport().send(
+      'POST',
+      Uri.parse('http://${InternetAddress.loopbackIPv4.address}:${server.port}/'),
+      headers: const {'content-type': 'application/json'},
+      body: body,
+      timeout: const Duration(seconds: 5),
+    );
+
+    expect(response.statusCode, 200);
+    expect(received, utf8.encode(body));
+    expect(contentLength, utf8.encode(body).length.toString());
   });
 }

@@ -522,7 +522,7 @@ class _ReaderPageState extends State<ReaderPage> {
               '（按完整历史回放保守估算，仅供参考，非费用承诺）。',
             ),
             const SizedBox(height: 8),
-            Text('服务商：DeepSeek（${profile?.model ?? 'deepseek-chat'}）'),
+            Text('服务商：DeepSeek（${profile?.model ?? 'deepseek-v4-flash'}）'),
             const SizedBox(height: 8),
             const Text(
               '开始后，文章全文将发送到 DeepSeek 官方服务进行翻译；'

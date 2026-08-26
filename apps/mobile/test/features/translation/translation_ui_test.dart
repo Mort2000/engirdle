@@ -62,7 +62,7 @@ class UiScriptedClient implements LlmCompletionClient {
 
   @override
   Future<List<String>> listModels({required Duration timeout}) async => [
-    'deepseek-chat',
+    'deepseek-v4-flash',
   ];
 }
 
@@ -193,7 +193,7 @@ void main() {
     expect(find.text('已保存（出于安全考虑不回显内容）'), findsOneWidget);
     // The key never shows up in the widget tree.
     expect(find.textContaining('sk-secret-value'), findsNothing);
-    expect(deps.translationSettings.profile()!.model, 'deepseek-chat');
+    expect(deps.translationSettings.profile()!.model, 'deepseek-v4-flash');
 
     await tester.ensureVisible(find.text('测试连接'));
     await tester.pumpAndSettle();

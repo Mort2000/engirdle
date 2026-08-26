@@ -19,7 +19,8 @@ import 'translation_scheduler.dart';
 /// Client version frozen into every job's config snapshot (§8.4).
 const String kTranslationClientVersion = 'engirdle-mobile@1';
 
-/// Conservative deepseek-chat context window (tokens). The queue precheck
+/// Conservative model context window (tokens; kept at the smallest window
+/// any supported DeepSeek model is documented to serve). The queue precheck
 /// refuses articles whose FIRST request alone would eat more than half the
 /// window — history replay only grows from there (§8.6).
 const int kContextWindowTokens = 65536;
@@ -424,6 +425,19 @@ class TranslationModule {
         TranslationErrorKind.config,
         error.message,
       );
+    } catch (error) {
+      // Fallback for unclassified client errors: without it the job would
+      // stay running forever while the host scheduler reports success —
+      // a dead task no redelivery can repair (nothing re-invokes it).
+      try {
+        await _onUnitFailure(
+          jobId,
+          TranslationErrorKind.internal,
+          'unexpected error: $error',
+        );
+      } catch (_) {
+        // The DB write itself failed; nothing more this executor can do.
+      }
     }
     return TranslationRunResult.ran;
   }

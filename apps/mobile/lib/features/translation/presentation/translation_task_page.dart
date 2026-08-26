@@ -229,6 +229,8 @@ class _TranslationTaskPageState extends State<TranslationTaskPage> {
         TranslationErrorKind.config => '翻译配置不可用，请到 设置 › 翻译服务 检查。',
         TranslationErrorKind.staleSource => '原文已重新导入或删除，本任务已取消，'
             '不会激活过期译文。',
+        TranslationErrorKind.internal => '翻译过程中出现内部错误，任务已停止。'
+            '可稍后重试。',
         null => '任务已停止。',
       };
 }

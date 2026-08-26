@@ -484,6 +484,26 @@ void main() {
     expect(client.requests, hasLength(3 * 6));
   });
 
+  test('an unclassified execution error fails the job instead of leaving it '
+      'running', () async {
+    installArticle();
+    // Not an LlmException, protocol error or StateError: without the runJob
+    // fallback this class of bug parks the row in running while the host
+    // scheduler reports success — a dead task.
+    final module = buildModule(_ExplodingClient());
+    final job = await module.queueTranslation(
+      articleId: 'a1',
+      privacyConfirmedAt: DateTime.utc(2026, 1, 1),
+    );
+    final result = await module.runJob(job.jobId);
+
+    expect(result, TranslationRunResult.ran);
+    final failed = dao.getJob(job.jobId)!;
+    expect(failed.status, TranslationJobStatus.failed);
+    expect(failed.errorKind, TranslationErrorKind.internal);
+    expect(failed.errorDetail, contains('corrupt internal state'));
+  });
+
   test('a failing job never disturbs the active packaged set', () async {
     installArticle(withPackagedTranslation: true);
     final before = library.getContent('a1')!;
@@ -864,4 +884,19 @@ void main() {
     expect(await module.runJob(jobB.jobId), TranslationRunResult.ran);
     expect(dao.getJob(jobB.jobId)!.status, TranslationJobStatus.completed);
   });
+}
+
+/// Throws an exception no runJob catch clause classifies — the fallback path.
+class _ExplodingClient implements LlmCompletionClient {
+  @override
+  Future<LlmCompletion> complete({
+    required String model,
+    required List<LlmMessage> messages,
+    required String thinkingMode,
+    required String reasoningEffort,
+    required Duration timeout,
+  }) async => throw ArgumentError('corrupt internal state');
+
+  @override
+  Future<List<String>> listModels({required Duration timeout}) async => [];
 }

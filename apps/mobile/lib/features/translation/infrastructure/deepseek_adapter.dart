@@ -12,7 +12,7 @@ import '../domain/translation_errors.dart';
 /// api.deepseek.com over the system trust chain (no TLS bypass exists).
 const String kDeepSeekOfficialOrigin = 'https://api.deepseek.com';
 const String kDeepSeekProvider = 'deepseek';
-const String kDeepSeekDefaultModel = 'deepseek-chat';
+const String kDeepSeekDefaultModel = 'deepseek-v4-flash';
 const String kDeepSeekSecretAlias = 'deepseek-api-key';
 
 /// Minimal HTTP seam under the adapter: dart:io in production, scriptable in
@@ -68,8 +68,11 @@ class IoHttpTransport implements HttpTransport {
         request.headers.set(header.key, header.value);
       }
       if (body != null) {
-        request.headers.contentLength = utf8.encode(body).length;
-        request.write(body);
+        // Write raw UTF-8 bytes: request.write() would encode non-ASCII
+        // content as latin-1 when the content-type header has no charset.
+        final bodyBytes = utf8.encode(body);
+        request.headers.contentLength = bodyBytes.length;
+        request.add(bodyBytes);
       }
       final response = await request.close().timeout(
         timeout,
