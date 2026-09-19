@@ -82,6 +82,15 @@ class Qwen3TtsBackend(Protocol):
         max_new_tokens: int,
     ) -> GeneratedWaveform: ...
 
+    def generate_voice_clone_batch(
+        self,
+        *,
+        texts: tuple[str, ...],
+        language: str,
+        voice_clone_prompt: object,
+        max_new_tokens: int,
+    ) -> tuple[GeneratedWaveform, ...]: ...
+
 
 def tts_package_available() -> bool:
     """Cheap availability probe that avoids importing torch/qwen_tts eagerly."""
@@ -225,10 +234,25 @@ class LocalQwen3Backend:
         voice_clone_prompt: object,
         max_new_tokens: int,
     ) -> GeneratedWaveform:
+        return self.generate_voice_clone_batch(
+            texts=(text,), language=language, voice_clone_prompt=voice_clone_prompt,
+            max_new_tokens=max_new_tokens,
+        )[0]
+
+    def generate_voice_clone_batch(
+        self,
+        *,
+        texts: tuple[str, ...],
+        language: str,
+        voice_clone_prompt: object,
+        max_new_tokens: int,
+    ) -> tuple[GeneratedWaveform, ...]:
+        if not texts:
+            return ()
         model = self._require_model("base")
         try:
             wavs, sample_rate = model.generate_voice_clone(
-                text=text,
+                text=texts[0] if len(texts) == 1 else list(texts),
                 language=language,
                 voice_clone_prompt=voice_clone_prompt,
                 max_new_tokens=max_new_tokens,
@@ -237,7 +261,11 @@ class LocalQwen3Backend:
             raise SpeechGenerationError(
                 f"voice clone generation failed: {type(error).__name__}: {error}"
             ) from error
-        return GeneratedWaveform(samples=wavs[0], sample_rate_hz=int(sample_rate))
+        if len(wavs) != len(texts):
+            raise SpeechGenerationError("voice clone returned a different number of waveforms")
+        return tuple(
+            GeneratedWaveform(samples=wav, sample_rate_hz=int(sample_rate)) for wav in wavs
+        )
 
     # -- internals --------------------------------------------------------
 

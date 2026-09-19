@@ -49,6 +49,9 @@ class PipelineConfig:
     # Markdown parser identity (design §8.1): recorded so every stored
     # structure hash stays traceable to the projection that produced it.
     markdown_parser: str = "engirdle-gfm@1"
+    # Missing fields in old snapshots describe the former scalar pipeline.
+    speech_batch_size: int = 1
+    speech_batching: str = "article-order@v1"
 
     def to_json(self) -> str:
         return json.dumps(asdict(self), sort_keys=True, separators=(",", ":"))

@@ -123,35 +123,35 @@ class ProductionWorker:
             job.job_id, ProductionStage.SPEECH, checkpoint.to_json()
         )
         target_dir = self._workspace.job_dir(job.job_id)
-        speech_items: list[SentenceSpeech] = []
         cached_speech = {
             speech.sentence_id: speech
             for speech in self._speech.reusable_for_job(job.job_id)
         }
-        for unit in plan.narration.units:
-            cached = cached_speech.get(unit.sentence_id)
-            if (
-                unit.sentence_id in checkpoint.synthesized_narration_unit_ids
-                and cached is not None
-            ):
-                speech_items.append(cached)
-                continue
-            # Re-check before every uncached sentence: activating a new
-            # voice profile mid-build must fail the job, not mix voices.
+        speech_by_id = {
+            unit.sentence_id: cached_speech[unit.sentence_id]
+            for unit in plan.narration.units
+            if unit.sentence_id in checkpoint.synthesized_narration_unit_ids
+            and unit.sentence_id in cached_speech
+        }
+        pending = tuple(
+            unit for unit in plan.narration.units if unit.sentence_id not in speech_by_id
+        )
+        for batch in self._speech.narration_batches(pending):
+            # A profile change before or during a batch must fail the job.
             self._verify_adapter_snapshot(job)
-            speech = self._speech.synthesize_narration(
+            generated = self._speech.synthesize_narration_batch(
                 job.job_id,
-                unit,
+                batch,
                 target_dir / "pcm",
             )
-            speech_items.append(speech)
-            checkpoint = checkpoint.accept_narration_unit(unit.sentence_id)
-            self._jobs.checkpoint(
-                job.job_id,
-                ProductionStage.SPEECH,
-                checkpoint.to_json(),
-            )
-        return speech_items, checkpoint
+            self._verify_adapter_snapshot(job)
+            for speech in generated:
+                speech_by_id[speech.sentence_id] = speech
+                checkpoint = checkpoint.accept_narration_unit(speech.sentence_id)
+                self._jobs.checkpoint(
+                    job.job_id, ProductionStage.SPEECH, checkpoint.to_json(),
+                )
+        return [speech_by_id[unit.sentence_id] for unit in plan.narration.units], checkpoint
 
     def _verify_adapter_snapshot(self, job: BuildJob) -> None:
         if job.config.translation_adapter != self._translations.name:
@@ -160,7 +160,16 @@ class ProductionWorker:
             raise AdapterContractError("speech adapter differs from the job snapshot")
         if job.config.speech_generation != self._speech.generation_config_id:
             raise AdapterContractError(
-                "speech generation parameters differ from the job snapshot"
+                "speech generation parameters differ from the job snapshot; "
+                "rebuild the article with the current speech settings"
+            )
+        if (
+            job.config.speech_batch_size != self._speech.batch_size
+            or job.config.speech_batching != self._speech.batching
+        ):
+            raise AdapterContractError(
+                "speech batching differs from the job snapshot; "
+                "rebuild the article with the current speech settings"
             )
         # Design §4.5.2: every sentence of one job must use the voice profile
         # revision frozen at queue time — never whatever profile is active now.

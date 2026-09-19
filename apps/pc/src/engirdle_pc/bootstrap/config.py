@@ -47,6 +47,7 @@ class Settings(BaseSettings):
     speech_attn_implementation: str = "sdpa"
     speech_seed: int = 0
     speech_max_new_tokens: int = 2048
+    speech_batch_size: int = Field(default=4, ge=1)
     speech_anchor_candidates: int = 3
 
     @property

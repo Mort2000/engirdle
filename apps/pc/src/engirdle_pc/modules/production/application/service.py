@@ -53,6 +53,8 @@ class ProductionService:
             custom_voice_model=self._speech.custom_voice_model,
             base_model=self._speech.base_model,
             speech_generation=self._speech.generation_config_id,
+            speech_batch_size=self._speech.batch_size,
+            speech_batching=self._speech.batching,
             voice_profile=f"{voice.voice_profile_id}@{voice.revision}",
             anchor_sha256=voice.anchor_sha256,
             audio_codec="aac-lc",

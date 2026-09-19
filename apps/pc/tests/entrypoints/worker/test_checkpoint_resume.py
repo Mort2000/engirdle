@@ -12,6 +12,7 @@ from engirdle_pc.modules.content.public import (
 from engirdle_pc.modules.production.public import JobStatus, ProductionCheckpoint
 from engirdle_pc.modules.speech.public import (
     SentenceSpeech,
+    SpeechRequest,
     VoiceProfileRef,
 )
 from engirdle_pc.modules.translation.public import TranslationUnit
@@ -52,6 +53,7 @@ class FailSecondUnitOnceTranslator:
 
 
 class FailSecondSentenceOnceSpeechAdapter:
+    batch_size = 1
     name = "resume-speech-stub"
     custom_voice_model = "Qwen/Qwen3-TTS-CustomVoice@resume-stub"
     base_model = "Qwen/Qwen3-TTS-Base@resume-stub"
@@ -77,6 +79,9 @@ class FailSecondSentenceOnceSpeechAdapter:
             self._failed = True
             raise RuntimeError("injected second-sentence failure")
         return self._delegate.synthesize(sentence_id, text, target_dir)
+
+    def synthesize_batch(self, requests: tuple[SpeechRequest, ...], target_dir: Path):
+        return tuple(self.synthesize(r.sentence_id, r.text, target_dir) for r in requests)
 
 
 def test_retry_resumes_after_last_accepted_translation_unit(tmp_path: Path) -> None:
@@ -153,8 +158,9 @@ def test_retry_reuses_valid_sentence_pcm_from_checkpoint(
     assert container.worker.run_once() is True
 
     assert container.production.get(job.job_id).status is JobStatus.REVIEW_REQUIRED
-    assert synthesizer.synthesized_sentences.count(sentence_ids[0]) == 1
-    assert synthesizer.synthesized_sentences.count(sentence_ids[1]) == 2
+    # The shortest sentence is accepted first; the next one fails once.
+    assert synthesizer.synthesized_sentences.count(sentence_ids[0]) == 2
+    assert synthesizer.synthesized_sentences.count(sentence_ids[1]) == 1
     assert synthesizer.synthesized_sentences.count(sentence_ids[2]) == 1
 
 

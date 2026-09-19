@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from datetime import datetime, timedelta, timezone
 
 import pytest
@@ -41,6 +42,15 @@ def _config() -> PipelineConfig:
         audio_true_peak_dbfs=-3.0,
         audio_loudness_range_lu=11.0,
     )
+
+
+def test_old_job_configuration_keeps_scalar_batching_defaults():
+    payload = json.loads(_config().to_json())
+    payload.pop("speech_batch_size")
+    payload.pop("speech_batching")
+    restored = PipelineConfig.from_json(json.dumps(payload))
+    assert restored.speech_batch_size == 1
+    assert restored.speech_batching == "article-order@v1"
 
 
 class _FixedClock:

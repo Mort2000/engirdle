@@ -2,7 +2,7 @@
 
 Implements the ``SpeechAdapter`` protocol against the local Base checkpoint:
 one reusable voice-clone prompt per confirmed voice profile revision, then a
-``generate_voice_clone`` call per sentence with ``language="English"``. The
+batched ``generate_voice_clone`` calls with ``language="English"``. The
 CustomVoice checkpoint is never used here — it only creates anchor candidates
 through ``Qwen3AnchorEngine``.
 
@@ -23,7 +23,9 @@ from pathlib import Path
 from typing import Any
 
 from engirdle_pc.modules.speech.application.ports import (
+    SPEECH_BATCHING,
     SentenceSpeech,
+    SpeechRequest,
     VoiceProfileRef,
 )
 from engirdle_pc.modules.speech.application.service import InvalidSpeechResult
@@ -47,7 +49,7 @@ BASE_HUB_ID = "Qwen/Qwen3-TTS-12Hz-1.7B-Base"
 CUSTOM_VOICE_HUB_ID = "Qwen/Qwen3-TTS-12Hz-1.7B-CustomVoice"
 
 CLONE_LANGUAGE = "English"
-GENERATION_CONFIG_VERSION = "qwen3-clone@v1"
+GENERATION_CONFIG_VERSION = "qwen3-clone@v2"
 SAMPLE_RATE_HZ = 24_000
 
 
@@ -61,8 +63,12 @@ class Qwen3SpeechAdapter:
         base_model_dir: Path,
         seed: int,
         max_new_tokens: int,
+        batch_size: int = 4,
         sample_rate_hz: int = SAMPLE_RATE_HZ,
     ) -> None:
+        if batch_size < 1:
+            raise SpeechConfigurationError("speech batch size must be at least 1")
+        self._batch_size = batch_size
         self._profiles = profiles
         self._backend = backend
         self._custom_voice_model_dir = custom_voice_model_dir
@@ -72,6 +78,10 @@ class Qwen3SpeechAdapter:
         self._sample_rate_hz = sample_rate_hz
         self._prompt_key: tuple[str, int, str] | None = None
         self._prompt: object = None
+
+    @property
+    def batch_size(self) -> int:
+        return self._batch_size
 
     @property
     def name(self) -> str:
@@ -92,6 +102,8 @@ class Qwen3SpeechAdapter:
                 "seed": self._seed,
                 "max_new_tokens": self._max_new_tokens,
                 "sample_rate_hz": self._sample_rate_hz,
+                "batch_size": self._batch_size,
+                "batching": SPEECH_BATCHING,
             },
             sort_keys=True,
             separators=(",", ":"),
@@ -121,38 +133,58 @@ class Qwen3SpeechAdapter:
     def synthesize(
         self, sentence_id: str, text: str, target_dir: Path
     ) -> SentenceSpeech:
+        return self.synthesize_batch((SpeechRequest(sentence_id, text),), target_dir)[0]
+
+    def synthesize_batch(
+        self, requests: tuple[SpeechRequest, ...], target_dir: Path
+    ) -> tuple[SentenceSpeech, ...]:
+        if not requests:
+            return ()
+        if len(requests) > self._batch_size:
+            raise SpeechConfigurationError("speech batch exceeds configured batch size")
+        if len({request.sentence_id for request in requests}) != len(requests):
+            raise InvalidSpeechResult("speech batch contains duplicate sentence IDs")
         profile = self._require_active_profile()
         self._backend.load_base()
         prompt = self._prompt_for(profile)
         self._backend.set_seed(self._seed)
         started = time.monotonic()
-        wave = self._backend.generate_voice_clone(
-            text=text,
+        waves = self._backend.generate_voice_clone_batch(
+            texts=tuple(request.text for request in requests),
             language=CLONE_LANGUAGE,
             voice_clone_prompt=prompt,
             max_new_tokens=self._max_new_tokens,
         )
-        pcm = _to_int16_pcm(wave.samples, wave.sample_rate_hz, self._sample_rate_hz)
+        if len(waves) != len(requests):
+            raise InvalidSpeechResult("model returned a different number of waveforms")
+        # Validate every waveform before writing any part of this batch.
+        pcms = tuple(
+            _to_int16_pcm(wave.samples, wave.sample_rate_hz, self._sample_rate_hz)
+            for wave in waves
+        )
         target_dir.mkdir(parents=True, exist_ok=True)
-        pcm_path = target_dir / f"{sentence_id}.pcm"
-        pcm_path.write_bytes(pcm)
-        sample_count = len(pcm) // 2
+        results: list[SentenceSpeech] = []
+        for request, pcm in zip(requests, pcms, strict=True):
+            pcm_path = target_dir / f"{request.sentence_id}.pcm"
+            pending_path = pcm_path.with_suffix(".pcm.tmp")
+            pending_path.write_bytes(pcm)
+            pending_path.replace(pcm_path)
+            results.append(SentenceSpeech(
+                sentence_id=request.sentence_id, pcm_path=pcm_path,
+                sample_rate_hz=self._sample_rate_hz, sample_count=len(pcm) // 2,
+            ))
         LOGGER.info(
-            "qwen3-tts synthesized sentence",
+            "qwen3-tts synthesized batch",
             extra={
-                "sentence_id": sentence_id,
-                "sample_count": sample_count,
-                "duration_ms": sample_count * 1000 // self._sample_rate_hz,
+                "sentence_ids": [result.sentence_id for result in results],
+                "batch_size": len(results),
+                "duration_ms": sum(result.sample_count for result in results)
+                * 1000 // self._sample_rate_hz,
                 "elapsed_ms": int((time.monotonic() - started) * 1000),
                 "voice_profile": f"{profile.voice_profile_id}@{profile.revision}",
             },
         )
-        return SentenceSpeech(
-            sentence_id=sentence_id,
-            pcm_path=pcm_path,
-            sample_rate_hz=self._sample_rate_hz,
-            sample_count=sample_count,
-        )
+        return tuple(results)
 
     # -- internals --------------------------------------------------------
 
@@ -258,4 +290,5 @@ def build_qwen3_speech_adapter(
         base_model_dir=settings.base_model_dir,
         seed=settings.speech_seed,
         max_new_tokens=settings.speech_max_new_tokens,
+        batch_size=settings.speech_batch_size,
     )

@@ -13,7 +13,11 @@ import wave
 from array import array
 from pathlib import Path
 
-from engirdle_pc.modules.speech.application.ports import SentenceSpeech, VoiceProfileRef
+from engirdle_pc.modules.speech.application.ports import (
+    SentenceSpeech,
+    SpeechRequest,
+    VoiceProfileRef,
+)
 from engirdle_pc.modules.speech.application.voice_ports import (
     GeneratedAnchor,
     SpeakerInfo,
@@ -32,7 +36,8 @@ class StubSpeechAdapter:
     generation_config_id = "tone-pcm@v1"
     sample_rate_hz = 24_000
 
-    def __init__(self) -> None:
+    def __init__(self, batch_size: int = 4) -> None:
+        self.batch_size = batch_size
         self._voice_profile = VoiceProfileRef(
             voice_profile_id="stub-voice-profile",
             revision=1,
@@ -65,6 +70,11 @@ class StubSpeechAdapter:
         path = target_dir / f"{sentence_id}.pcm"
         path.write_bytes(samples.tobytes())
         return SentenceSpeech(sentence_id, path, self.sample_rate_hz, sample_count)
+
+    def synthesize_batch(
+        self, requests: tuple[SpeechRequest, ...], target_dir: Path
+    ) -> tuple[SentenceSpeech, ...]:
+        return tuple(self.synthesize(r.sentence_id, r.text, target_dir) for r in requests)
 
 
 def _float_samples(sample_count: int, amplitude: float = 0.3) -> list[float]:
@@ -148,22 +158,35 @@ class FakeQwen3Backend:
         voice_clone_prompt: object,
         max_new_tokens: int,
     ) -> GeneratedWaveform:
+        return self.generate_voice_clone_batch(
+            texts=(text,), language=language, voice_clone_prompt=voice_clone_prompt,
+            max_new_tokens=max_new_tokens,
+        )[0]
+
+    def generate_voice_clone_batch(
+        self,
+        *,
+        texts: tuple[str, ...],
+        language: str,
+        voice_clone_prompt: object,
+        max_new_tokens: int,
+    ) -> tuple[GeneratedWaveform, ...]:
         self.voice_clone_calls.append(
             {
-                "text": text,
+                "text": texts[0] if len(texts) == 1 else list(texts),
                 "language": language,
                 "voice_clone_prompt": voice_clone_prompt,
                 "max_new_tokens": max_new_tokens,
             }
         )
-        return GeneratedWaveform(
+        return tuple(GeneratedWaveform(
             samples=(
                 self.waveform
                 if self.waveform is not None
                 else _float_samples(self.sample_count)
             ),
             sample_rate_hz=self.sample_rate_hz,
-        )
+        ) for _ in texts)
 
 
 class FakeAnchorEngine:

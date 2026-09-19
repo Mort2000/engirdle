@@ -8,6 +8,7 @@ from pathlib import Path
 
 import pytest
 
+from engirdle_pc.modules.speech.application.ports import SpeechRequest
 from engirdle_pc.modules.speech.application.service import InvalidSpeechResult
 from engirdle_pc.modules.speech.domain.models import (
     VoiceProfile,
@@ -15,6 +16,7 @@ from engirdle_pc.modules.speech.domain.models import (
 )
 from engirdle_pc.modules.speech.infrastructure.qwen3_adapter import Qwen3SpeechAdapter
 from engirdle_pc.modules.speech.infrastructure.qwen3_backend import (
+    GeneratedWaveform,
     SpeechConfigurationError,
     checkpoint_fingerprint,
 )
@@ -80,7 +82,7 @@ def active_profile(tmp_path: Path, profiles) -> VoiceProfile:
     return profile
 
 
-def _adapter(profiles, backend: FakeQwen3Backend, tmp_path: Path, seed: int = 7):
+def _adapter(profiles, backend: FakeQwen3Backend, tmp_path: Path, seed: int = 7, batch_size=4):
     return Qwen3SpeechAdapter(
         profiles,
         backend,
@@ -88,6 +90,7 @@ def _adapter(profiles, backend: FakeQwen3Backend, tmp_path: Path, seed: int = 7)
         base_model_dir=tmp_path / "models" / "Qwen3-TTS-12Hz-1.7B-Base",
         seed=seed,
         max_new_tokens=2_048,
+        batch_size=batch_size,
     )
 
 
@@ -120,6 +123,42 @@ def test_synthesize_writes_pcm_and_reuses_one_prompt(
     assert ref.voice_profile_id == "voice-1"
     assert ref.revision == 1
     assert ref.anchor_sha256 == active_profile.anchor_sha256
+
+
+def test_batch_synthesizes_distinct_sentence_files_in_one_model_call(
+    tmp_path: Path, profiles, active_profile
+) -> None:
+    backend = FakeQwen3Backend()
+    adapter = _adapter(profiles, backend, tmp_path)
+    results = adapter.synthesize_batch(
+        (SpeechRequest("short", "Short."), SpeechRequest("long", "A longer sentence.")),
+        tmp_path / "pcm",
+    )
+    assert tuple(result.sentence_id for result in results) == ("short", "long")
+    assert all(result.pcm_path.stat().st_size == 9_600 for result in results)
+    assert len(backend.voice_clone_calls) == 1
+    assert backend.voice_clone_calls[0]["text"] == ["Short.", "A longer sentence."]
+    assert backend.seeds == [7]
+    assert len(backend.clone_prompt_calls) == 1
+
+
+@pytest.mark.parametrize("invalid", ["missing", "extra", "invalid_last_wave"])
+def test_bad_waveform_batch_writes_no_partial_pcm(tmp_path, profiles, active_profile, invalid):
+    class BadWaveforms(FakeQwen3Backend):
+        def generate_voice_clone_batch(self, **kwargs):
+            waves = super().generate_voice_clone_batch(**kwargs)
+            if invalid == "missing":
+                return waves[:-1]
+            if invalid == "extra":
+                return (*waves, waves[0])
+            return (waves[0], GeneratedWaveform([float("nan")], 24_000))
+
+    adapter = _adapter(profiles, BadWaveforms(), tmp_path)
+    with pytest.raises(InvalidSpeechResult):
+        adapter.synthesize_batch(
+            (SpeechRequest("a", "One."), SpeechRequest("b", "Two.")), tmp_path / "pcm"
+        )
+    assert not list((tmp_path / "pcm").glob("*.pcm"))
 
 
 def test_prompt_is_rebuilt_for_a_new_profile_revision(
@@ -194,10 +233,13 @@ def test_synthesize_detects_anchor_tampering(
 def test_generation_config_id_tracks_parameters(tmp_path: Path, profiles) -> None:
     first = _adapter(profiles, FakeQwen3Backend(), tmp_path, seed=1)
     second = _adapter(profiles, FakeQwen3Backend(), tmp_path, seed=2)
-    assert first.generation_config_id.startswith("qwen3-clone@v1:")
+    assert first.generation_config_id.startswith("qwen3-clone@v2:")
     assert first.generation_config_id != second.generation_config_id
     assert first.generation_config_id == _adapter(
         profiles, FakeQwen3Backend(), tmp_path, seed=1
+    ).generation_config_id
+    assert first.generation_config_id != _adapter(
+        profiles, FakeQwen3Backend(), tmp_path, seed=1, batch_size=2
     ).generation_config_id
 
 

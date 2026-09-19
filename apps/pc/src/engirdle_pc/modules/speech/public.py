@@ -1,6 +1,7 @@
 from engirdle_pc.modules.speech.application.ports import (
     SentenceSpeech,
     SpeechAdapter,
+    SpeechRequest,
     VoiceProfileRef,
 )
 from engirdle_pc.modules.speech.application.service import (
@@ -50,6 +51,7 @@ __all__ = [
     "SpeechAdapter",
     "SpeechConfigurationError",
     "SpeechGenerationError",
+    "SpeechRequest",
     "SpeechService",
     "VoiceCandidateNotFound",
     "VoiceIntegrityError",

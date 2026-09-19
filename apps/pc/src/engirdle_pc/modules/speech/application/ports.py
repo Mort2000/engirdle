@@ -4,6 +4,14 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Protocol
 
+SPEECH_BATCHING = "length-sorted-pending@v1"
+
+
+@dataclass(frozen=True)
+class SpeechRequest:
+    sentence_id: str
+    text: str
+
 
 @dataclass(frozen=True)
 class VoiceProfileRef:
@@ -32,6 +40,9 @@ class SpeechStore(Protocol):
 
 class SpeechAdapter(Protocol):
     @property
+    def batch_size(self) -> int: ...
+
+    @property
     def name(self) -> str: ...
 
     @property
@@ -48,6 +59,11 @@ class SpeechAdapter(Protocol):
 
     def synthesize(self, sentence_id: str, text: str, target_dir: Path) -> SentenceSpeech:
         """Create validated mono signed-16-bit PCM for one English sentence."""
+
+    def synthesize_batch(
+        self, requests: tuple[SpeechRequest, ...], target_dir: Path
+    ) -> tuple[SentenceSpeech, ...]:
+        """Generate one batch, returning a separate PCM in each request's order."""
 
     def verify_setup(self) -> None:
         """Fail fast when the speech runtime (deps, models) cannot serve at all."""

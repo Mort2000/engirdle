@@ -15,7 +15,7 @@ from engirdle_pc.bootstrap.config import Settings
 from engirdle_pc.bootstrap.container import Container
 from engirdle_pc.modules.content.public import NewArticle
 from engirdle_pc.modules.production.public import JobStatus
-from engirdle_pc.modules.speech.public import SentenceSpeech, VoiceProfileRef
+from engirdle_pc.modules.speech.public import SentenceSpeech, SpeechRequest, VoiceProfileRef
 from tests.speech_fake import StubSpeechAdapter
 from tests.translation_fake import build_fake_translation_adapter
 
@@ -44,6 +44,7 @@ class RecordingSpeechAdapter:
     custom_voice_model = StubSpeechAdapter.custom_voice_model
     base_model = StubSpeechAdapter.base_model
     generation_config_id = StubSpeechAdapter.generation_config_id
+    batch_size = 4
 
     def __init__(self) -> None:
         self._delegate = StubSpeechAdapter()
@@ -63,6 +64,9 @@ class RecordingSpeechAdapter:
         self.sentence_ids.append(sentence_id)
         self.texts.append(text)
         return self._delegate.synthesize(sentence_id, text, target_dir)
+
+    def synthesize_batch(self, requests: tuple[SpeechRequest, ...], target_dir: Path):
+        return tuple(self.synthesize(r.sentence_id, r.text, target_dir) for r in requests)
 
 
 def _build(tmp_path: Path, translator, speech):
@@ -109,11 +113,12 @@ def test_worker_routes_only_plan_units_to_translation_and_sentences_to_speech(
     assert CODE_SENTINEL not in translator.all_request_text()
     assert all(CODE_SENTINEL not in context for context in translator.contexts)
 
-    # TTS received exactly the narration units, in article order, and nothing
+    # TTS received exactly the narration units, in length order, and nothing
     # from the table or the code block.
-    assert speech.texts == [unit.text for unit in plan.narration.units]
+    ordered = sorted(plan.narration.units, key=lambda unit: len(unit.text))
+    assert speech.texts == [unit.text for unit in ordered]
     assert speech.sentence_ids == [
-        unit.sentence_id for unit in plan.narration.units
+        unit.sentence_id for unit in ordered
     ]
     assert TABLE_CELL_TEXT not in speech.texts
     assert TABLE_HEADER_TEXT not in speech.texts
