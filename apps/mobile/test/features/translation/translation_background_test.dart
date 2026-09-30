@@ -107,6 +107,7 @@ void main() {
     library = LibraryService(
       dao: LibraryDao(db.db),
       directories: AppDirectories(Directory.current),
+      packagedTranslationInstaller: TranslationDao(db.db).installPackagedSetFor,
     );
     dao = TranslationDao(db.db);
     secrets = InMemorySecretStore();
@@ -158,7 +159,10 @@ void main() {
                 order: 1,
                 text: 'Two sentences.',
                 runs: [
-                  ArticleRun(kind: ArticleRunKind.plain, text: 'Two sentences.'),
+                  ArticleRun(
+                    kind: ArticleRunKind.plain,
+                    text: 'Two sentences.',
+                  ),
                 ],
               ),
             ],
@@ -232,20 +236,26 @@ void main() {
     );
     final outcome = await session.run(job.jobId);
 
-    // Work "succeeded" from WorkManager's view: retry rounds belong to the
-    // module's persistent schedule, not to WorkManager retry accounting.
-    expect(outcome, isTrue);
+    // The work asks WorkManager to retry (Result.retry): under the keep
+    // policy the module's re-enqueue is ignored while this work exists, so
+    // the OS redelivery of THIS work is what must continue the job (§8.5
+    // 耗尽后交给 WorkManager backoff — a true return here would strand the
+    // job until the next app start).
+    expect(outcome, isFalse);
     expect(dao.getJob(job.jobId)!.status, TranslationJobStatus.waitingRetry);
     expect(reporter.calls, contains('waiting:Worker Article'));
     // No premature summary while the job is still active.
-    expect(
-      reporter.calls.where((c) => c.startsWith('finished')),
-      isEmpty,
-    );
+    expect(reporter.calls.where((c) => c.startsWith('finished')), isEmpty);
+
+    // The redelivered execution takes the waiting_retry re-entry path and
+    // finishes the job (this is what the retry return buys).
+    client.reply('["第一句。", "第二句。"]');
+    final redelivered = await session.run(job.jobId);
+    expect(redelivered, isTrue);
+    expect(dao.getJob(job.jobId)!.status, TranslationJobStatus.completed);
   });
 
-  test('run survives reporter failures and still finishes the job',
-      () async {
+  test('run survives reporter failures and still finishes the job', () async {
     installArticle();
     final client = ScriptedClient()..reply('["译文一", "译文二"]');
     final reporter = _ThrowingReporter();
@@ -262,38 +272,40 @@ void main() {
     expect(dao.getJob(job.jobId)!.status, TranslationJobStatus.completed);
   });
 
-  test('a system stop parks the running job into a visible waiting state',
-      () async {
-    installArticle();
-    final client = ScriptedClient();
-    final reporter = RecordingReporter();
-    final session = buildSession(client, reporter);
-    final module = session.translationForTest;
-    final job = await module.queueTranslation(
-      articleId: 'a1',
-      privacyConfirmedAt: DateTime.utc(2026, 1, 1),
-    );
-    // The OS interrupts the executor mid-run (claimed, no unit accepted);
-    // without parking, the row would stay running with no waiting hint
-    // until WorkManager redelivers.
-    expect(dao.claim(job.jobId), TranslationClaim.claimed);
+  test(
+    'a system stop parks the running job into a visible waiting state',
+    () async {
+      installArticle();
+      final client = ScriptedClient();
+      final reporter = RecordingReporter();
+      final session = buildSession(client, reporter);
+      final module = session.translationForTest;
+      final job = await module.queueTranslation(
+        articleId: 'a1',
+        privacyConfirmedAt: DateTime.utc(2026, 1, 1),
+      );
+      // The OS interrupts the executor mid-run (claimed, no unit accepted);
+      // without parking, the row would stay running with no waiting hint
+      // until WorkManager redelivers.
+      expect(dao.claim(job.jobId), TranslationClaim.claimed);
 
-    await session.parkInterruptedOnSystemStop('network');
+      await session.parkInterruptedOnSystemStop('network');
 
-    final parked = dao.getJob(job.jobId)!;
-    expect(parked.status, TranslationJobStatus.waitingRetry);
-    expect(parked.errorKind, TranslationErrorKind.transport);
-    // A system stop is not a model failure: the retry budget is untouched.
-    expect(parked.retryRound, 0);
-    expect(reporter.calls, contains('waiting:Worker Article'));
+      final parked = dao.getJob(job.jobId)!;
+      expect(parked.status, TranslationJobStatus.waitingRetry);
+      expect(parked.errorKind, TranslationErrorKind.transport);
+      // A system stop is not a model failure: the retry budget is untouched.
+      expect(parked.retryRound, 0);
+      expect(reporter.calls, contains('waiting:Worker Article'));
 
-    // The redelivered execution takes over from waiting_retry and finishes
-    // from the journal.
-    client.reply('["第一句。", "第二句。"]');
-    final outcome = await session.run(job.jobId);
-    expect(outcome, isTrue);
-    expect(dao.getJob(job.jobId)!.status, TranslationJobStatus.completed);
-  });
+      // The redelivered execution takes over from waiting_retry and finishes
+      // from the journal.
+      client.reply('["第一句。", "第二句。"]');
+      final outcome = await session.run(job.jobId);
+      expect(outcome, isTrue);
+      expect(dao.getJob(job.jobId)!.status, TranslationJobStatus.completed);
+    },
+  );
 
   test('a system stop after completion parks nothing', () async {
     installArticle();

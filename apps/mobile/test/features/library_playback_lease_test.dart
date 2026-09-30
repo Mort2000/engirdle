@@ -8,6 +8,7 @@ import 'package:engirdle_mobile/platform/database/app_database.dart';
 import 'package:engirdle_mobile/platform/filesystem/app_directories.dart';
 import 'package:engirdle_mobile/shared_kernel/content_identity.dart';
 import 'package:engirdle_mobile/shared_kernel/failures.dart';
+import 'package:engirdle_mobile/features/translation/infrastructure/translation_dao.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:path/path.dart' as p;
 
@@ -32,6 +33,9 @@ void main() {
       dao: LibraryDao(appDb.db),
       directories: dirs,
       playbackLeases: registry,
+      packagedTranslationInstaller: TranslationDao(
+        appDb.db,
+      ).installPackagedSetFor,
     );
   });
 

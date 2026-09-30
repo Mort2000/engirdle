@@ -4,6 +4,7 @@ import 'package:sqlite3/sqlite3.dart';
 
 import '../../../contracts/contract_violation.dart';
 import '../../../contracts/readpack_v1/article.dart';
+import '../../../shared_kernel/content_identity.dart' show kZhTranslationLocale;
 import '../../../shared_kernel/id_generator.dart';
 import '../domain/article_install.dart';
 import '../domain/installed_article.dart';
@@ -11,8 +12,9 @@ import '../domain/installed_article.dart';
 /// DAO for library-owned tables: the immutable article base (articles,
 /// article_artifacts, blocks, sentences), reading modes, and the derivative
 /// pointers (article_active_translations, narration_assets). Translation
-/// rows are written by installs and the translation module, but reads
-/// compose them back here so the reader sees one projection.
+/// rows live in translation-owned tables, written by the translation DAO's
+/// packaged-set seam inside this DAO's install transaction; reads compose
+/// them back here so the reader sees one projection.
 ///
 /// The v1.1 block payload (heading/list/quote styling, table cells, code
 /// bodies) and the sentence render runs live in JSON columns — JSON exists
@@ -50,13 +52,17 @@ class LibraryDao {
 
   /// Base select + the derived has_translation flag. Every article reader
   /// goes through this so list rows and single reads agree on capabilities.
+  /// The active-set lookup binds the one locale this build reads
+  /// (kZhTranslationLocale) — a pointer in any other locale must never
+  /// surface as the reader's Simplified Chinese (design §2.2).
   static String get _articleQuery =>
       'WITH base AS ($_articleSelect) '
       'SELECT b.*, EXISTS('
       '  SELECT 1 FROM article_active_translations aat '
       '  JOIN translation_sets ts ON ts.translation_set_id = '
       '    aat.translation_set_id '
-      "  WHERE aat.article_id = b.article_id AND ts.status = 'complete'"
+      "  WHERE aat.article_id = b.article_id AND ts.status = 'complete' "
+      "  AND aat.target_locale = '$kZhTranslationLocale'"
       ') AS has_translation FROM base b ';
   // Outer predicates address the base CTE through its alias b — the inner
   // a/ar/n aliases are out of scope.
@@ -96,15 +102,18 @@ class LibraryDao {
   bool hasActiveTranslation(String articleId) =>
       activeTranslationSetId(articleId) != null;
 
-  /// The active complete set id, or null. Only complete sets may be active;
-  /// a drifted pointer (none should exist) reads as no translation.
+  /// The active complete set id for the reader locale, or null. Only
+  /// complete sets may be active; a drifted pointer (none should exist)
+  /// reads as no translation. Locale-bound so a non-zh-Hans active set can
+  /// never feed the zh projection (design §2.2).
   String? activeTranslationSetId(String articleId) {
     final rows = _db.select(
       'SELECT ts.translation_set_id FROM article_active_translations aat '
       'JOIN translation_sets ts ON ts.translation_set_id = '
       'aat.translation_set_id '
-      "WHERE aat.article_id = ? AND ts.status = 'complete'",
-      [articleId],
+      "WHERE aat.article_id = ? AND ts.status = 'complete' "
+      'AND aat.target_locale = ?',
+      [articleId, kZhTranslationLocale],
     );
     if (rows.isEmpty) return null;
     return rows.first['translation_set_id'] as String;
@@ -410,10 +419,16 @@ class LibraryDao {
   /// Atomically replaces any previously installed revision of the article
   /// with the unified validated import (MOB-IMP-002 pointer switch, design
   /// §5.7): the immutable base plus its packaged derivatives — a translation
-  /// set (activated, complete by construction) and a narration asset. Runs in
-  /// one short transaction; callers move files first and keep the recovery
-  /// log around this call (design §8.2).
-  void installArticle(ValidatedArticleImport install) {
+  /// set (activated, complete by construction) and a narration asset. The
+  /// translation rows themselves are written by [installPackagedTranslation],
+  /// the translation module's seam, INSIDE this transaction (same
+  /// connection); the library keeps only the active pointer. Runs in one
+  /// short transaction; callers move files first and keep the recovery log
+  /// around this call (design §8.2).
+  void installArticle(
+    ValidatedArticleImport install, {
+    InstallPackagedTranslation? installPackagedTranslation,
+  }) {
     final articleId = install.articleId;
     final now = DateTime.now().toUtc().toIso8601String();
     _db.execute('BEGIN IMMEDIATE');
@@ -504,7 +519,7 @@ class LibraryDao {
           );
         }
       }
-      _installDerivatives(install, now);
+      _installDerivatives(install, now, installPackagedTranslation);
       _db.execute('COMMIT');
     } catch (_) {
       // A failing ROLLBACK must not mask the original error.
@@ -517,43 +532,27 @@ class LibraryDao {
     }
   }
 
-  /// Writes the packaged translation set (activated when complete) and the
-  /// narration asset. Source-only imports carry neither; partial derivatives
-  /// are never installed — the caller validated the artifact as a whole.
-  void _installDerivatives(ValidatedArticleImport install, String now) {
+  /// Writes the active translation pointer and the narration asset. The
+  /// packaged translation rows themselves belong to the translation module:
+  /// [installPackagedTranslation] writes them inside this open transaction
+  /// (same connection). Source-only imports carry neither; partial
+  /// derivatives are never installed — the caller validated the artifact as
+  /// a whole.
+  void _installDerivatives(
+    ValidatedArticleImport install,
+    String now,
+    InstallPackagedTranslation? installPackagedTranslation,
+  ) {
     final articleId = install.articleId;
     final translation = install.translation;
     if (translation != null) {
+      if (installPackagedTranslation == null) {
+        throw StateError(
+          'a packaged translation needs its owning installer seam',
+        );
+      }
       final setId = newUuid();
-      _db.execute(
-        'INSERT INTO translation_sets (translation_set_id, article_id, '
-        'artifact_revision, structure_sha256, target_locale, origin, '
-        'status, pipeline_json, created_at) '
-        "VALUES (?, ?, ?, ?, ?, 'packaged', 'complete', ?, ?)",
-        [
-          setId,
-          articleId,
-          install.artifactRevision,
-          install.structureSha256,
-          translation.locale,
-          translation.pipelineJson,
-          now,
-        ],
-      );
-      for (final (sentenceId, text) in translation.sentences) {
-        _db.execute(
-          'INSERT INTO sentence_translations (translation_set_id, '
-          'sentence_id, text) VALUES (?, ?, ?)',
-          [setId, sentenceId, text],
-        );
-      }
-      for (final (blockId, cellId, text) in translation.cells) {
-        _db.execute(
-          'INSERT INTO table_cell_translations (translation_set_id, '
-          'block_id, cell_id, text) VALUES (?, ?, ?, ?)',
-          [setId, blockId, cellId, text],
-        );
-      }
+      installPackagedTranslation(install, translationSetId: setId);
       _db.execute(
         'INSERT INTO article_active_translations (article_id, '
         'target_locale, translation_set_id) VALUES (?, ?, ?)',
@@ -581,13 +580,19 @@ class LibraryDao {
           narration.durationMs,
         ],
       );
-      for (final (sentenceId, startMs, endMs, startSample, endSample)
-          in narration.ranges) {
+      for (final range in narration.ranges) {
         _db.execute(
           'INSERT INTO sentence_audio_ranges (narration_id, sentence_id, '
           'audio_start_ms, audio_end_ms, audio_start_sample, '
           'audio_end_sample) VALUES (?, ?, ?, ?, ?, ?)',
-          [narrationId, sentenceId, startMs, endMs, startSample, endSample],
+          [
+            narrationId,
+            range.sentenceId,
+            range.startMs,
+            range.endMs,
+            range.startSample,
+            range.endSample,
+          ],
         );
       }
     }

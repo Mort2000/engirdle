@@ -5,6 +5,12 @@
 /// ordered block/sentence arrays instead.
 library;
 
+/// The one translation locale this mobile build reads (design §2.2/§5.3:
+/// 首期目标固定 zh-Hans). A v2 package may carry derivatives in other
+/// locales; they are ignored at the router boundary and never read as this
+/// locale by the library queries.
+const String kZhTranslationLocale = 'zh-Hans';
+
 /// Identifies one immutable article revision installed on this device.
 class ArticleRef {
   const ArticleRef({

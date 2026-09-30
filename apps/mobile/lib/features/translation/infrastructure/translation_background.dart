@@ -40,8 +40,7 @@ abstract interface class TranslationProgressReporter {
   Future<void> dismiss({required String jobId});
 }
 
-class NativeTranslationProgressReporter
-    implements TranslationProgressReporter {
+class NativeTranslationProgressReporter implements TranslationProgressReporter {
   const NativeTranslationProgressReporter();
 
   @override
@@ -114,22 +113,29 @@ class TranslationWorkerSession {
   /// platform services (path_provider and engirdle_native are registered on
   /// every engine; sqlite3 is FFI, engine-independent).
   static Future<TranslationWorkerSession> open({
-    TranslationProgressReporter reporter = const NativeTranslationProgressReporter(),
+    TranslationProgressReporter reporter =
+        const NativeTranslationProgressReporter(),
   }) async {
     final supportDir = await getApplicationSupportDirectory();
     final directories = AppDirectories(supportDir);
     await directories.ensureBaseLayout();
     final db = AppDatabase.open(directories.databaseFile.path);
+    final dao = TranslationDao(db.db);
     final library = LibraryService(
       dao: LibraryDao(db.db),
       directories: directories,
+      // Same table-ownership seam as the UI engine: packaged translation
+      // rows install through the translation DAO inside the library's
+      // transaction.
+      packagedTranslationInstaller: dao.installPackagedSetFor,
     );
-    final dao = TranslationDao(db.db);
     final secrets = const KeystoreSecretStore();
     final client = DeepSeekMobileAdapter(secrets: secrets);
     final scheduler = WorkManagerTranslationScheduler(
       enqueuer: const WorkmanagerOneOffWorkEnqueuer(),
-      profile: dao.readProfile,
+      // Job-constraints from the frozen config snapshot (§8.4), never the
+      // live profile.
+      configOf: (jobId) => dao.getJob(jobId)?.config,
       articleTitleOf: (jobId) => _articleTitle(dao, library, jobId),
     );
     final translation = TranslationModule(
@@ -222,11 +228,14 @@ class TranslationWorkerSession {
   }
 
   /// Runs the job once and reports progress to the notification seam.
-  /// Resolves `false` ONLY for a §8.4 busy deferral (another job holds the
-  /// single execution slot) — WorkManager then retries this execution after
-  /// its backoff. Everything else resolves `true`: retry rounds and backoff
-  /// belong to the module and its persistent schedule, never to
-  /// WorkManager's own retry accounting (§8.3).
+  /// Resolves `false` — WorkManager `Result.retry()`, redelivering THIS
+  /// unique work after its backoff — for a §8.4 busy deferral (another job
+  /// holds the single execution slot) and for a job parked in
+  /// waiting_retry: the module's own re-enqueue under the keep policy is
+  /// ignored while this work exists (§8.3's "耗尽后交给 WorkManager backoff"
+  /// rides the OS retry, which also survives process death in the backoff
+  /// window). Everything else resolves `true`: terminal outcomes and the
+  /// module's retry-round accounting never touch WorkManager's.
   Future<bool> run(String jobId) async {
     final job = _dao.getJob(jobId);
     if (job == null) return true;
@@ -253,6 +262,10 @@ class TranslationWorkerSession {
             succeeded: finalJob.status == TranslationJobStatus.completed,
           );
         }
+      }
+      if (finalJob != null &&
+          finalJob.status == TranslationJobStatus.waitingRetry) {
+        return false;
       }
       return result != TranslationRunResult.deferredBusy;
     } catch (error) {

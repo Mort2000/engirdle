@@ -7,6 +7,7 @@ import 'package:engirdle_mobile/features/library/infrastructure/library_dao.dart
 import 'package:engirdle_mobile/platform/database/app_database.dart';
 import 'package:engirdle_mobile/platform/database/migrations.dart';
 import 'package:engirdle_mobile/platform/filesystem/app_directories.dart';
+import 'package:engirdle_mobile/features/translation/infrastructure/translation_dao.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 /// v5 → v6: raw-source import support (lightweight-readpack design §11.1).
@@ -56,6 +57,9 @@ void main() {
       final library = LibraryService(
         dao: dao,
         directories: AppDirectories(temp),
+        packagedTranslationInstaller: TranslationDao(
+          db.db,
+        ).installPackagedSetFor,
       );
 
       ParsedTextBlock paragraph(String text) => ParsedTextBlock(

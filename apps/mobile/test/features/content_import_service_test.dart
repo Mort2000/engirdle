@@ -5,6 +5,9 @@ import 'dart:typed_data';
 import 'package:engirdle_mobile/app/dependencies.dart';
 import 'package:engirdle_mobile/features/importer/application/content_import_service.dart';
 import 'package:engirdle_mobile/features/source_ingestion/domain/raw_source.dart';
+import 'package:engirdle_mobile/features/source_ingestion/infrastructure/markdown_parser.dart'
+    show sha256OfBytes;
+import 'package:engirdle_mobile/shared_kernel/content_identity.dart';
 import 'package:engirdle_mobile/shared_kernel/failures.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -162,6 +165,119 @@ void main() {
     expect(deps.library.listArticles(), isEmpty);
   });
 
+  test('a BOM file keeps its raw-byte hash through confirm (§6.1)', () async {
+    final body = utf8.encode('Bom body. Second sentence.');
+    final bommed = Uint8List.fromList([0xEF, 0xBB, 0xBF, ...body]);
+    final preview = await deps.contentImport.stageRawSource(
+      rawBytes: bommed,
+      syntax: SourceSyntax.plainText,
+      origin: 'document',
+    );
+    final ref = await deps.contentImport.confirmRawSource(
+      preview.importId,
+      metadata: _confirmedMetadata(title: 'Bom Article'),
+    );
+    // The installed source_sha256 is the hash of the ORIGINAL bytes, not of
+    // the canonical (BOM-stripped) text the re-parse saw.
+    final installed = deps.library.getArticle(ref.articleId)!;
+    expect(installed.sourceSha256, sha256OfBytes(bommed));
+
+    // Re-importing the same original file therefore hits the exact
+    // duplicate, not just the content-duplicate candidate (§6.3).
+    final again = await deps.contentImport.stageRawSource(
+      rawBytes: bommed,
+      syntax: SourceSyntax.plainText,
+      origin: 'document',
+    );
+    expect(again.duplicates.exact.map((a) => a.articleId), [ref.articleId]);
+    expect(again.duplicates.content, isEmpty);
+    await deps.contentImport.cancelRawSource(again.importId);
+  });
+
+  test('recovery rolls back an artifact moved but never committed', () async {
+    final preview = await deps.contentImport.stageRawSource(
+      rawBytes: utf8.encode('Orphaned move.'),
+      syntax: SourceSyntax.plainText,
+      origin: 'paste',
+    );
+    // Simulate the §6.5 crash window: target ref journaled at moving, files
+    // renamed into the final directory, process dead before the DB commit.
+    // Without rollback, the next import of the same content would be
+    // blocked by "artifact already exists" forever.
+    const articleId = 'orphan-article';
+    deps.database.db.execute(
+      "UPDATE source_imports SET state = 'moving', stats_json = ? "
+      'WHERE import_id = ?',
+      [
+        jsonEncode({
+          'origin': 'paste',
+          'article_ref': const {
+            'article_id': articleId,
+            'revision': 1,
+            'artifact_revision': 1,
+          },
+        }),
+        preview.importId,
+      ],
+    );
+    final ref = ArticleRef(
+      articleId: articleId,
+      revision: 1,
+      artifactRevision: 1,
+    );
+    final finalDir = deps.library.artifactDirectory(ref);
+    await finalDir.create(recursive: true);
+    await File(p.join(finalDir.path, 'article.json')).writeAsString('orphan');
+
+    await deps.contentImport.recover();
+
+    expect(finalDir.existsSync(), isFalse);
+    expect(deps.directories.stagingDir(preview.importId).existsSync(), isFalse);
+    expect(deps.library.listArticles(), isEmpty);
+    expect(_sourceImportRows(deps), 0);
+  });
+
+  test('recovery keeps a moving row whose commit already landed', () async {
+    final preview = await deps.contentImport.stageRawSource(
+      rawBytes: utf8.encode('Committed move.'),
+      syntax: SourceSyntax.plainText,
+      origin: 'paste',
+    );
+    final ref = await deps.contentImport.confirmRawSource(
+      preview.importId,
+      metadata: _confirmedMetadata(title: 'Committed'),
+    );
+    // Simulate a crash between the DB commit and the journal cleanup: a
+    // second journaled preview is flipped to moving and pointed at the LIVE
+    // article. Recovery must keep the content and only drop the journal.
+    final ghost = await deps.contentImport.stageRawSource(
+      rawBytes: utf8.encode('Ghost preview.'),
+      syntax: SourceSyntax.plainText,
+      origin: 'paste',
+    );
+    deps.database.db.execute(
+      "UPDATE source_imports SET state = 'moving', stats_json = ? "
+      'WHERE import_id = ?',
+      [
+        jsonEncode({
+          'origin': 'paste',
+          'article_ref': {
+            'article_id': ref.articleId,
+            'revision': 1,
+            'artifact_revision': 1,
+          },
+        }),
+        ghost.importId,
+      ],
+    );
+
+    await deps.contentImport.recover();
+
+    expect(deps.library.getArticle(ref.articleId), isNotNull);
+    expect(deps.directories.stagingDir(ghost.importId).existsSync(), isFalse);
+    expect(_sourceImportRows(deps), 0);
+  });
+
   test(
     'a v2 source-only document package installs without derivatives',
     () async {
@@ -189,6 +305,8 @@ void main() {
       expect(content.capabilities.hasTranslation, isFalse);
       expect(content.capabilities.hasNarration, isFalse);
       expect(content.article.packageId, isNotNull);
+      // The document ingress journal is gone once the install committed.
+      expect(_sourceImportRows(deps), 0);
     },
   );
 
@@ -274,8 +392,17 @@ void main() {
     );
     expect(deps.directories.stagingRoot.listSync(), isEmpty);
     expect(deps.library.listArticles(), isEmpty);
+    // The document ingress journals from staging creation: a failed import
+    // must take its journal row with it, leaving nothing for recover().
+    expect(_sourceImportRows(deps), 0);
   });
 }
+
+int _sourceImportRows(AppDependencies deps) =>
+    deps.database.db
+            .select('SELECT COUNT(*) AS n FROM source_imports')
+            .first['n']
+        as int;
 
 ConfirmedSourceMetadata _confirmedMetadata({required String title}) =>
     ConfirmedSourceMetadata(

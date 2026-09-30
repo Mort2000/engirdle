@@ -145,6 +145,10 @@ class AppDependencies {
       dao: libraryDao,
       directories: directories,
       playbackLeases: leaseRegistry,
+      // Table ownership (design §11.1): packaged translation rows are the
+      // translation module's; its DAO writes them inside the install
+      // transaction through this seam.
+      packagedTranslationInstaller: translationDao.installPackagedSetFor,
     );
     final resolvedContentImport =
         contentImport ??
@@ -185,8 +189,7 @@ class AppDependencies {
 
     // Translation pipeline: the secret store and LLM client are injectable
     // so tests script them without touching the platform or the network.
-    final secrets =
-        translationSecrets ?? const KeystoreSecretStore();
+    final secrets = translationSecrets ?? const KeystoreSecretStore();
     final llmClient =
         translationClient ?? DeepSeekMobileAdapter(secrets: secrets);
     final scheduler =
@@ -194,7 +197,9 @@ class AppDependencies {
         (translationBackgroundExecution
             ? WorkManagerTranslationScheduler(
                 enqueuer: const WorkmanagerOneOffWorkEnqueuer(),
-                profile: translationDao.readProfile,
+                // Constraints come from the job's frozen config snapshot
+                // (§8.4), not the live profile.
+                configOf: (jobId) => translationDao.getJob(jobId)?.config,
                 articleTitleOf: (jobId) =>
                     translationArticleTitleOf(translationDao, library, jobId),
               )
@@ -210,9 +215,7 @@ class AppDependencies {
       onJobTerminated: translationBackgroundExecution
           ? (jobId) {
               unawaited(
-                const NativeTranslationProgressReporter().dismiss(
-                  jobId: jobId,
-                ),
+                const NativeTranslationProgressReporter().dismiss(jobId: jobId),
               );
             }
           : null,

@@ -6,39 +6,72 @@ Flutter 实现的移动端 MVP：从局域网 PC 发布服务下载不可变 rea
 
 模块化单体 + 组合根（`lib/app/dependencies.dart`）。状态管理使用 Flutter 内置 `ChangeNotifier`/`ValueNotifier` + `ListenableBuilder`，依赖通过 `AppScope`（InheritedWidget）注入；不引入 riverpod/bloc，无任何 codegen。
 
-```
-lib/
-├── main.dart                     # 启动：装配依赖 → 导入恢复 → runApp
-├── app/                          # 组合根、路由、主题（三预设）、去工程化文案
-├── shared_kernel/                # 内容身份（ArticleRef/SentenceRef）、错误分类、ID 生成
-├── contracts/                    # readpack v1 / v2 / catalog v1 的 Dart 模型与运行时校验器
-│                                 #   （镜像 ../../contracts 下的 JSON Schema + 兼容规则；
-│                                 #   readpack v2 由导入阶段二接入 Dart 校验器）
-├── platform/                     # 与业务无关的技术底座
-│   ├── database/                 #   SQLite 打开 + PRAGMA user_version 迁移链（v1 全量建表）
-│   ├── filesystem/               #   受控目录布局，ID 校验后才可成为路径段
-│   ├── http/                     #   LAN HTTP 客户端（明文仅限私网/localhost，超时+大小上限+取消）
-│   ├── zip/                      #   自研安全 ZIP 读取器（预检中央目录，流式解压真实字节计数）
-│   ├── crypto/                   #   流式 SHA-256
-│   └── logging/                  #   结构化日志
-└── features/                     # 业务模块，各自 application/domain/infrastructure/presentation 分层
-    ├── connection/               # 服务地址保存与验证（01/02/16 屏）
-    ├── catalog/                  # 目录拉取与更新状态比较（不缓存，仅会话级）
-    ├── importer/                 # 下载→外层哈希→ZIP 预检→解压→校验→原子换指针→清理 + 启动恢复
-    ├── library/                  # 书架、已装内容索引、删除、阅读模式
-    ├── reader/                   # 阅读页、逐句选择手势、句菜单/翻译抽屉
-    ├── playback/                 # 单会话播放状态机（engine 端口 + just_audio 适配器）
-    ├── dictionary/               # 独立版本化词典资源、原样→规范化→lemma 查询顺序
-    ├── vocabulary/               # 一步保存 + 撤销；快照无 FK，文章删除后仍可读
-    ├── preferences/              # 字号/行高/边距/三预设主题
-    ├── source_ingestion/         # 粘贴/文件原文结构化（阶段 2，冻结 GFM 子集）
-    ├── translation/              # 移动端 LLM 文章翻译深模块（阶段 3/4，见下）
-    └── attribution/              # 归属信息页（15 屏）
+```plantuml
+@startuml
+skinparam shadowing false
+skinparam componentStyle rectangle
+skinparam packageStyle rectangle
 
-packages/engirdle_native/          # 本地原生插件：Keystore 密钥存储 + 翻译通知，
-                                   #   以真插件注册到每个 Flutter 引擎（含 WorkManager
-                                   #   后台引擎），MainActivity 的通道做不到这一点
+package "lib" {
+  [main.dart\n启动：装配依赖 → 导入恢复 → runApp] as Main
+
+  package "app" {
+    [组合根、路由、主题（三预设）\n去工程化文案] as App
+  }
+
+  package "shared_kernel" {
+    [内容身份（ArticleRef/SentenceRef、zh locale）\n错误分类、ID 生成] as Kernel
+  }
+
+  package "contracts" {
+    [readpack v1 / v2 / catalog v1 的 Dart 模型\n与运行时校验器（镜像 ../../contracts\n的 JSON Schema + 兼容规则）] as Contracts
+  }
+
+  package "platform（与业务无关的技术底座）" {
+    [database\nSQLite + PRAGMA user_version 迁移链] as DB
+    [filesystem\n受控目录布局，ID 校验后才可成为路径段] as FS
+    [http\nLAN 客户端：明文仅限私网/localhost\n超时 + 大小上限 + 取消] as HTTP
+    [zip\n自研安全 ZIP 读取器：预检中央目录\n流式解压真实字节计数] as ZIP
+    [crypto\n流式 SHA-256] as Crypto
+    [logging\n结构化日志] as Log
+  }
+
+  package "features（application/domain/infrastructure/presentation 分层）" {
+    [connection\n服务地址保存与验证（01/02/16 屏）] as Connection
+    [catalog\n目录拉取与更新比较（不缓存）] as Catalog
+    [importer\n下载→外层哈希→ZIP 预检→解压→校验\n→原子换指针→清理 + 启动恢复] as Importer
+    [library\n书架、已装内容索引、删除、阅读模式] as Library
+    [reader\n阅读页、逐句选择手势、句菜单/翻译抽屉] as Reader
+    [playback\n单会话播放状态机（engine 端口\n+ just_audio 适配器）] as Playback
+    [dictionary\n版本化词典资源、原样→规范化→lemma 查询] as Dictionary
+    [vocabulary\n一步保存 + 撤销；快照无 FK] as Vocabulary
+    [preferences\n字号/行高/边距/三预设主题] as Preferences
+    [source_ingestion\n粘贴/文件原文结构化（冻结 GFM 子集）] as Ingest
+    [translation\n移动端 LLM 文章翻译深模块（阶段 3/4）] as Translation
+    [attribution\n归属信息页（15 屏）] as Attribution
+  }
+}
+
+package "packages/engirdle_native" {
+  [本地原生插件：Keystore 密钥存储 + 翻译通知\n以真插件注册到每个 Flutter 引擎（含 WorkManager\n后台引擎），MainActivity 的通道做不到这一点] as Native
+}
+
+Main --> App
+App ..> Kernel
+App ..> Contracts
+App ..> Library
+App ..> Importer
+Importer ..> Contracts
+Importer ..> ZIP
+Importer ..> Translation : packaged 译文经其\nDAO seam 安装
+Translation ..> Library : exact base / 原子激活
+Reader ..> Library
+Playback ..> Library
+DB <-[hidden]-> FS
+@enduml
 ```
+
+各 feature 目录名与职责如上图注释；`main.dart` 装配依赖后进入路由。
 
 ## 关键技术决策
 
@@ -95,8 +128,8 @@ flutter build apk --debug    # 或直接 cd android && ./gradlew assembleDebug
 
 ### Android 后台化（阶段 4，轻量文章包设计 §9）
 
-- **调度**：`TranslationScheduler` 的 WorkManager 适配器（`infrastructure/workmanager_scheduler.dart`）为每个任务注册 unique one-off work（keep 策略，绝不重复排队）；WorkManager input data 只带 `job_id`（§9.2），文章内容、配置快照与密钥永远从数据库和 Keystore 读取。约束在每次 schedule 时按当前 profile 解析：始终要求联网，`仅 Wi-Fi`→ unmetered、`仅充电`→ requiresCharging。
-- **退避交给系统**：瞬态失败进入 `waiting_retry` 后，模块把退避窗口作为 work 的 initialDelay 委托给 WorkManager（§8.3）——进程死亡不丢定时；延迟投递到达时 `runJob` 的重入路径把任务接回 queued 继续跑。
+- **调度**：`TranslationScheduler` 的 WorkManager 适配器（`infrastructure/workmanager_scheduler.dart`）为每个任务注册 unique one-off work（keep 策略，绝不重复排队）；WorkManager input data 只带 `job_id`（§9.2），文章内容、配置快照与密钥永远从数据库和 Keystore 读取。约束在每次 schedule 时从该任务冻结的 config snapshot 解析（§8.4：设置变化只影响新任务）：始终要求联网，`仅 Wi-Fi`→ unmetered、`仅充电`→ requiresCharging。
+- **退避交给系统**：瞬态失败进入 `waiting_retry` 后，worker 对该 work 返回 `Result.retry()`（§8.5 耗尽请求内重试后交给 WorkManager backoff）——keep 策略下运行中的同名 re-enqueue 会被忽略，重投递必须由当前 work 自己的 retry 结果触发，进程死亡也不丢定时；重投递到达时 `runJob` 的重入路径把任务接回 queued 继续跑。进程内调度器（测试/前台）则由模块的 `schedule(after:)` 延迟投递驱动同一重入路径。
 - **全局单执行（§8.4）**：进程内串行调度器天然一次只跑一个任务；OS 调度可能并发投递多个 work，因此排他语义下沉到 `claim` 本身（单条 UPDATE 内完成「无其他 running 任务」检查与状态翻转，竞态安全）。第二个任务的 worker 拿不到槽位时向 WorkManager 返回 retry，按指数退避等待。
 - **后台执行**：work 以 `dataSync` 前台服务运行（`workmanager.enableDataSyncForegroundService=true` 选择加入；独立「文章翻译」通知频道，不复用媒体播放服务）。worker 引擎上由 `translation_background.dart` 组装精简依赖（§9.2）：自己的 SQLite 连接（WAL + busy_timeout）、library 投影、翻译模块、密钥与 DeepSeek 适配器——没有 Widget、AudioService、播放器或词典。所有写入都在任务租约下事务化，进程任意时刻死亡都安全：WorkManager 重投递，下一个执行者从 journal 接力。
 - **进度与通知**：worker 重发同一通知 id 展示「正在翻译：标题 n/m」进度条 + 取消动作；完成/失败用独立 id 发摘要。通知取消动作以 intent 启动 MainActivity，经 `TranslationCancelBridge` 走与界面按钮完全相同的 `module.cancel` 路径。通知内容只有标题与单元计数，绝无正文或译文（§12.4）。Android 13+ 在确认翻译时请求 POST_NOTIFICATIONS，拒绝只隐藏通知、绝不阻塞翻译（§9.3）。

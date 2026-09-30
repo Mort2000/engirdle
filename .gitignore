@@ -43,3 +43,19 @@ apps/mobile/build/
 apps/mobile/android/.gradle/
 apps/mobile/android/local.properties
 apps/mobile/android/app/src/main/java/io/flutter/plugins/GeneratedPluginRegistrant.java
+
+# Local browser automation, pipeline runs, and manual experiment artifacts.
+/.browser-tasks/
+/.pipeline-run/
+/.scratch/e2e/
+/.scratch/*.log
+/.scratch/bench_*.py
+/.scratch/report_queued_job_tts.py
+/.scratch/formal_tts_batch_smoke.py
+/.scratch/formal_tts_smoke/
+/.scratch/tts_acceleration_benchmark/
+/.scratch/tts_job_experiments/
+/apps/mobile/tool/_diag_*.dart
+
+# Keep new scratch material local; existing tracked documents are unchanged.
+/.scratch/

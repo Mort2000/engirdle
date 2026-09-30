@@ -2,6 +2,19 @@ import 'dart:convert';
 
 import '../../../../contracts/readpack_v1/article.dart';
 import '../../../../contracts/readpack_v1/manifest.dart';
+import '../../../../contracts/readpack_v2/derivatives_v2.dart'
+    show NarrationRange;
+
+/// The library's install seam for packaged translation rows: the library
+/// mints the translation set id inside its install transaction and hands
+/// both to the translation-owner adapter (wired to the translation DAO in
+/// the composition roots), keeping table ownership intact while the install
+/// stays one atomic unit (design §7.2/§11.1).
+typedef InstallPackagedTranslation =
+    void Function(
+      ValidatedArticleImport install, {
+      required String translationSetId,
+    });
 
 /// The unified install input every ingress adapter produces (lightweight
 /// readpack design §5.7/§7.2): a validated, fully-moved artifact whose base
@@ -174,10 +187,7 @@ class NarrationImport {
   final int sampleRateHz;
   final int channels;
   final int durationMs;
-  final List<
-    (String sentenceId, int startMs, int endMs, int startSample, int endSample)
-  >
-  ranges;
+  final List<NarrationRange> ranges;
 
   static NarrationImport? fromV1Content(
     ArticleContent content,
@@ -188,12 +198,12 @@ class NarrationImport {
         if (block is ParsedTextBlock)
           for (final sentence in block.sentences)
             if (sentence.hasAudio)
-              (
-                sentence.sentenceId,
-                sentence.audioStartMs!,
-                sentence.audioEndMs!,
-                sentence.audioStartSample!,
-                sentence.audioEndSample!,
+              NarrationRange(
+                sentenceId: sentence.sentenceId,
+                startMs: sentence.audioStartMs!,
+                endMs: sentence.audioEndMs!,
+                startSample: sentence.audioStartSample!,
+                endSample: sentence.audioEndSample!,
               ),
     ];
     if (ranges.isEmpty) return null;

@@ -102,6 +102,7 @@ void main() {
     library = LibraryService(
       dao: LibraryDao(db.db),
       directories: AppDirectories(Directory.current),
+      packagedTranslationInstaller: TranslationDao(db.db).installPackagedSetFor,
     );
     secrets = InMemorySecretStore();
     secrets.write('deepseek-api-key', 'sk-test');
@@ -127,16 +128,19 @@ void main() {
     LlmCompletionClient llmClient, {
     bool longWaitNeverCompletes = false,
     Duration Function(int retryRound)? backoff,
+    Future<void> Function(Duration)? sleeper,
   }) => TranslationModule(
     dao: dao,
     library: library,
     client: llmClient,
     secrets: secrets,
     scheduler: scheduler,
-    sleeper: (duration) => longWaitNeverCompletes &&
-            duration >= const Duration(minutes: 1)
-        ? Completer<void>().future
-        : Future<void>.delayed(duration),
+    sleeper:
+        sleeper ??
+        (duration) =>
+            longWaitNeverCompletes && duration >= const Duration(minutes: 1)
+            ? Completer<void>().future
+            : Future<void>.delayed(duration),
     backoffFor: backoff ?? (_) => Duration.zero,
   );
 
@@ -320,10 +324,7 @@ void main() {
       client.requests[2][4].content,
       '["Keep the ‰0‰ apart.", "See ‰1‰ for details."]',
     );
-    expect(
-      client.requests[2][5].content,
-      '["保持 ‰0‰ 分离。", "参见 ‰1‰ 了解详情。"]',
-    );
+    expect(client.requests[2][5].content, '["保持 ‰0‰ 分离。", "参见 ‰1‰ 了解详情。"]');
 
     // Code bodies and hrefs never leave the device in any request.
     expect(client.allWire.contains('def secret'), isFalse);
@@ -344,9 +345,7 @@ void main() {
     final module = buildModule(
       client,
       longWaitNeverCompletes: true,
-      backoff: (round) => round == 0
-          ? Duration.zero
-          : const Duration(hours: 1),
+      backoff: (round) => round == 0 ? Duration.zero : const Duration(hours: 1),
     );
     final jobA = await module.queueTranslation(
       articleId: 'a1',
@@ -391,6 +390,42 @@ void main() {
     expect(library.getContent('a1')!.capabilities.hasTranslation, isTrue);
   });
 
+  test(
+    'cancel during an in-request backoff aborts before any re-send',
+    () async {
+      installArticle();
+      client.defaultFailure = const LlmException(LlmErrorKind.server, 'boom');
+      // §9.2: the user cancels while the first retry's backoff sleep is still
+      // running (e.g. waiting out a Retry-After). The worker must stop inside
+      // the sleep — not send the article body a second time.
+      final module = buildModule(client);
+      final job = await module.queueTranslation(
+        articleId: 'a1',
+        privacyConfirmedAt: DateTime.utc(2026, 1, 1),
+      );
+      final cancelOnFirstSleep = TranslationModule(
+        dao: dao,
+        library: library,
+        client: client,
+        secrets: secrets,
+        scheduler: scheduler,
+        sleeper: (duration) {
+          module.cancel(job.jobId);
+          return Future<void>.value();
+        },
+        backoffFor: (_) => const Duration(seconds: 30),
+      );
+      await cancelOnFirstSleep.runJob(job.jobId);
+
+      expect(client.requests, hasLength(1));
+      final after = dao.getJob(job.jobId)!;
+      expect(after.status, TranslationJobStatus.cancelled);
+      expect(after.translationSetId, isNull);
+      expect(dao.acceptedUnits(job.jobId), isEmpty);
+      expect(library.getContent('a1')!.capabilities.hasTranslation, isFalse);
+    },
+  );
+
   test('cancel during an in-flight request discards the late reply', () async {
     installArticle();
     final gate = Completer<String>();
@@ -413,76 +448,79 @@ void main() {
     expect(library.getContent('a1')!.capabilities.hasTranslation, isFalse);
   });
 
-  test('auth failure stops the job and keeps the checkpoint for retry',
-      () async {
-    installArticle();
-    client
-      ..reply('["标题译文"]')
-      ..fail(const LlmException(LlmErrorKind.auth, 'rejected'));
-    var job = await queueAndRun();
-    expect(job.status, TranslationJobStatus.failed);
-    expect(job.errorKind, TranslationErrorKind.auth);
-    expect(job.completedUnits, 1);
+  test(
+    'auth failure stops the job and keeps the checkpoint for retry',
+    () async {
+      installArticle();
+      client
+        ..reply('["标题译文"]')
+        ..fail(const LlmException(LlmErrorKind.auth, 'rejected'));
+      var job = await queueAndRun();
+      expect(job.status, TranslationJobStatus.failed);
+      expect(job.errorKind, TranslationErrorKind.auth);
+      expect(job.completedUnits, 1);
 
-    // Same-config retry resumes from the checkpoint.
-    client
-      ..reply('["保持 ‰0‰ 分离。", "参见 ‰1‰ 了解详情。"]')
-      ..reply(
-        '{"block_id": "block-3", "columns": 2, '
-        '"alignments": ["default", "center"], '
-        '"header": [{"cell_id": "c0", "text": "层"}, '
-        '{"cell_id": "c1", "text": "文件"}], '
-        '"rows": [[{"cell_id": "c2", "text": "基座"}, '
-        '{"cell_id": "c3", "text": "‰0‰"}]]}',
+      // Same-config retry resumes from the checkpoint.
+      client
+        ..reply('["保持 ‰0‰ 分离。", "参见 ‰1‰ 了解详情。"]')
+        ..reply(
+          '{"block_id": "block-3", "columns": 2, '
+          '"alignments": ["default", "center"], '
+          '"header": [{"cell_id": "c0", "text": "层"}, '
+          '{"cell_id": "c1", "text": "文件"}], '
+          '"rows": [[{"cell_id": "c2", "text": "基座"}, '
+          '{"cell_id": "c3", "text": "‰0‰"}]]}',
+        );
+      final retryModule = buildModule(client);
+      retryModule.retry(job.jobId);
+      await retryModule.runJob(job.jobId);
+      job = dao.getJob(job.jobId)!;
+      expect(job.status, TranslationJobStatus.completed);
+      // Two requests in the failed run (unit 0 accepted, unit 1 rejected)
+      // plus two in the retry run (units 1 and 2 only — no re-translation).
+      expect(client.requests.length, 2 + 2);
+    },
+  );
+
+  test(
+    'transient failures cycle waiting_retry then fail after the budget',
+    () async {
+      installArticle();
+      client.defaultFailure = const LlmException(
+        LlmErrorKind.rateLimit,
+        'throttled',
       );
-    final retryModule = buildModule(client);
-    retryModule.retry(job.jobId);
-    await retryModule.runJob(job.jobId);
-    job = dao.getJob(job.jobId)!;
-    expect(job.status, TranslationJobStatus.completed);
-    // Two requests in the failed run (unit 0 accepted, unit 1 rejected)
-    // plus two in the retry run (units 1 and 2 only — no re-translation).
-    expect(client.requests.length, 2 + 2);
-  });
-
-
-  test('transient failures cycle waiting_retry then fail after the budget',
-      () async {
-    installArticle();
-    client.defaultFailure = const LlmException(
-      LlmErrorKind.rateLimit,
-      'throttled',
-    );
-    final module = buildModule(
-      client,
-      longWaitNeverCompletes: true,
-      backoff: (round) => round == 0
-          ? Duration.zero
-          : const Duration(hours: 1),
-    );
-    var job = await module.queueTranslation(
-      articleId: 'a1',
-      privacyConfirmedAt: DateTime.utc(2026, 1, 1),
-    );
-    // Deterministic round driving: the blocked sleeper freezes the backoff
-    // timers (the process-death model), and the test performs the requeue a
-    // fired timer would have done. 3 in-request attempts per run, 5
-    // waiting_retry rounds, then failure.
-    var guard = 0;
-    while (dao.getJob(job.jobId)!.status != TranslationJobStatus.failed) {
-      if (dao.getJob(job.jobId)!.status == TranslationJobStatus.waitingRetry) {
-        dao.requeue(job.jobId);
+      final module = buildModule(
+        client,
+        longWaitNeverCompletes: true,
+        backoff: (round) =>
+            round == 0 ? Duration.zero : const Duration(hours: 1),
+      );
+      var job = await module.queueTranslation(
+        articleId: 'a1',
+        privacyConfirmedAt: DateTime.utc(2026, 1, 1),
+      );
+      // Deterministic round driving: the blocked sleeper freezes the backoff
+      // timers (the process-death model), and the test performs the requeue a
+      // fired timer would have done. 3 in-request attempts per run, 5
+      // waiting_retry rounds, then failure.
+      var guard = 0;
+      while (dao.getJob(job.jobId)!.status != TranslationJobStatus.failed) {
+        if (dao.getJob(job.jobId)!.status ==
+            TranslationJobStatus.waitingRetry) {
+          dao.requeue(job.jobId);
+        }
+        await module.runJob(job.jobId);
+        guard++;
+        if (guard > 20) fail('retry rounds never exhausted');
       }
-      await module.runJob(job.jobId);
-      guard++;
-      if (guard > 20) fail('retry rounds never exhausted');
-    }
-    job = dao.getJob(job.jobId)!;
-    expect(job.status, TranslationJobStatus.failed);
-    expect(job.errorKind, TranslationErrorKind.transport);
-    expect(job.retryRound, 5);
-    expect(client.requests, hasLength(3 * 6));
-  });
+      job = dao.getJob(job.jobId)!;
+      expect(job.status, TranslationJobStatus.failed);
+      expect(job.errorKind, TranslationErrorKind.transport);
+      expect(job.retryRound, 5);
+      expect(client.requests, hasLength(3 * 6));
+    },
+  );
 
   test('an unclassified execution error fails the job instead of leaving it '
       'running', () async {
@@ -517,118 +555,122 @@ void main() {
     expect(s1.translationZh, '既有标题译文');
   });
 
-  test('a re-imported or deleted article removes its job and never activates',
-      () async {
-    installArticle();
-    client.reply('["标题译文"]');
-    final module = buildModule(client);
-    final job = await module.queueTranslation(
-      articleId: 'a1',
-      privacyConfirmedAt: DateTime.utc(2026, 1, 1),
-    );
-    // The article is re-imported with a different structure before the job
-    // runs: the base row is replaced, and the cascade removes the job and
-    // its building set outright — stale results can never activate.
-    installArticle(structureSha256: 'sha-2');
-    await module.runJob(job.jobId);
-    expect(dao.getJob(job.jobId), isNull);
-    expect(client.requests, isEmpty);
-    expect(library.getContent('a1')!.capabilities.hasTranslation, isFalse);
-    // No orphaned translation rows survive the reinstall.
-    expect(
-      db.db
-          .select('SELECT COUNT(*) AS n FROM sentence_translations')
-          .first['n'],
-      0,
-    );
-  });
-
-  test('queue refuses without profile, key or with an oversized article',
-      () async {
-    installArticle();
-    final module = buildModule(client);
-    // No key.
-    await secrets.delete('deepseek-api-key');
-    await expectLater(
-      module.queueTranslation(
+  test(
+    'a re-imported or deleted article removes its job and never activates',
+    () async {
+      installArticle();
+      client.reply('["标题译文"]');
+      final module = buildModule(client);
+      final job = await module.queueTranslation(
         articleId: 'a1',
         privacyConfirmedAt: DateTime.utc(2026, 1, 1),
-      ),
-      throwsA(
-        isA<TranslationQueueRefusal>().having(
-          (e) => e.kind,
-          'kind',
-          TranslationErrorKind.auth,
-        ),
-      ),
-    );
-    await secrets.write('deepseek-api-key', 'sk-test');
+      );
+      // The article is re-imported with a different structure before the job
+      // runs: the base row is replaced, and the cascade removes the job and
+      // its building set outright — stale results can never activate.
+      installArticle(structureSha256: 'sha-2');
+      await module.runJob(job.jobId);
+      expect(dao.getJob(job.jobId), isNull);
+      expect(client.requests, isEmpty);
+      expect(library.getContent('a1')!.capabilities.hasTranslation, isFalse);
+      // No orphaned translation rows survive the reinstall.
+      expect(
+        db.db
+            .select('SELECT COUNT(*) AS n FROM sentence_translations')
+            .first['n'],
+        0,
+      );
+    },
+  );
 
-    // Already active job.
-    final job = await module.queueTranslation(
-      articleId: 'a1',
-      privacyConfirmedAt: DateTime.utc(2026, 1, 1),
-    );
-    await expectLater(
-      module.queueTranslation(
+  test(
+    'queue refuses without profile, key or with an oversized article',
+    () async {
+      installArticle();
+      final module = buildModule(client);
+      // No key.
+      await secrets.delete('deepseek-api-key');
+      await expectLater(
+        module.queueTranslation(
+          articleId: 'a1',
+          privacyConfirmedAt: DateTime.utc(2026, 1, 1),
+        ),
+        throwsA(
+          isA<TranslationQueueRefusal>().having(
+            (e) => e.kind,
+            'kind',
+            TranslationErrorKind.auth,
+          ),
+        ),
+      );
+      await secrets.write('deepseek-api-key', 'sk-test');
+
+      // Already active job.
+      final job = await module.queueTranslation(
         articleId: 'a1',
         privacyConfirmedAt: DateTime.utc(2026, 1, 1),
-      ),
-      throwsA(isA<TranslationQueueRefusal>()),
-    );
-    module.cancel(job.jobId);
+      );
+      await expectLater(
+        module.queueTranslation(
+          articleId: 'a1',
+          privacyConfirmedAt: DateTime.utc(2026, 1, 1),
+        ),
+        throwsA(isA<TranslationQueueRefusal>()),
+      );
+      module.cancel(job.jobId);
 
-    // Oversized article: the first request alone busts the window reserve.
-    final hugeBlocks = <ParsedBlock>[
-      for (var i = 0; i < 2100; i++)
-        ParsedTextBlock(
-          blockId: 'big-$i',
-          order: i,
-          kind: ArticleTextKind.paragraph,
-          sentences: [
-            SentenceContent(
-              sentenceId: 'big-s-$i',
-              order: 0,
-              text: 'x' * 80,
-              runs: [plain('x' * 80)],
-            ),
-          ],
+      // Oversized article: the first request alone busts the window reserve.
+      final hugeBlocks = <ParsedBlock>[
+        for (var i = 0; i < 2100; i++)
+          ParsedTextBlock(
+            blockId: 'big-$i',
+            order: i,
+            kind: ArticleTextKind.paragraph,
+            sentences: [
+              SentenceContent(
+                sentenceId: 'big-s-$i',
+                order: 0,
+                text: 'x' * 80,
+                runs: [plain('x' * 80)],
+              ),
+            ],
+          ),
+      ];
+      library.commitInstall(
+        ValidatedArticleImport(
+          articleId: 'a2',
+          revision: 1,
+          artifactRevision: 1,
+          title: 'Huge',
+          source: const ArticleSource(),
+          origin: 'paste',
+          formatVersion: 'local-1',
+          sourceSha256: 'huge-raw',
+          structureSha256: 'huge-sha',
+          blocks: hugeBlocks,
+          manifestJson: '{}',
+          attributionJson: '{}',
+          artifactSizeBytes: 42,
+          artifactSha256: 'huge-raw',
         ),
-    ];
-    library.commitInstall(
-      ValidatedArticleImport(
-        articleId: 'a2',
-        revision: 1,
-        artifactRevision: 1,
-        title: 'Huge',
-        source: const ArticleSource(),
-        origin: 'paste',
-        formatVersion: 'local-1',
-        sourceSha256: 'huge-raw',
-        structureSha256: 'huge-sha',
-        blocks: hugeBlocks,
-        manifestJson: '{}',
-        attributionJson: '{}',
-        artifactSizeBytes: 42,
-        artifactSha256: 'huge-raw',
-      ),
-    );
-    final estimate = module.estimate('a2');
-    expect(estimate.contextTooLarge, isTrue);
-    await expectLater(
-      module.queueTranslation(
-        articleId: 'a2',
-        privacyConfirmedAt: DateTime.utc(2026, 1, 1),
-      ),
-      throwsA(
-        isA<TranslationQueueRefusal>().having(
-          (e) => e.kind,
-          'kind',
-          TranslationErrorKind.contextLimit,
+      );
+      final estimate = module.estimate('a2');
+      expect(estimate.contextTooLarge, isTrue);
+      await expectLater(
+        module.queueTranslation(
+          articleId: 'a2',
+          privacyConfirmedAt: DateTime.utc(2026, 1, 1),
         ),
-      ),
-    );
-  });
+        throwsA(
+          isA<TranslationQueueRefusal>().having(
+            (e) => e.kind,
+            'kind',
+            TranslationErrorKind.contextLimit,
+          ),
+        ),
+      );
+    },
+  );
 
   test('pause and resume drive the state machine', () async {
     installArticle();
@@ -651,41 +693,43 @@ void main() {
     expect(dao.getJob(job.jobId)!.status, TranslationJobStatus.completed);
   });
 
-  test('recovery leaves paused jobs paused and terminal states immutable',
-      () async {
-    installArticle();
-    queueValidReplies();
-    final module = buildModule(client);
-    final job = await module.queueTranslation(
-      articleId: 'a1',
-      privacyConfirmedAt: DateTime.utc(2026, 1, 1),
-    );
-    module.pause(job.jobId);
-    final scheduledBefore = scheduler.scheduled.length;
-    await module.recover();
-    // §8.3: only the user resumes a paused job; recovery must not (the only
-    // schedule entry so far is the original queue-time one).
-    expect(dao.getJob(job.jobId)!.status, TranslationJobStatus.paused);
-    expect(scheduler.scheduled.length, scheduledBefore);
+  test(
+    'recovery leaves paused jobs paused and terminal states immutable',
+    () async {
+      installArticle();
+      queueValidReplies();
+      final module = buildModule(client);
+      final job = await module.queueTranslation(
+        articleId: 'a1',
+        privacyConfirmedAt: DateTime.utc(2026, 1, 1),
+      );
+      module.pause(job.jobId);
+      final scheduledBefore = scheduler.scheduled.length;
+      await module.recover();
+      // §8.3: only the user resumes a paused job; recovery must not (the only
+      // schedule entry so far is the original queue-time one).
+      expect(dao.getJob(job.jobId)!.status, TranslationJobStatus.paused);
+      expect(scheduler.scheduled.length, scheduledBefore);
 
-    // Terminal states are immutable: a late failure can't flip a cancelled
-    // job (the finalize/cancel race guard).
-    dao.requeue(job.jobId);
-    expect(dao.claim(job.jobId), TranslationClaim.claimed);
-    final generation = dao.getJob(job.jobId)!.generation;
-    module.cancel(job.jobId);
-    // The DAO refuses terminal-state overwrites loudly (finalize race guard).
-    expect(
-      () => dao.updateStatus(
-        job.jobId,
-        TranslationJobStatus.failed,
-        errorKind: TranslationErrorKind.protocol,
-      ),
-      throwsA(isA<StateError>()),
-    );
-    expect(dao.getJob(job.jobId)!.status, TranslationJobStatus.cancelled);
-    expect(dao.holdsLease(job.jobId, generation), isFalse);
-  });
+      // Terminal states are immutable: a late failure can't flip a cancelled
+      // job (the finalize/cancel race guard).
+      dao.requeue(job.jobId);
+      expect(dao.claim(job.jobId), TranslationClaim.claimed);
+      final generation = dao.getJob(job.jobId)!.generation;
+      module.cancel(job.jobId);
+      // The DAO refuses terminal-state overwrites loudly (finalize race guard).
+      expect(
+        () => dao.updateStatus(
+          job.jobId,
+          TranslationJobStatus.failed,
+          errorKind: TranslationErrorKind.protocol,
+        ),
+        throwsA(isA<StateError>()),
+      );
+      expect(dao.getJob(job.jobId)!.status, TranslationJobStatus.cancelled);
+      expect(dao.holdsLease(job.jobId, generation), isFalse);
+    },
+  );
 
   test('watch emits live job snapshots', () async {
     installArticle();
@@ -707,67 +751,70 @@ void main() {
     await sub.cancel();
   });
 
-  test('a delivered backoff execution takes over the waiting_retry job',
-      () async {
-    installArticle();
-    client
-      ..reply('["标题译文"]')
-      ..fail(const LlmException(LlmErrorKind.server, 'boom'))
-      ..fail(const LlmException(LlmErrorKind.server, 'boom'))
-      ..fail(const LlmException(LlmErrorKind.server, 'boom'));
-    final module = buildModule(
-      client,
-      backoff: (round) => round == 0
-          ? Duration.zero
-          : const Duration(hours: 1),
-    );
-    final job = await module.queueTranslation(
-      articleId: 'a1',
-      privacyConfirmedAt: DateTime.utc(2026, 1, 1),
-    );
-    await module.runJob(job.jobId);
-    expect(dao.getJob(job.jobId)!.status, TranslationJobStatus.waitingRetry);
-    // The module delegated the backoff window to the scheduler (§8.3) and
-    // sleeps nothing itself — the delay survives process death because the
-    // adapter persists it, not the process.
-    expect(
-      scheduler.scheduledAfter.last,
-      (job.jobId, const Duration(hours: 1)),
-    );
-
-    // The delayed execution is delivered (fired timer or OS backoff):
-    // re-entry flips waiting_retry → queued and resumes from the journal.
-    client
-      ..reply('["保持 ‰0‰ 分离。", "参见 ‰1‰ 了解详情。"]')
-      ..reply(
-        '{"block_id": "block-3", "columns": 2, '
-        '"alignments": ["default", "center"], '
-        '"header": [{"cell_id": "c0", "text": "层"}, '
-        '{"cell_id": "c1", "text": "文件"}], '
-        '"rows": [[{"cell_id": "c2", "text": "基座"}, '
-        '{"cell_id": "c3", "text": "‰0‰"}]]}',
+  test(
+    'a delivered backoff execution takes over the waiting_retry job',
+    () async {
+      installArticle();
+      client
+        ..reply('["标题译文"]')
+        ..fail(const LlmException(LlmErrorKind.server, 'boom'))
+        ..fail(const LlmException(LlmErrorKind.server, 'boom'))
+        ..fail(const LlmException(LlmErrorKind.server, 'boom'));
+      final module = buildModule(
+        client,
+        backoff: (round) =>
+            round == 0 ? Duration.zero : const Duration(hours: 1),
       );
-    await module.runJob(job.jobId);
-    expect(dao.getJob(job.jobId)!.status, TranslationJobStatus.completed);
-    expect(library.getContent('a1')!.capabilities.hasTranslation, isTrue);
-  });
+      final job = await module.queueTranslation(
+        articleId: 'a1',
+        privacyConfirmedAt: DateTime.utc(2026, 1, 1),
+      );
+      await module.runJob(job.jobId);
+      expect(dao.getJob(job.jobId)!.status, TranslationJobStatus.waitingRetry);
+      // The module delegated the backoff window to the scheduler (§8.3) and
+      // sleeps nothing itself — the delay survives process death because the
+      // adapter persists it, not the process.
+      expect(scheduler.scheduledAfter.last, (
+        job.jobId,
+        const Duration(hours: 1),
+      ));
 
-  test('a redelivered execution takes over a job left running by process death',
-      () async {
-    installArticle();
-    queueValidReplies();
-    final module = buildModule(client);
-    final job = await module.queueTranslation(
-      articleId: 'a1',
-      privacyConfirmedAt: DateTime.utc(2026, 1, 1),
-    );
-    // The process died mid-run: the job stays claimed (running) and its
-    // executor is gone; the OS scheduler redelivers the interrupted work.
-    expect(dao.claim(job.jobId), isNotNull);
-    await module.runJob(job.jobId);
-    expect(dao.getJob(job.jobId)!.status, TranslationJobStatus.completed);
-    expect(client.requests, hasLength(3));
-  });
+      // The delayed execution is delivered (fired timer or OS backoff):
+      // re-entry flips waiting_retry → queued and resumes from the journal.
+      client
+        ..reply('["保持 ‰0‰ 分离。", "参见 ‰1‰ 了解详情。"]')
+        ..reply(
+          '{"block_id": "block-3", "columns": 2, '
+          '"alignments": ["default", "center"], '
+          '"header": [{"cell_id": "c0", "text": "层"}, '
+          '{"cell_id": "c1", "text": "文件"}], '
+          '"rows": [[{"cell_id": "c2", "text": "基座"}, '
+          '{"cell_id": "c3", "text": "‰0‰"}]]}',
+        );
+      await module.runJob(job.jobId);
+      expect(dao.getJob(job.jobId)!.status, TranslationJobStatus.completed);
+      expect(library.getContent('a1')!.capabilities.hasTranslation, isTrue);
+    },
+  );
+
+  test(
+    'a redelivered execution takes over a job left running by process death',
+    () async {
+      installArticle();
+      queueValidReplies();
+      final module = buildModule(client);
+      final job = await module.queueTranslation(
+        articleId: 'a1',
+        privacyConfirmedAt: DateTime.utc(2026, 1, 1),
+      );
+      // The process died mid-run: the job stays claimed (running) and its
+      // executor is gone; the OS scheduler redelivers the interrupted work.
+      expect(dao.claim(job.jobId), isNotNull);
+      await module.runJob(job.jobId);
+      expect(dao.getJob(job.jobId)!.status, TranslationJobStatus.completed);
+      expect(client.requests, hasLength(3));
+    },
+  );
 
   test('pause and cancel drop pending scheduled executions', () async {
     installArticle();
@@ -783,60 +830,67 @@ void main() {
     expect(scheduler.cancelled, [job.jobId, job.jobId]);
   });
 
-  test('external sync re-emits worker-engine completion to this engine',
-      () async {
-    installArticle();
-    queueValidReplies();
-    final moduleA = buildModule(client);
-    final job = await moduleA.queueTranslation(
-      articleId: 'a1',
-      privacyConfirmedAt: DateTime.utc(2026, 1, 1),
-    );
-    var libraryNotifications = 0;
-    library.changes.listen((_) => libraryNotifications++);
-    // Long interval: the test drives ticks manually (a UI-engine observer
-    // with a worker engine committing on another connection, §9.2).
-    moduleA.startExternalSync(interval: const Duration(hours: 1));
+  test(
+    'external sync re-emits worker-engine completion to this engine',
+    () async {
+      installArticle();
+      queueValidReplies();
+      final moduleA = buildModule(client);
+      final job = await moduleA.queueTranslation(
+        articleId: 'a1',
+        privacyConfirmedAt: DateTime.utc(2026, 1, 1),
+      );
+      var libraryNotifications = 0;
+      library.changes.listen((_) => libraryNotifications++);
+      // Long interval: the test drives ticks manually (a UI-engine observer
+      // with a worker engine committing on another connection, §9.2).
+      moduleA.startExternalSync(interval: const Duration(hours: 1));
 
-    // The "worker engine": a second module instance running on the same
-    // database. Its in-process notify reaches only its own listeners.
-    final moduleB = TranslationModule(
-      dao: dao,
-      library: library,
-      client: client,
-      secrets: secrets,
-      scheduler: scheduler,
-    );
-    await moduleB.runJob(job.jobId);
-    expect(moduleA.jobById(job.jobId)!.status, TranslationJobStatus.completed);
+      // The "worker engine": a second module instance running on the same
+      // database. Its in-process notify reaches only its own listeners.
+      final moduleB = TranslationModule(
+        dao: dao,
+        library: library,
+        client: client,
+        secrets: secrets,
+        scheduler: scheduler,
+      );
+      await moduleB.runJob(job.jobId);
+      expect(
+        moduleA.jobById(job.jobId)!.status,
+        TranslationJobStatus.completed,
+      );
 
-    // The observer notices the terminal transition through the jobs table,
-    // re-emits changes and pings the library so readers refresh (§12.3).
-    moduleA.pollExternalChanges();
-    expect(libraryNotifications, 1);
-    moduleA.dispose();
-  });
+      // The observer notices the terminal transition through the jobs table,
+      // re-emits changes and pings the library so readers refresh (§12.3).
+      moduleA.pollExternalChanges();
+      expect(libraryNotifications, 1);
+      moduleA.dispose();
+    },
+  );
 
-  test('deleting an article drops its pending scheduled execution (§12.1)',
-      () async {
-    installArticle();
-    final module = buildModule(client);
-    final job = await module.queueTranslation(
-      articleId: 'a1',
-      privacyConfirmedAt: DateTime.utc(2026, 1, 1),
-    );
-    module.startExternalSync(interval: const Duration(hours: 1));
-    expect(scheduler.cancelled, isEmpty);
+  test(
+    'deleting an article drops its pending scheduled execution (§12.1)',
+    () async {
+      installArticle();
+      final module = buildModule(client);
+      final job = await module.queueTranslation(
+        articleId: 'a1',
+        privacyConfirmedAt: DateTime.utc(2026, 1, 1),
+      );
+      module.startExternalSync(interval: const Duration(hours: 1));
+      expect(scheduler.cancelled, isEmpty);
 
-    // The article (and with it the job row) is deleted while the execution
-    // is still pending.
-    await library.deleteArticle('a1');
-    expect(dao.getJob(job.jobId), isNull);
+      // The article (and with it the job row) is deleted while the execution
+      // is still pending.
+      await library.deleteArticle('a1');
+      expect(dao.getJob(job.jobId), isNull);
 
-    module.pollExternalChanges();
-    expect(scheduler.cancelled, [job.jobId]);
-    module.dispose();
-  });
+      module.pollExternalChanges();
+      expect(scheduler.cancelled, [job.jobId]);
+      module.dispose();
+    },
+  );
 
   test('a second job defers while another is executing (§8.4)', () async {
     installArticle();

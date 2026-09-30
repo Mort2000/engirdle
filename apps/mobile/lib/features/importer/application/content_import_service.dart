@@ -121,7 +121,11 @@ class ContentImportService {
       return RawSourcePreview(
         importId: importId,
         candidate: candidate,
-        duplicates: _duplicatesOf(candidate),
+        duplicates: _duplicatesOf(
+          sourceSha256: candidate.sourceSha256,
+          normalizedSha256: candidate.normalizedSha256,
+          syntax: syntax.wire,
+        ),
         origin: origin,
       );
     } on SourceParseException catch (e) {
@@ -195,7 +199,13 @@ class ContentImportService {
     return RawSourcePreview(
       importId: importId,
       candidate: candidate,
-      duplicates: _duplicatesOf(candidate),
+      // Exact-duplicate identity is the journaled RAW hash (§6.1) — the
+      // canonical re-parse would hash different bytes for BOM/CRLF inputs.
+      duplicates: _duplicatesOf(
+        sourceSha256: row.rawSha256,
+        normalizedSha256: row.normalizedSha256,
+        syntax: row.syntax,
+      ),
       origin: row.stats['origin'] as String? ?? 'paste',
     );
   }
@@ -259,6 +269,19 @@ class ContentImportService {
         'staged structure drifted from the frozen preview',
       );
     }
+    // The re-parse hashes CANONICAL bytes (BOM-stripped, LF) — its
+    // sourceSha256 differs from the preview's for BOM/CRLF inputs. The
+    // installed source_sha256 must stay the hash of the user's ORIGINAL
+    // bytes (§6.1), so verify the staged raw snapshot still matches the
+    // journaled hash and record that one (§6.3 exact-duplicate detection
+    // depends on it).
+    final rawBytes = await rawFile.readAsBytes();
+    if (sha256OfBytes(rawBytes) != row.rawSha256) {
+      throw const AppFailure(
+        FailureKind.database,
+        'staged raw source drifted from the frozen preview',
+      );
+    }
 
     final articleId = newUuid();
     const revision = 1;
@@ -271,6 +294,10 @@ class ContentImportService {
     final origin = row.stats['origin'] as String? ?? 'paste';
 
     _dao.updateState(importId, SourceImportState.moving.wire);
+    // §6.5: the target ref is durable BEFORE the first file moves — a crash
+    // between the rename and the DB commit leaves an orphan only recover()
+    // can find and roll back.
+    _dao.recordMovingTarget(importId, stats: _statsWithTarget(row.stats, ref));
     final attributionJson = _rawAttributionJson(
       title: metadata.title,
       sourceName: metadata.sourceDisplayName,
@@ -282,7 +309,6 @@ class ContentImportService {
       p.join(staging.path, 'attribution.json'),
     ).writeAsString(attributionJson);
     // Read before the move takes the staging directory away.
-    final rawBytes = await rawFile.readAsBytes();
     final install = ValidatedArticleImport(
       articleId: articleId,
       revision: revision,
@@ -295,7 +321,7 @@ class ContentImportService {
       ),
       origin: origin,
       formatVersion: 'local-1',
-      sourceSha256: candidate.sourceSha256,
+      sourceSha256: row.rawSha256,
       normalizedSha256: candidate.normalizedSha256,
       sourceSyntax: syntax.wire,
       structureSha256: candidate.structureSha256,
@@ -308,10 +334,11 @@ class ContentImportService {
         importId: importId,
         candidate: candidate,
         syntax: syntax,
+        rawSha256: row.rawSha256,
       ),
       attributionJson: attributionJson,
       artifactSizeBytes: rawBytes.length,
-      artifactSha256: sha256OfBytes(rawBytes),
+      artifactSha256: row.rawSha256,
     );
     await _moveAndCommit(ref: ref, install: install, moveFrom: staging);
     _dao.updateState(importId, SourceImportState.committed.wire);
@@ -399,6 +426,30 @@ class ContentImportService {
     final importId = newUuid();
     final staging = _dirs.stagingDir(importId);
     await staging.create(recursive: true);
+    // §6.5: every ingress journals from the moment its staging exists. The
+    // outer hash is the picked package's own bytes; a crash during ZIP
+    // extraction or validation is then recoverable (validating → clean up),
+    // and the moving target gets recorded before any file moves.
+    final now = DateTime.now().toUtc().toIso8601String();
+    _dao.insert(
+      SourceImportRow(
+        importId: importId,
+        state: SourceImportState.validating.wire,
+        syntax: 'package',
+        rawSha256: sha256OfBytes(bytes),
+        normalizedSha256: '',
+        structureSha256: '',
+        suggestedTitle: '',
+        statsJson: jsonEncode({
+          'origin': 'document',
+          'kind': 'readpack',
+          'file': fileName ?? '',
+        }),
+        warningsJson: '[]',
+        createdAt: now,
+        updatedAt: now,
+      ),
+    );
     final zipFile = File(p.join(staging.path, 'package.readpack'));
     try {
       await zipFile.writeAsBytes(bytes);
@@ -453,8 +504,15 @@ class ContentImportService {
         await target.parent.create(recursive: true);
         await entry.value.rename(target.path);
       }
+      final row = _dao.find(importId)!;
+      _dao.updateState(importId, SourceImportState.moving.wire);
+      _dao.recordMovingTarget(
+        importId,
+        stats: _statsWithTarget(row.stats, ref),
+      );
       await _moveAndCommit(ref: ref, install: install, moveFrom: payloadDir);
       await _dropStaging(staging);
+      _dao.delete(importId);
       _logger.info('content_import.package_committed', {
         'article': ref.toString(),
         'file': fileName ?? '',
@@ -462,6 +520,7 @@ class ContentImportService {
       return ref;
     } on ContractViolation catch (e) {
       await _dropStaging(staging);
+      _dao.delete(importId);
       throw AppFailure(
         FailureKind.packageFormat,
         'package contract violation',
@@ -469,9 +528,11 @@ class ContentImportService {
       );
     } on AppFailure {
       await _dropStaging(staging);
+      _dao.delete(importId);
       rethrow;
     } catch (e) {
       await _dropStaging(staging);
+      _dao.delete(importId);
       throw AppFailure(
         FailureKind.database,
         'package import failed',
@@ -481,7 +542,8 @@ class ContentImportService {
   }
 
   /// Startup recovery (design §6.5): waiting previews survive if fresh and
-  /// are dropped once expired; nothing else may linger.
+  /// are dropped once expired; validating rows never reached the library;
+  /// moving/failed rows replay-or-roll-back by their recorded target ref.
   Future<void> recover() async {
     final now = DateTime.now().toUtc();
     for (final row in _dao.all()) {
@@ -499,12 +561,14 @@ class ContentImportService {
             if (now.difference(created) > previewExpiry) {
               await cancelRawSource(row.importId);
             }
-          case SourceImportState.moving:
-          case SourceImportState.failed:
-            // Nothing entered the library (the commit would have flipped
-            // the row to committed before deleting it); drop the staging.
+          case SourceImportState.validating:
+            // Extraction/validation never finished: nothing entered the
+            // library, only staging needs cleaning.
             await _dropStaging(_dirs.stagingDir(row.importId));
             _dao.delete(row.importId);
+          case SourceImportState.moving:
+          case SourceImportState.failed:
+            await _recoverMoving(row);
           case SourceImportState.committed:
           case SourceImportState.cancelled:
             _dao.delete(row.importId);
@@ -518,11 +582,70 @@ class ContentImportService {
     }
   }
 
+  /// Replay-or-rollback for a move that never recorded its commit (§6.5):
+  /// when the library already holds the recorded target, the DB commit
+  /// landed and the content stays; otherwise a final artifact directory for
+  /// the target is an orphan (files moved, pointer never committed) and is
+  /// removed — without this, the next import of the same package would be
+  /// blocked by "artifact already exists" forever.
+  Future<void> _recoverMoving(SourceImportRow row) async {
+    final ref = _targetRefOf(row);
+    if (ref != null) {
+      final installed = _library.getArticle(ref.articleId);
+      final committed =
+          installed != null &&
+          installed.artifactRevision == ref.artifactRevision;
+      if (!committed) {
+        final finalDir = _library.artifactDirectory(ref);
+        if (await finalDir.exists()) {
+          await finalDir.delete(recursive: true);
+          _logger.warn('content_import.rolled_back_orphan', {
+            'article': ref.toString(),
+          });
+        }
+      }
+    }
+    await _dropStaging(_dirs.stagingDir(row.importId));
+    _dao.delete(row.importId);
+  }
+
+  static Map<String, Object?> _statsWithTarget(
+    Map<String, Object?> stats,
+    ArticleRef ref,
+  ) => {
+    ...stats,
+    'article_ref': {
+      'article_id': ref.articleId,
+      'revision': ref.revision,
+      'artifact_revision': ref.artifactRevision,
+    },
+  };
+
+  static ArticleRef? _targetRefOf(SourceImportRow row) {
+    final raw = row.stats['article_ref'];
+    if (raw is! Map) return null;
+    final articleId = raw['article_id'];
+    final revision = raw['revision'];
+    final artifactRevision = raw['artifact_revision'];
+    if (articleId is! String || revision is! int || artifactRevision is! int) {
+      return null;
+    }
+    return ArticleRef(
+      articleId: articleId,
+      revision: revision,
+      artifactRevision: artifactRevision,
+    );
+  }
+
   ({List<InstalledArticle> exact, List<InstalledArticle> content})
-  _duplicatesOf(RawSourceCandidate candidate) => _library.duplicates(
-    sourceSha256: candidate.sourceSha256,
-    normalizedSha256: candidate.normalizedSha256,
-    sourceSyntax: candidate.syntax.wire,
+  _duplicatesOf({
+    required String sourceSha256,
+    required String normalizedSha256,
+    required String syntax,
+  }) => _library.duplicates(
+    sourceSha256: sourceSha256,
+    normalizedSha256: normalizedSha256,
+    sourceSyntax: syntax,
   );
 
   Future<void> _dropStaging(Directory staging) async {
@@ -533,12 +656,15 @@ class ContentImportService {
     required String importId,
     required RawSourceCandidate candidate,
     required SourceSyntax syntax,
+    required String rawSha256,
   }) => const JsonEncoder.withIndent('  ').convert({
     'format': 'engirdle-local-source',
     'format_version': 'local-1',
     'import_id': importId,
     'syntax': syntax.wire,
-    'source_sha256': candidate.sourceSha256,
+    // The raw hash of the user's original bytes, not the canonical text
+    // (§6.1) — BOM/CRLF canonicalization never rewrites source identity.
+    'source_sha256': rawSha256,
     'normalized_sha256': candidate.normalizedSha256,
     'structure_sha256': candidate.structureSha256,
     'parser': syntax == SourceSyntax.markdown ? kDartParserVersion : null,

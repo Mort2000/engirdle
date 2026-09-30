@@ -10,11 +10,12 @@ import 'package:sqlite3/sqlite3.dart';
 ///                  article_reading_mode, article_active_translations,
 ///                  narration_assets, sentence_audio_ranges
 ///   translation  → translation_sets, sentence_translations,
-///                  table_cell_translations (packaged installs write these
-///                  through the library DAO; the mobile translation module
-///                  writes its building sets directly and activates them via
-///                  the library interface only), translation_jobs,
-///                  translation_units, llm_profiles
+///                  table_cell_translations (all writes go through the
+///                  translation DAO: packaged installs via the library's
+///                  install-transaction seam, the mobile translation module
+///                  via its building sets, activation via the library
+///                  interface only), translation_jobs, translation_units,
+///                  llm_profiles
 ///   vocabulary   → vocabulary
 ///   dictionary   → dictionary_manifest (the dictionary DB itself is separate)
 ///   preferences  → preferences

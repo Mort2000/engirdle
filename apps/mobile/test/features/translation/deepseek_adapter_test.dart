@@ -47,10 +47,8 @@ void main() {
     secrets.write('deepseek-api-key', 'sk-test-123');
   });
 
-  DeepSeekMobileAdapter adapter() => DeepSeekMobileAdapter(
-    secrets: secrets,
-    transport: transport,
-  );
+  DeepSeekMobileAdapter adapter() =>
+      DeepSeekMobileAdapter(secrets: secrets, transport: transport);
 
   test('construction refuses a non-official origin', () {
     expect(
@@ -63,55 +61,60 @@ void main() {
     );
   });
 
-  test('complete sends the OpenAI-compatible body and parses the reply', () async {
-    transport.response = HttpTransportResponse(
-      statusCode: 200,
-      body: jsonEncode({
-        'id': 'req-77',
-        'choices': [
-          {
-            'message': {'role': 'assistant', 'content': '["译文"]'},
-            'finish_reason': 'stop',
+  test(
+    'complete sends the OpenAI-compatible body and parses the reply',
+    () async {
+      transport.response = HttpTransportResponse(
+        statusCode: 200,
+        body: jsonEncode({
+          'id': 'req-77',
+          'choices': [
+            {
+              'message': {'role': 'assistant', 'content': '["译文"]'},
+              'finish_reason': 'stop',
+            },
+          ],
+          'usage': {
+            'prompt_tokens': 1200,
+            'completion_tokens': 30,
+            'completion_tokens_details': {'reasoning_tokens': 12},
           },
+        }),
+      );
+
+      final completion = await adapter().complete(
+        model: 'deepseek-chat',
+        messages: const [
+          LlmMessage(role: 'system', content: 'system text'),
+          LlmMessage(role: 'user', content: 'user text'),
         ],
-        'usage': {
-          'prompt_tokens': 1200,
-          'completion_tokens': 30,
-          'completion_tokens_details': {'reasoning_tokens': 12},
-        },
-      }),
-    );
+        thinkingMode: 'enabled',
+        reasoningEffort: 'max',
+        timeout: const Duration(seconds: 5),
+      );
 
-    final completion = await adapter().complete(
-      model: 'deepseek-chat',
-      messages: const [
-        LlmMessage(role: 'system', content: 'system text'),
-        LlmMessage(role: 'user', content: 'user text'),
-      ],
-      thinkingMode: 'enabled',
-      reasoningEffort: 'max',
-      timeout: const Duration(seconds: 5),
-    );
+      expect(completion.content, '["译文"]');
+      expect(completion.finishReason, 'stop');
+      expect(completion.requestId, 'req-77');
+      expect(completion.usage!.reasoningTokens, 12);
+      expect(completion.usage!.promptTokens, 1200);
 
-    expect(completion.content, '["译文"]');
-    expect(completion.finishReason, 'stop');
-    expect(completion.requestId, 'req-77');
-    expect(completion.usage!.reasoningTokens, 12);
-    expect(completion.usage!.promptTokens, 1200);
-
-    // Request shape: official origin, Bearer key from the secret store,
-    // thinking/reasoning extra body, full message replay.
-    expect(transport.method, 'POST');
-    expect(transport.uri.toString(),
-        'https://api.deepseek.com/chat/completions');
-    expect(transport.headers['authorization'], 'Bearer sk-test-123');
-    final sent = jsonDecode(transport.body!) as Map<String, Object?>;
-    expect(sent['model'], 'deepseek-chat');
-    expect(sent['stream'], false);
-    expect(sent['thinking'], {'type': 'enabled'});
-    expect(sent['reasoning_effort'], 'max');
-    expect((sent['messages'] as List).length, 2);
-  });
+      // Request shape: official origin, Bearer key from the secret store,
+      // thinking/reasoning extra body, full message replay.
+      expect(transport.method, 'POST');
+      expect(
+        transport.uri.toString(),
+        'https://api.deepseek.com/chat/completions',
+      );
+      expect(transport.headers['authorization'], 'Bearer sk-test-123');
+      final sent = jsonDecode(transport.body!) as Map<String, Object?>;
+      expect(sent['model'], 'deepseek-chat');
+      expect(sent['stream'], false);
+      expect(sent['thinking'], {'type': 'enabled'});
+      expect(sent['reasoning_effort'], 'max');
+      expect((sent['messages'] as List).length, 2);
+    },
+  );
 
   test('a missing key fails as config before any request', () async {
     await secrets.delete('deepseek-api-key');
@@ -124,11 +127,7 @@ void main() {
         timeout: const Duration(seconds: 5),
       ),
       throwsA(
-        isA<LlmException>().having(
-          (e) => e.kind,
-          'kind',
-          LlmErrorKind.config,
-        ),
+        isA<LlmException>().having((e) => e.kind, 'kind', LlmErrorKind.config),
       ),
     );
     expect(transport.uri, isNull);
@@ -146,7 +145,10 @@ void main() {
     (400, 'messages length must be >= 1', LlmErrorKind.protocol),
   ]) {
     test('HTTP $status maps to ${expected.name}', () async {
-      transport.response = HttpTransportResponse(statusCode: status, body: body);
+      transport.response = HttpTransportResponse(
+        statusCode: status,
+        body: body,
+      );
       await expectLater(
         adapter().complete(
           model: 'deepseek-chat',
@@ -164,42 +166,45 @@ void main() {
     });
   }
 
-  test('transport timeout and connection failure map to transient kinds', () async {
-    transport.failure = const HttpTransportFailure(timedOut: true);
-    await expectLater(
-      adapter().complete(
-        model: 'deepseek-chat',
-        messages: const [LlmMessage(role: 'user', content: 'x')],
-        thinkingMode: 'enabled',
-        reasoningEffort: 'max',
-        timeout: const Duration(seconds: 5),
-      ),
-      throwsA(
-        isA<LlmException>().having(
-          (e) => e.kind,
-          'kind',
-          LlmErrorKind.timeout,
+  test(
+    'transport timeout and connection failure map to transient kinds',
+    () async {
+      transport.failure = const HttpTransportFailure(timedOut: true);
+      await expectLater(
+        adapter().complete(
+          model: 'deepseek-chat',
+          messages: const [LlmMessage(role: 'user', content: 'x')],
+          thinkingMode: 'enabled',
+          reasoningEffort: 'max',
+          timeout: const Duration(seconds: 5),
         ),
-      ),
-    );
-    transport.failure = const HttpTransportFailure(message: 'refused');
-    await expectLater(
-      adapter().complete(
-        model: 'deepseek-chat',
-        messages: const [LlmMessage(role: 'user', content: 'x')],
-        thinkingMode: 'enabled',
-        reasoningEffort: 'max',
-        timeout: const Duration(seconds: 5),
-      ),
-      throwsA(
-        isA<LlmException>().having(
-          (e) => e.kind,
-          'kind',
-          LlmErrorKind.server,
+        throwsA(
+          isA<LlmException>().having(
+            (e) => e.kind,
+            'kind',
+            LlmErrorKind.timeout,
+          ),
         ),
-      ),
-    );
-  });
+      );
+      transport.failure = const HttpTransportFailure(message: 'refused');
+      await expectLater(
+        adapter().complete(
+          model: 'deepseek-chat',
+          messages: const [LlmMessage(role: 'user', content: 'x')],
+          thinkingMode: 'enabled',
+          reasoningEffort: 'max',
+          timeout: const Duration(seconds: 5),
+        ),
+        throwsA(
+          isA<LlmException>().having(
+            (e) => e.kind,
+            'kind',
+            LlmErrorKind.server,
+          ),
+        ),
+      );
+    },
+  );
 
   test('listModels returns the provider model ids', () async {
     transport.response = HttpTransportResponse(
@@ -241,7 +246,9 @@ void main() {
     const body = '{"messages":[{"role":"user","content":"译为简体中文"}]}';
     final response = await IoHttpTransport().send(
       'POST',
-      Uri.parse('http://${InternetAddress.loopbackIPv4.address}:${server.port}/'),
+      Uri.parse(
+        'http://${InternetAddress.loopbackIPv4.address}:${server.port}/',
+      ),
       headers: const {'content-type': 'application/json'},
       body: body,
       timeout: const Duration(seconds: 5),

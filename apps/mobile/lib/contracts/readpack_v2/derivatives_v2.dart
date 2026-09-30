@@ -1,6 +1,7 @@
 import 'dart:convert';
 
 import '../contract_violation.dart';
+import 'version_v2.dart';
 
 /// The v2 translation derivative (`derivatives/translation.<locale>.json`).
 class TranslationV2 {
@@ -28,15 +29,7 @@ class TranslationV2 {
   static TranslationV2 parse(Object? json) {
     final r = JsonReader(json, 'translation');
     r['format'].mustEqual('readpack-translation', 'format');
-    final formatVersion = r['format_version'].asString(
-      pattern: RegExp(r'^2\.[0-9]+$'),
-    );
-    if (formatVersion != '2.0') {
-      throw ContractViolation(
-        'translation.format_version',
-        'unsupported v2 minor "$formatVersion"',
-      );
-    }
+    ReadpackV2Version.parse(r['format_version']);
     final article = r['article'];
 
     final sentences = <(String, String)>[];
@@ -101,6 +94,25 @@ class TranslationV2 {
   }
 }
 
+/// One sentence's narration span: the named shape of the five-field range
+/// shared by the v2 derivative, the unified install input, the validator and
+/// the library DAO (positions on the wire are never ambiguous again).
+class NarrationRange {
+  const NarrationRange({
+    required this.sentenceId,
+    required this.startMs,
+    required this.endMs,
+    required this.startSample,
+    required this.endSample,
+  });
+
+  final String sentenceId;
+  final int startMs;
+  final int endMs;
+  final int startSample;
+  final int endSample;
+}
+
 /// The v2 narration derivative (`derivatives/narration.json`).
 class NarrationV2 {
   const NarrationV2({
@@ -123,23 +135,12 @@ class NarrationV2 {
   final int sampleRateHz;
   final int channels;
   final int durationMs;
-  final List<
-    (String sentenceId, int startMs, int endMs, int startSample, int endSample)
-  >
-  ranges;
+  final List<NarrationRange> ranges;
 
   static NarrationV2 parse(Object? json) {
     final r = JsonReader(json, 'narration');
     r['format'].mustEqual('readpack-narration', 'format');
-    final formatVersion = r['format_version'].asString(
-      pattern: RegExp(r'^2\.[0-9]+$'),
-    );
-    if (formatVersion != '2.0') {
-      throw ContractViolation(
-        'narration.format_version',
-        'unsupported v2 minor "$formatVersion"',
-      );
-    }
+    ReadpackV2Version.parse(r['format_version']);
     final article = r['article'];
     final audio = r['audio'];
     final audioPath = audio['path'].asString();
@@ -168,29 +169,22 @@ class NarrationV2 {
       );
     }
 
-    final ranges =
-        <
-          (
-            String sentenceId,
-            int startMs,
-            int endMs,
-            int startSample,
-            int endSample,
-          )
-        >[];
+    final ranges = <NarrationRange>[];
     final seen = <String>{};
     for (final s in r['sentences'].asArray(minItems: 1, maxItems: 100000)) {
       final id = s['sentence_id'].opaqueId();
       if (!seen.add(id)) {
         throw ContractViolation('narration.sentences', 'duplicate "$id"');
       }
-      ranges.add((
-        id,
-        s['audio_start_ms'].millisecondPosition(),
-        s['audio_end_ms'].millisecondPosition(),
-        s['audio_start_sample'].samplePosition(),
-        s['audio_end_sample'].samplePosition(),
-      ));
+      ranges.add(
+        NarrationRange(
+          sentenceId: id,
+          startMs: s['audio_start_ms'].millisecondPosition(),
+          endMs: s['audio_end_ms'].millisecondPosition(),
+          startSample: s['audio_start_sample'].samplePosition(),
+          endSample: s['audio_end_sample'].samplePosition(),
+        ),
+      );
     }
 
     return NarrationV2(

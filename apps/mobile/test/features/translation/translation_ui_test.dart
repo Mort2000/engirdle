@@ -132,11 +132,7 @@ Future<void> installReadableArticle(AppDependencies deps) async {
               text: 'Layer',
               runs: [plain('Layer')],
             ),
-            ParsedTableCell(
-              cellId: 'c1',
-              text: 'File',
-              runs: [plain('File')],
-            ),
+            ParsedTableCell(cellId: 'c1', text: 'File', runs: [plain('File')]),
           ],
           rows: [
             [
@@ -175,7 +171,9 @@ void main() {
     deps = await newTestDependencies(translationClient: client);
   });
 
-  testWidgets('settings page stores the key without echoing it', (tester) async {
+  testWidgets('settings page stores the key without echoing it', (
+    tester,
+  ) async {
     await tester.pumpWidget(wrapTestWidget(deps, const LlmSettingsPage()));
 
     expect(find.text('未保存'), findsOneWidget);
@@ -202,14 +200,13 @@ void main() {
     expect(find.text('连接成功，所选模型可用。'), findsOneWidget);
   });
 
-  testWidgets('reader translation flow activates bilingual reading',
-      (tester) async {
+  testWidgets('reader translation flow activates bilingual reading', (
+    tester,
+  ) async {
     await installReadableArticle(deps);
     await deps.translationSettings.configure(apiKey: 'sk-test');
 
-    await tester.pumpWidget(
-      wrapTestWidget(deps, ReaderPage(articleId: 'a1')),
-    );
+    await tester.pumpWidget(wrapTestWidget(deps, ReaderPage(articleId: 'a1')));
     await tester.pumpAndSettle();
 
     // The translate entry exists only while no translation is active.
@@ -237,8 +234,9 @@ void main() {
     expect(find.text('保持 source text 分离。'), findsOneWidget);
   });
 
-  testWidgets('bookshelf shows the live translation progress badge',
-      (tester) async {
+  testWidgets('bookshelf shows the live translation progress badge', (
+    tester,
+  ) async {
     // A saved endpoint skips the first-run setup page that would otherwise
     // cover the bookshelf.
     deps.connection.saveUrl('http://192.168.1.12:8766');
@@ -259,9 +257,6 @@ void main() {
 
     gate.complete('["标题译文"]');
     await tester.pumpAndSettle();
-    expect(
-      deps.library.getContent('a1')!.capabilities.hasTranslation,
-      isTrue,
-    );
+    expect(deps.library.getContent('a1')!.capabilities.hasTranslation, isTrue);
   });
 }

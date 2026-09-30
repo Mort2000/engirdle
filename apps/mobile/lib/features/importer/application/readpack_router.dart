@@ -5,6 +5,7 @@ import '../../../contracts/contract_violation.dart';
 import '../../../contracts/readpack_v1/readpack_validator.dart';
 import '../../../contracts/readpack_v2/derivatives_v2.dart';
 import '../../../contracts/readpack_v2/readpack_v2_validator.dart';
+import '../../../shared_kernel/content_identity.dart' show kZhTranslationLocale;
 import '../../library/domain/article_install.dart';
 import '../../source_ingestion/domain/raw_source.dart' show SourceSyntax;
 
@@ -88,10 +89,16 @@ class ReadpackRouter {
     final article = validated.article;
 
     final PackagedTranslationImport? translation;
-    if (validated.translations.isNotEmpty) {
-      // First-phase consumers read exactly one zh-Hans derivative; multiple
-      // locales stay a v2.x conversation.
-      final t = validated.translations.first;
+    // The locale boundary (design §2.2/§5.3: mobile 首期只认识 zh-Hans): only
+    // the zh-Hans derivative is installed. Derivatives in other locales are
+    // deliberately ignored — the base stays fully readable, and a French set
+    // can never be surfaced as Simplified Chinese by the reader queries
+    // (which bind the same locale).
+    final zhTranslation = validated.translations
+        .where((t) => t.targetLocale == kZhTranslationLocale)
+        .firstOrNull;
+    if (zhTranslation != null) {
+      final t = zhTranslation;
       translation = PackagedTranslationImport(
         locale: t.targetLocale,
         pipelineJson: t.pipelineJson,

@@ -13,6 +13,7 @@ import 'package:engirdle_mobile/platform/http/lan_http_client.dart';
 import 'package:engirdle_mobile/platform/zip/secure_zip_reader.dart';
 import 'package:engirdle_mobile/shared_kernel/content_identity.dart';
 import 'package:engirdle_mobile/shared_kernel/failures.dart';
+import 'package:engirdle_mobile/features/translation/infrastructure/translation_dao.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:path/path.dart' as p;
 
@@ -52,7 +53,13 @@ void main() {
     dirs = AppDirectories(temp);
     await dirs.ensureBaseLayout();
     appDb = AppDatabase.inMemory();
-    library = LibraryService(dao: LibraryDao(appDb.db), directories: dirs);
+    library = LibraryService(
+      dao: LibraryDao(appDb.db),
+      directories: dirs,
+      packagedTranslationInstaller: TranslationDao(
+        appDb.db,
+      ).installPackagedSetFor,
+    );
     logDao = ImportLogDao(appDb.db);
     importer = ImportService(
       logDao: logDao,

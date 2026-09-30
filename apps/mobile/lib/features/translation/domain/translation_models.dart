@@ -56,12 +56,9 @@ enum TranslationErrorKind {
   staleSource,
   internal;
 
-  static TranslationErrorKind? fromName(String? name) =>
-      name == null
-          ? null
-          : TranslationErrorKind.values
-                .where((k) => k.name == name)
-                .firstOrNull;
+  static TranslationErrorKind? fromName(String? name) => name == null
+      ? null
+      : TranslationErrorKind.values.where((k) => k.name == name).firstOrNull;
 
   String get wire => name;
 }
@@ -80,6 +77,8 @@ class TranslationJobConfig {
     required this.maxRequestAttempts,
     required this.maxRetryRounds,
     required this.clientVersion,
+    this.wifiOnly = false,
+    this.chargingOnly = false,
   });
 
   final String provider;
@@ -93,6 +92,13 @@ class TranslationJobConfig {
   final int maxRetryRounds;
   final String clientVersion;
 
+  /// Execution constraints frozen at queue time from the profile (§8.4:
+  /// 设置变化只影响新 job). The scheduler resolves constraints from the job's
+  /// snapshot, never from the live profile — a queued task's execution
+  /// conditions must not change under it.
+  final bool wifiOnly;
+  final bool chargingOnly;
+
   Map<String, Object?> toJson() => {
     'provider': provider,
     'origin': origin,
@@ -104,6 +110,8 @@ class TranslationJobConfig {
     'max_request_attempts': maxRequestAttempts,
     'max_retry_rounds': maxRetryRounds,
     'client_version': clientVersion,
+    'wifi_only': wifiOnly,
+    'charging_only': chargingOnly,
   };
 
   static TranslationJobConfig fromJson(Map<String, Object?> json) =>
@@ -118,6 +126,10 @@ class TranslationJobConfig {
         maxRequestAttempts: json['max_request_attempts']! as int,
         maxRetryRounds: json['max_retry_rounds']! as int,
         clientVersion: json['client_version']! as String,
+        // Config rows written before the constraint snapshot existed (v7
+        // schema keeps config_json free-form) default to connected-only.
+        wifiOnly: json['wifi_only'] as bool? ?? false,
+        chargingOnly: json['charging_only'] as bool? ?? false,
       );
 }
 

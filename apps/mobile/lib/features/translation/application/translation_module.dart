@@ -51,6 +51,14 @@ enum TranslationRunResult {
   deferredBusy,
 }
 
+/// Raised by the module's internal backoff sleep when the execution lease
+/// drops mid-wait: the retry loop must stop silently — the job was
+/// cancelled, paused or superseded, and no further request may leave the
+/// device (§9.2).
+class _LeaseLostDuringBackoff implements Exception {
+  const _LeaseLostDuringBackoff();
+}
+
 /// The mobile translation deep module (design §7.2/§8): queue, cancel,
 /// pause/resume, retry and watch. Everything else — plan derivation, prompt
 /// projection, placeholder protection, checkpoint journal, bounded retries,
@@ -144,8 +152,7 @@ class TranslationModule {
       author: content.article.author,
       blocks: content.blocks,
     );
-    final contextChars =
-        kTranslationSystemPrompt.length + context.length;
+    final contextChars = kTranslationSystemPrompt.length + context.length;
     final requestChars = [
       for (final unit in plan.units) buildUnitRequest(unit).length,
     ];
@@ -161,9 +168,7 @@ class TranslationModule {
       if (i == 0) firstRequestChars += requestChars.first;
     }
     final sentenceCount = content.sentences.length;
-    final tableCount = content.blocks
-        .whereType<InstalledTableBlock>()
-        .length;
+    final tableCount = content.blocks.whereType<InstalledTableBlock>().length;
     final firstRequestTokens = firstRequestChars ~/ 3;
     return TranslationEstimate(
       articleChars: context.length,
@@ -260,6 +265,11 @@ class TranslationModule {
       maxRequestAttempts: 3,
       maxRetryRounds: 5,
       clientVersion: kTranslationClientVersion,
+      // Constraints freeze with the rest of the snapshot (§8.4/§9.2): the
+      // scheduler reads them from the job row, so later profile edits never
+      // change a queued task's execution conditions.
+      wifiOnly: profile.wifiOnly,
+      chargingOnly: profile.chargingOnly,
     );
     _dao.insertJob(
       jobId: jobId,
@@ -399,8 +409,11 @@ class TranslationModule {
     // Reconciliation: the journal must be a prefix of the current plan.
     for (var i = 0; i < journal.length; i++) {
       if (journal[i].unitId != plan.units[i].blockId) {
-        await _cancelStale(job, 'the accepted journal does not match the '
-            'article structure');
+        await _cancelStale(
+          job,
+          'the accepted journal does not match the '
+          'article structure',
+        );
         return TranslationRunResult.ran;
       }
     }
@@ -420,11 +433,7 @@ class TranslationModule {
     } on TranslationProtocolError catch (error) {
       await _onUnitFailure(jobId, TranslationErrorKind.protocol, error.message);
     } on StateError catch (error) {
-      await _onUnitFailure(
-        jobId,
-        TranslationErrorKind.config,
-        error.message,
-      );
+      await _onUnitFailure(jobId, TranslationErrorKind.config, error.message);
     } catch (error) {
       // Fallback for unclassified client errors: without it the job would
       // stay running forever while the host scheduler reports success —
@@ -472,7 +481,20 @@ class TranslationModule {
         ],
         LlmMessage(role: 'user', content: buildUnitRequest(unit)),
       ];
-      final result = await _unitWithRetries(config, messages, unit);
+      final ({LlmCompletion completion, UnitTranslation validated}) result;
+      try {
+        result = await _unitWithRetries(
+          jobId: jobId,
+          generation: generation,
+          config: config,
+          messages: messages,
+          unit: unit,
+        );
+      } on _LeaseLostDuringBackoff {
+        // Cancel/pause/redelivery landed during the backoff sleep: stop
+        // without sending anything further; the lease holder owns the job.
+        return;
+      }
       // A late response from a cancelled/paused worker is discarded without
       // writing — the lease guard is the second gate after the network call.
       if (!_dao.holdsLease(jobId, generation)) return;
@@ -501,9 +523,11 @@ class TranslationModule {
         if (!_dao.holdsLease(jobId, generation)) return;
         rethrow;
       }
-      journal.add(
-        (unitOrder: i, unitId: unit.blockId, content: result.completion.content),
-      );
+      journal.add((
+        unitOrder: i,
+        unitId: unit.blockId,
+        content: result.completion.content,
+      ));
       _notify();
     }
   }
@@ -511,13 +535,17 @@ class TranslationModule {
   /// Bounded in-request retry budget for transient transport failures and
   /// transiently malformed replies (PC parity, §8.5): validation runs inside
   /// the loop so a wrong-length or fenced reply scores a corrected retry,
-  /// and failed replies never enter the accepted history.
+  /// and failed replies never enter the accepted history. Every backoff
+  /// sleep is lease-guarded and aborts on cancel/pause/redelivery (§9.2 —
+  /// the job must not re-send the article body after the user cancelled).
   Future<({LlmCompletion completion, UnitTranslation validated})>
-  _unitWithRetries(
-    TranslationJobConfig config,
-    List<LlmMessage> messages,
-    TranslationPlanUnit unit,
-  ) async {
+  _unitWithRetries({
+    required String jobId,
+    required int generation,
+    required TranslationJobConfig config,
+    required List<LlmMessage> messages,
+    required TranslationPlanUnit unit,
+  }) async {
     var attempt = 0;
     while (true) {
       try {
@@ -537,20 +565,55 @@ class TranslationModule {
         if (!error.isTransient || attempt >= config.maxRequestAttempts - 1) {
           rethrow;
         }
-        await _sleeper(_inRequestBackoff(error));
+        await _sleepUnlessLeaseLost(
+          _inRequestBackoff(error),
+          jobId,
+          generation,
+        );
         attempt++;
       } on TranslationProtocolError {
         if (attempt >= config.maxRequestAttempts - 1) rethrow;
-        await _sleeper(_backoffFor(0));
+        await _sleepUnlessLeaseLost(_backoffFor(0), jobId, generation);
         attempt++;
       }
     }
   }
 
-  Duration _inRequestBackoff(LlmException error) => error.retryAfterSeconds ==
-      null
-    ? _backoffFor(0)
-    : Duration(seconds: error.retryAfterSeconds!);
+  /// Lease-guarded backoff sleep (§9.2): the requested wait races a lease
+  /// poll — cancel/pause/redelivery during the window (e.g. a `Retry-After`
+  /// hold) aborts the sleep within one slice, and the post-sleep check
+  /// re-verifies before the next send. A cancelled or superseded worker
+  /// never wakes up to re-send the article body.
+  Future<void> _sleepUnlessLeaseLost(
+    Duration delay,
+    String jobId,
+    int generation,
+  ) async {
+    var finished = false;
+    Future<void> leaseWatch() async {
+      while (!finished) {
+        await Future<void>.delayed(_backoffLeaseSlice);
+        if (!finished && !_dao.holdsLease(jobId, generation)) return;
+      }
+    }
+
+    try {
+      await Future.any([_sleeper(delay), leaseWatch()]);
+    } finally {
+      finished = true;
+    }
+    if (!_dao.holdsLease(jobId, generation)) {
+      throw const _LeaseLostDuringBackoff();
+    }
+  }
+
+  /// Poll granularity of the lease check racing a backoff sleep.
+  static const _backoffLeaseSlice = Duration(milliseconds: 250);
+
+  Duration _inRequestBackoff(LlmException error) =>
+      error.retryAfterSeconds == null
+      ? _backoffFor(0)
+      : Duration(seconds: error.retryAfterSeconds!);
 
   /// Terminal failure of a unit after exhausting every budget (§8.3/§8.5):
   /// transient failures park the job in waiting_retry with scheduler backoff
@@ -564,7 +627,8 @@ class TranslationModule {
   ) async {
     final job = _dao.getJob(jobId);
     if (job == null || job.status != TranslationJobStatus.running) return;
-    final transient = kind == TranslationErrorKind.transport ||
+    final transient =
+        kind == TranslationErrorKind.transport ||
         kind == TranslationErrorKind.protocol;
     if (transient && job.retryRound < job.config.maxRetryRounds) {
       final round = job.retryRound + 1;
@@ -576,10 +640,14 @@ class TranslationModule {
         errorDetail: detail,
       );
       _notify();
-      // The backoff window belongs to the scheduler (§8.3): an OS-backed
-      // adapter persists the delay, so a process death during the window
-      // loses nothing — the re-entry path in [runJob] picks the job up when
-      // the delayed execution is delivered.
+      // The backoff window belongs to the scheduler (§8.3). Two delivery
+      // paths, one per adapter: the in-process scheduler runs the delayed
+      // [TranslationScheduler.schedule] below; on WorkManager, this call is
+      // a keep-policy no-op while the current work exists — the worker
+      // returns retry for a waiting_retry job and the OS redelivers the same
+      // work after its backoff (durable across process death). Both land in
+      // [runJob]'s waiting_retry re-entry, which re-queues and continues
+      // from the journal.
       _scheduler.schedule(jobId, after: _backoffFor(round));
       return;
     }
@@ -655,10 +723,7 @@ class TranslationModule {
     }
   }
 
-  Future<void> _cancelStale(
-    TranslationJobSnapshot job,
-    String reason,
-  ) async {
+  Future<void> _cancelStale(TranslationJobSnapshot job, String reason) async {
     final setId = job.translationSetId;
     if (setId != null) _dao.deleteSet(setId);
     _dao.updateStatus(
@@ -705,7 +770,8 @@ class TranslationModule {
       final activeIds = <String>{};
       for (final job in active.values) {
         activeIds.add(job.jobId);
-        final signature = '${job.status.name}:${job.completedUnits}:'
+        final signature =
+            '${job.status.name}:${job.completedUnits}:'
             '${job.retryRound}:${job.errorKind?.name}';
         if (_observedJobs[job.jobId] != signature) {
           _observedJobs[job.jobId] = signature;
@@ -768,9 +834,7 @@ class TranslationModule {
     Set<(String, String)> b,
   ) => a.length == b.length && a.containsAll(b);
 
-  static TranslationErrorKind _toErrorKind(LlmErrorKind kind) => switch (
-    kind
-  ) {
+  static TranslationErrorKind _toErrorKind(LlmErrorKind kind) => switch (kind) {
     LlmErrorKind.auth => TranslationErrorKind.auth,
     LlmErrorKind.balance => TranslationErrorKind.balance,
     LlmErrorKind.contextLimit => TranslationErrorKind.contextLimit,

@@ -160,18 +160,15 @@ void main() {
       rawContent: '{}',
       translation: const TableUnitTranslation(
         blockId: 'block-2',
-        cells: [
-          (cellId: 'c1', text: '单元格'),
-          (cellId: 'c2', text: '译文'),
-        ],
+        cells: [(cellId: 'c1', text: '单元格'), (cellId: 'c2', text: '译文')],
       ),
     );
     job = dao.getJob('job-1')!;
     expect(job.completedUnits, 2);
     expect(
-      db.db.select(
-        'SELECT COUNT(*) AS n FROM table_cell_translations',
-      ).first['n'],
+      db.db
+          .select('SELECT COUNT(*) AS n FROM table_cell_translations')
+          .first['n'],
       2,
     );
     // The journal is the accepted history: raw content in unit order.

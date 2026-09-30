@@ -66,14 +66,17 @@ class EngirdleNativePlugin : FlutterPlugin, ActivityAware {
                     result.error("no_context", "engine detached", null)
                     return@setMethodCallHandler
                 }
-                val jobId = call.argument<String>("jobId")
-                if (jobId == null) {
-                    result.error("invalid_argument", "jobId is required", null)
-                    return@setMethodCallHandler
+                fun requireJobId(): String? {
+                    val jobId = call.argument<String>("jobId")
+                    if (jobId == null) {
+                        result.error("invalid_argument", "jobId is required", null)
+                    }
+                    return jobId
                 }
                 try {
                     when (call.method) {
                         "progress" -> {
+                            val jobId = requireJobId() ?: return@setMethodCallHandler
                             TranslationNotifications.showProgress(
                                 context,
                                 jobId = jobId,
@@ -84,6 +87,7 @@ class EngirdleNativePlugin : FlutterPlugin, ActivityAware {
                             result.success(null)
                         }
                         "waiting" -> {
+                            val jobId = requireJobId() ?: return@setMethodCallHandler
                             TranslationNotifications.showWaiting(
                                 context,
                                 jobId = jobId,
@@ -92,6 +96,7 @@ class EngirdleNativePlugin : FlutterPlugin, ActivityAware {
                             result.success(null)
                         }
                         "finished" -> {
+                            val jobId = requireJobId() ?: return@setMethodCallHandler
                             TranslationNotifications.showFinished(
                                 context,
                                 jobId = jobId,
@@ -101,6 +106,7 @@ class EngirdleNativePlugin : FlutterPlugin, ActivityAware {
                             result.success(null)
                         }
                         "dismiss" -> {
+                            val jobId = requireJobId() ?: return@setMethodCallHandler
                             TranslationNotifications.dismiss(context, jobId)
                             result.success(null)
                         }

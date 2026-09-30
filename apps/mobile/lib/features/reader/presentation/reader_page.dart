@@ -465,6 +465,18 @@ class _ReaderPageState extends State<ReaderPage> {
   /// to the original (title translation is not part of readpack v1).
   String _zhTitleFallback(String title) => title;
 
+  /// Constraint line for the confirmation dialog (§8.6: 确认页展示网络约束).
+  /// Shows the same profile values that queueTranslation freezes into the
+  /// job's config snapshot.
+  String _constraintText(LlmProfile? profile) {
+    final wifi = profile?.wifiOnly ?? false;
+    final charging = profile?.chargingOnly ?? false;
+    if (wifi && charging) return '仅 Wi-Fi 且仅充电时执行';
+    if (wifi) return '仅 Wi-Fi 时执行';
+    if (charging) return '仅充电时执行';
+    return '任意可用网络';
+  }
+
   /// 翻译确认流（§8.6/§10.2）：隐私声明、保守估算与配置快照都在开始前
   /// 明确展示；全文发送的确认时间会记录在任务上。
   Future<void> _startTranslateFlow() async {
@@ -523,6 +535,8 @@ class _ReaderPageState extends State<ReaderPage> {
             ),
             const SizedBox(height: 8),
             Text('服务商：DeepSeek（${profile?.model ?? 'deepseek-v4-flash'}）'),
+            const SizedBox(height: 8),
+            Text('网络要求：${_constraintText(profile)}'),
             const SizedBox(height: 8),
             const Text(
               '开始后，文章全文将发送到 DeepSeek 官方服务进行翻译；'

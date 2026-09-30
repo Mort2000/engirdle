@@ -24,7 +24,8 @@
 - [ ] 中间单元与最后单元各重复一次 force-stop；
 - [ ] force-stop 后不打开应用，等待 10 分钟（亮屏）：WorkManager 自行重投递并继续（厂商机型可能延迟，记录时长）；
 - [ ] 设备重启：任务在重启后继续（WorkManager 持久化）；
-- [ ] waiting_retry 期间 force-stop：退避投递由 WorkManager 在进程死亡后仍按时到达。
+- [ ] waiting_retry 期间 force-stop：退避投递由 WorkManager 在进程死亡后仍按时到达；
+- [ ] **waiting_retry 后继投递（unique-work KEEP 真实行为，无法离线复现）**：制造一次瞬态失败（如断网触发 429/超时）让任务进入 waiting_retry，确认同一 work 经 worker 的 retry 结果被 WorkManager 重投递并续跑——keep 策略下运行中的 re-enqueue 会被忽略，此路径只能真机验证。
 
 ## 取消/暂停竞争（§9.2/§12.4）
 

@@ -31,8 +31,11 @@ class OneOffWorkSpec {
 
 /// Shared job → article-title lookup for the enqueue-time foreground
 /// notification (both engines construct the scheduler with it).
-String translationArticleTitleOf(TranslationDao dao, LibraryService library,
-    String jobId) {
+String translationArticleTitleOf(
+  TranslationDao dao,
+  LibraryService library,
+  String jobId,
+) {
   final job = dao.getJob(jobId);
   if (job == null) return '文章';
   return library.getArticle(job.articleId)?.title ?? '文章';
@@ -50,8 +53,9 @@ abstract interface class OneOffWorkEnqueuer {
 ///
 /// - one unique name per job — re-registration under a keep policy never
 ///   duplicates a pending or running execution, whatever called it;
-/// - constraints (connected always; unmetered / charging from the current
-///   profile) are resolved at every schedule call;
+/// - constraints (connected always; unmetered / charging) are resolved from
+///   the job's frozen config snapshot at every schedule call (§8.4) —
+///   profile edits after queue never change a queued task's conditions;
 /// - transient-retry backoff becomes the work's initial delay, so the
 ///   window survives process death (§8.3) — no in-process timer is involved;
 /// - the module's lease guards remain the authority for anything already
@@ -59,32 +63,33 @@ abstract interface class OneOffWorkEnqueuer {
 class WorkManagerTranslationScheduler implements TranslationScheduler {
   WorkManagerTranslationScheduler({
     required OneOffWorkEnqueuer enqueuer,
-    required LlmProfile? Function() profile,
+    required TranslationJobConfig? Function(String jobId) configOf,
     required String Function(String jobId) articleTitleOf,
     AppLogger logger = const AppLogger('translation-scheduler'),
   }) : _enqueuer = enqueuer,
-       _profile = profile,
+       _configOf = configOf,
        _articleTitleOf = articleTitleOf,
        _logger = logger;
 
   final OneOffWorkEnqueuer _enqueuer;
-  final LlmProfile? Function() _profile;
+  final TranslationJobConfig? Function(String jobId) _configOf;
   final String Function(String jobId) _articleTitleOf;
   final AppLogger _logger;
 
   @override
   void schedule(String jobId, {Duration after = Duration.zero}) {
-    final profile = _profile();
-    // Constraints come from the profile at schedule time (§9.2): a network
-    // connection is always required — translation without connectivity can
-    // never make progress.
+    final config = _configOf(jobId);
+    // A network connection is always required (§9.2) — translation without
+    // connectivity can never make progress. A vanished job row schedules
+    // nothing special: connected-only is the least surprising default and
+    // the execution itself is a no-op.
     final spec = OneOffWorkSpec(
       uniqueName: translationWorkUniqueName(jobId),
       taskName: kTranslationTaskName,
       inputData: {kTranslationJobInputKey: jobId},
       initialDelay: after,
-      unmeteredOnly: profile?.wifiOnly ?? false,
-      requiresCharging: profile?.chargingOnly ?? false,
+      unmeteredOnly: config?.wifiOnly ?? false,
+      requiresCharging: config?.chargingOnly ?? false,
       foregroundNotificationId: translationNotificationId(jobId),
       foregroundNotificationTitle: '正在翻译：${_articleTitleOf(jobId)}',
     );
@@ -92,19 +97,20 @@ class WorkManagerTranslationScheduler implements TranslationScheduler {
       // Scheduling is best-effort: recover() re-drives unscheduled active
       // jobs on the next app start, and a lost retry delivery is repaired
       // the same way. Never crash an unawaited call site.
-      _logger.error(
-        'enqueue_failed',
-        {'job': jobId, 'delay_ms': after.inMilliseconds, 'error': '$error'},
-      );
+      _logger.error('enqueue_failed', {
+        'job': jobId,
+        'delay_ms': after.inMilliseconds,
+        'error': '$error',
+      });
     });
   }
 
   @override
   void cancelScheduled(String jobId) {
-    _enqueuer
-        .cancelByUniqueName(translationWorkUniqueName(jobId))
-        .catchError((Object error) {
-          _logger.error('cancel_failed', {'job': jobId, 'error': '$error'});
-        });
+    _enqueuer.cancelByUniqueName(translationWorkUniqueName(jobId)).catchError((
+      Object error,
+    ) {
+      _logger.error('cancel_failed', {'job': jobId, 'error': '$error'});
+    });
   }
 }

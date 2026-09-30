@@ -18,12 +18,15 @@ class LibraryService {
     required LibraryDao dao,
     required AppDirectories directories,
     LeaseRegistry? playbackLeases,
+    InstallPackagedTranslation? packagedTranslationInstaller,
   }) : _dao = dao,
        _dirs = directories,
-       _leases = playbackLeases;
+       _leases = playbackLeases,
+       _installPackagedTranslation = packagedTranslationInstaller;
 
   final LibraryDao _dao;
   final AppDirectories _dirs;
+  final InstallPackagedTranslation? _installPackagedTranslation;
 
   /// Last-resort guard so an upgrade cleanup or a delete cannot remove an
   /// artifact a background playback session still holds (design §6.3). Null in
@@ -118,10 +121,22 @@ class LibraryService {
       _dirs.articleDir(ref.articleId, ref.revision, ref.artifactRevision);
 
   /// Commits a validated, fully-moved import: the single DB transaction
-  /// that switches the article's current pointer (design §8.2).
+  /// that switches the article's current pointer (design §8.2). The packaged
+  /// translation rows are written by the translation-owner seam inside the
+  /// same transaction; a package carrying one without a wired seam fails
+  /// fast instead of silently dropping the translation.
   void commitInstall(ValidatedArticleImport install) {
+    if (install.translation != null && _installPackagedTranslation == null) {
+      throw AppFailure(
+        FailureKind.database,
+        'packaged translation installer is not wired',
+      );
+    }
     try {
-      _dao.installArticle(install);
+      _dao.installArticle(
+        install,
+        installPackagedTranslation: _installPackagedTranslation,
+      );
       _notify();
     } catch (e) {
       throw AppFailure(

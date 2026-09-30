@@ -7,6 +7,7 @@ import 'package:engirdle_mobile/features/library/domain/installed_article.dart';
 import 'package:engirdle_mobile/features/library/infrastructure/library_dao.dart';
 import 'package:engirdle_mobile/platform/database/app_database.dart';
 import 'package:engirdle_mobile/platform/database/migrations.dart';
+import 'package:engirdle_mobile/features/translation/infrastructure/translation_dao.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:path/path.dart' as p;
 import 'package:sqlite3/sqlite3.dart';
@@ -136,6 +137,9 @@ void main() {
           manifestJson: '{}',
           attributionJson: '{}',
         ),
+        installPackagedTranslation: TranslationDao(
+          appDb.db,
+        ).installPackagedSetFor,
       );
 
       final blocks = dao.getBlocks(content.articleId);

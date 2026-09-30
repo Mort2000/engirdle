@@ -2,11 +2,13 @@ import 'dart:convert';
 
 import 'package:sqlite3/sqlite3.dart';
 
-/// Journal states (design §6.5). The transient acquiring/staged/validating
-/// phases collapse into the single [awaitingConfirmation] write for a
-/// single-process app: by the time a row exists, staging and structuring
-/// already succeeded.
+/// Journal states (design §6.5). The raw-source transient phases collapse
+/// into the single [awaitingConfirmation] write (by the time a row exists,
+/// staging and structuring already succeeded); the document-package path
+/// journals [validating] from the moment its staging exists, so a crash
+/// during ZIP extraction/validation is recoverable too.
 enum SourceImportState {
+  validating('validating'),
   awaitingConfirmation('awaiting_confirmation'),
   moving('moving'),
   committed('committed'),
@@ -61,6 +63,21 @@ class SourceImportDao {
     _db.execute(
       'UPDATE source_imports SET state = ?, updated_at = ? WHERE import_id = ?',
       [state, DateTime.now().toUtc().toIso8601String(), importId],
+    );
+  }
+
+  /// Records the install target on a moving row (design §6.5: journal 记录
+  /// 目标 ArticleRef)： recovery uses it to find — and roll back — an
+  /// artifact directory that was moved into its final location but never
+  /// committed to the library.
+  void recordMovingTarget(
+    String importId, {
+    required Map<String, Object?> stats,
+  }) {
+    _db.execute(
+      'UPDATE source_imports SET stats_json = ?, updated_at = ? '
+      'WHERE import_id = ?',
+      [jsonEncode(stats), DateTime.now().toUtc().toIso8601String(), importId],
     );
   }
 

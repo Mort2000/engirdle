@@ -2,6 +2,7 @@ import 'dart:convert';
 
 import '../contract_violation.dart';
 import '../readpack_v1/article.dart';
+import 'version_v2.dart';
 
 /// Readpack v2 `article.json` — the pure source base. Same typed block
 /// union as v1.1, minus every derivative field: no translation_zh, no audio
@@ -31,15 +32,7 @@ class ArticleV2 {
   static ArticleV2 parse(Object? json) {
     final r = JsonReader(json, 'article');
     r['format'].mustEqual('readpack-article', 'format');
-    final formatVersion = r['format_version'].asString(
-      pattern: RegExp(r'^2\.[0-9]+$'),
-    );
-    if (formatVersion != '2.0') {
-      throw ContractViolation(
-        'article.format_version',
-        'unsupported v2 minor "$formatVersion"',
-      );
-    }
+    ReadpackV2Version.parse(r['format_version']);
 
     final source = r['source'];
     final parsedSource = ArticleSource(

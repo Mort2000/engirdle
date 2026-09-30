@@ -2,6 +2,7 @@ import 'dart:convert';
 
 import '../contract_violation.dart';
 import '../readpack_v1/attribution.dart' show AttributionResource;
+import 'version_v2.dart';
 
 /// Readpack v2 `manifest.json` — the layered envelope (contracts/readpack/v2).
 class ReadpackV2Manifest {
@@ -38,7 +39,7 @@ class ReadpackV2Manifest {
   static ReadpackV2Manifest parse(Object? json) {
     final r = JsonReader(json, 'manifest');
     r['format'].mustEqual('readpack', 'format');
-    final formatVersion = _v2Version(r['format_version']);
+    final formatVersion = ReadpackV2Version.parse(r['format_version']).wire;
 
     final capabilities = <String>[];
     final capabilityReaders =
@@ -65,11 +66,14 @@ class ReadpackV2Manifest {
     final seenPaths = <String>{};
     for (var i = 0; i < files.length; i++) {
       final f = files[i];
+      final path = f['path'].asString();
+      final mediaType = f['media_type'].asString();
+      _requireSchemaFileShape(i, path, mediaType);
       final entry = V2FileEntry(
-        path: f['path'].asString(),
+        path: path,
         size: f['size'].asInt(min: 1, max: 1073741824),
         sha256: f['sha256'].sha256(),
-        mediaType: f['media_type'].asString(),
+        mediaType: mediaType,
       );
       if (!seenPaths.add(entry.path)) {
         throw ContractViolation(
@@ -86,6 +90,7 @@ class ReadpackV2Manifest {
     }
 
     final content = r['content'];
+    _fixedString(content['path'], 'article.json');
     final derivatives = r['derivatives'];
     final translationReaders = derivatives['translations'].asArray(maxItems: 8);
     final translations = [
@@ -134,24 +139,37 @@ class ReadpackV2Manifest {
   }
 }
 
-String _v2Version(JsonReader r) {
-  final version = r.asString();
-  final match = RegExp(r'^(\d+)\.(\d+)$').firstMatch(version);
-  if (match == null) {
-    throw ContractViolation(r.path, 'malformed format_version "$version"');
-  }
-  if (match.group(1) != '2') {
-    throw ContractViolation(r.path, 'unsupported major version "$version"');
-  }
-  // `2.x` minors this build understands must stay explicit.
-  if (version != '2.0') {
+/// Typed allow-list mirroring the manifest schema's `files[].oneOf`: every
+/// declared payload must be one of the five fixed-layout paths carrying its
+/// exact media type (contracts/readpack/v2 README 逻辑布局). Anything else —
+/// e.g. a `notes.txt` the ZIP really contains — is rejected here, before the
+/// container's declared-set-equals-actual-set check could accept it.
+void _requireSchemaFileShape(int index, String path, String mediaType) {
+  final String expectedMedia;
+  if (path == 'article.json' ||
+      path == 'attribution.json' ||
+      path == 'derivatives/narration.json' ||
+      _translationPathPattern.hasMatch(path)) {
+    expectedMedia = 'application/json';
+  } else if (path == 'audio/article.m4a') {
+    expectedMedia = 'audio/mp4';
+  } else {
     throw ContractViolation(
-      r.path,
-      'unsupported v2 minor "$version" (this build implements 2.0)',
+      'manifest.files[$index].path',
+      '"$path" is not part of the v2 fixed layout',
     );
   }
-  return version;
+  if (mediaType != expectedMedia) {
+    throw ContractViolation(
+      'manifest.files[$index].media_type',
+      'expected "$expectedMedia" for "$path", got "$mediaType"',
+    );
+  }
 }
+
+final RegExp _translationPathPattern = RegExp(
+  r'^derivatives/translation\.[A-Za-z0-9]{2,8}(-[A-Za-z0-9]{2,8})*\.json$',
+);
 
 String _fixedString(JsonReader r, String expected) {
   final value = r.asString();
@@ -210,10 +228,7 @@ class ReadpackV2Attribution {
   static ReadpackV2Attribution parse(Object? json) {
     final r = JsonReader(json, 'attribution');
     r['format'].mustEqual('readpack-attribution', 'format');
-    final formatVersion = _v2VersionReader(
-      r['format_version'],
-      'attribution.format_version',
-    );
+    final formatVersion = ReadpackV2Version.parse(r['format_version']).wire;
     final article = r['article'];
 
     final resourceReaders = r['resources'].asArray(minItems: 2, maxItems: 128);
@@ -283,24 +298,6 @@ class ReadpackV2Attribution {
       }
     }
   }
-}
-
-String _v2VersionReader(JsonReader r, String path) {
-  final version = r.asString();
-  final match = RegExp(r'^(\d+)\.(\d+)$').firstMatch(version);
-  if (match == null) {
-    throw ContractViolation(path, 'malformed format_version "$version"');
-  }
-  if (match.group(1) != '2') {
-    throw ContractViolation(path, 'unsupported major version "$version"');
-  }
-  if (version != '2.0') {
-    throw ContractViolation(
-      path,
-      'unsupported v2 minor "$version" (this build implements 2.0)',
-    );
-  }
-  return version;
 }
 
 /// Convenience re-export so validator callers never touch raw jsonDecode.

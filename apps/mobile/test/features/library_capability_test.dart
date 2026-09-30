@@ -10,6 +10,7 @@ import 'package:engirdle_mobile/features/library/infrastructure/library_dao.dart
 import 'package:engirdle_mobile/platform/database/app_database.dart';
 import 'package:engirdle_mobile/platform/filesystem/app_directories.dart';
 import 'package:engirdle_mobile/shared_kernel/failures.dart';
+import 'package:engirdle_mobile/features/translation/infrastructure/translation_dao.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 /// Phase-1 capability split: installs write base + packaged translation set
@@ -30,7 +31,13 @@ void main() {
       if (await temp.exists()) await temp.delete(recursive: true);
     });
     dao = LibraryDao(appDb.db);
-    library = LibraryService(dao: dao, directories: AppDirectories(temp));
+    library = LibraryService(
+      dao: dao,
+      directories: AppDirectories(temp),
+      packagedTranslationInstaller: TranslationDao(
+        appDb.db,
+      ).installPackagedSetFor,
+    );
   });
 
   InstalledContent install(Object? articleJson) {

@@ -2,6 +2,7 @@ import 'dart:convert';
 
 import 'package:sqlite3/sqlite3.dart';
 
+import '../../library/domain/article_install.dart';
 import '../application/response_validation.dart';
 import '../domain/translation_models.dart';
 
@@ -73,6 +74,74 @@ class TranslationDao {
 
   // ---- building translation set ----
 
+  /// Installs a packaged translation set (origin `packaged`, `complete` by
+  /// package validation) into the translation-owned tables. MUST run inside
+  /// the caller's SQLite transaction — the library's install transaction on
+  /// the same connection — so the base rows, these rows and the active
+  /// pointer commit or roll back as one unit (design §7.2: install is the
+  /// library's atomic seam; translation tables are written only here).
+  ///
+  /// The signature matches the library's install seam: the library mints the
+  /// set id and hands over the whole validated install.
+  void installPackagedSetFor(
+    ValidatedArticleImport install, {
+    required String translationSetId,
+  }) {
+    final translation = install.translation;
+    if (translation == null) return;
+    installPackagedSet(
+      translationSetId: translationSetId,
+      articleId: install.articleId,
+      artifactRevision: install.artifactRevision,
+      structureSha256: install.structureSha256,
+      targetLocale: translation.locale,
+      pipelineJson: translation.pipelineJson,
+      sentences: translation.sentences,
+      cells: translation.cells,
+    );
+  }
+
+  void installPackagedSet({
+    required String translationSetId,
+    required String articleId,
+    required int artifactRevision,
+    required String structureSha256,
+    required String targetLocale,
+    required String pipelineJson,
+    required List<(String sentenceId, String text)> sentences,
+    required List<(String blockId, String cellId, String text)> cells,
+  }) {
+    _db.execute(
+      'INSERT INTO translation_sets (translation_set_id, article_id, '
+      'artifact_revision, structure_sha256, target_locale, origin, status, '
+      'pipeline_json, created_at) '
+      "VALUES (?, ?, ?, ?, ?, 'packaged', 'complete', ?, ?)",
+      [
+        translationSetId,
+        articleId,
+        artifactRevision,
+        structureSha256,
+        targetLocale,
+        pipelineJson,
+        _now(),
+      ],
+    );
+    for (final (sentenceId, text) in sentences) {
+      _db.execute(
+        'INSERT INTO sentence_translations (translation_set_id, sentence_id, '
+        'text) VALUES (?, ?, ?)',
+        [translationSetId, sentenceId, text],
+      );
+    }
+    for (final (blockId, cellId, text) in cells) {
+      _db.execute(
+        'INSERT INTO table_cell_translations (translation_set_id, block_id, '
+        'cell_id, text) VALUES (?, ?, ?, ?)',
+        [translationSetId, blockId, cellId, text],
+      );
+    }
+  }
+
   /// Creates the job's building set. Partial rows under it are invisible to
   /// the reader until completion + activation.
   void insertBuildingSet({
@@ -118,10 +187,9 @@ class TranslationDao {
   /// Deletes a cancelled job's building set; its typed rows cascade and the
   /// job's translation_set_id becomes NULL (ON DELETE SET NULL).
   void deleteSet(String translationSetId) {
-    _db.execute(
-      'DELETE FROM translation_sets WHERE translation_set_id = ?',
-      [translationSetId],
-    );
+    _db.execute('DELETE FROM translation_sets WHERE translation_set_id = ?', [
+      translationSetId,
+    ]);
   }
 
   // ---- jobs ----
@@ -160,10 +228,9 @@ class TranslationDao {
   }
 
   TranslationJobSnapshot? getJob(String jobId) {
-    final rows = _db.select(
-      'SELECT * FROM translation_jobs WHERE job_id = ?',
-      [jobId],
-    );
+    final rows = _db.select('SELECT * FROM translation_jobs WHERE job_id = ?', [
+      jobId,
+    ]);
     if (rows.isEmpty) return null;
     return _snapshot(rows.first);
   }
@@ -174,7 +241,9 @@ class TranslationDao {
       "SELECT * FROM translation_jobs WHERE status IN "
       "('queued', 'running', 'waiting_retry', 'paused')",
     );
-    return {for (final row in rows) row['article_id'] as String: _snapshot(row)};
+    return {
+      for (final row in rows) row['article_id'] as String: _snapshot(row),
+    };
   }
 
   /// Latest non-cancelled job of an article (any locale) for the task page.

@@ -80,12 +80,14 @@ class ReadpackV2Validator {
       }
     }
 
-    // 4. Capabilities: v2.0 defines none — unknown tokens reject before any
-    //    semantic work (fixture: unknown-capability).
+    // 4. Capabilities: this build implements none — unknown tokens reject
+    //    before any semantic work (fixture: unknown-capability), which is
+    //    also what keeps a future 2.y semantic extension from being silently
+    //    misread (COMPATIBILITY.md 未来 2.x).
     if (manifest.requiredCapabilities.isNotEmpty) {
       throw const ContractViolation(
         'manifest.required_capabilities',
-        'v2.0 defines no required_capabilities',
+        'this build defines no required_capabilities',
       );
     }
 
@@ -228,50 +230,49 @@ class ReadpackV2Validator {
       _requireExactCoverage(
         path: 'narration.sentences',
         expected: article.sentenceCoverage.map((e) => e.$2).toList(),
-        actual: narration.ranges.map((r) => r.$1).toList(),
+        actual: narration.ranges.map((r) => r.sentenceId).toList(),
         ordered: true,
       );
       var previousEndSample = 0;
       final rate = narration.sampleRateHz;
       for (final range in narration.ranges) {
-        final (_, startMs, endMs, startSample, endSample) = range;
-        if (endSample <= startSample) {
+        if (range.endSample <= range.startSample) {
           throw ContractViolation(
-            'narration.sentences(${range.$1})',
+            'narration.sentences(${range.sentenceId})',
             'empty sample range',
           );
         }
-        if (endMs <= startMs) {
+        if (range.endMs <= range.startMs) {
           throw ContractViolation(
-            'narration.sentences(${range.$1})',
+            'narration.sentences(${range.sentenceId})',
             'empty millisecond range',
           );
         }
-        if (startMs != (startSample * 1000) ~/ rate) {
+        if (range.startMs != (range.startSample * 1000) ~/ rate) {
           throw ContractViolation(
-            'narration.sentences(${range.$1})',
+            'narration.sentences(${range.sentenceId})',
             'start ms is not floor(start_sample * 1000 / $rate)',
           );
         }
-        if (endMs != (endSample * 1000 + rate - 1) ~/ rate) {
+        if (range.endMs != (range.endSample * 1000 + rate - 1) ~/ rate) {
           throw ContractViolation(
-            'narration.sentences(${range.$1})',
+            'narration.sentences(${range.sentenceId})',
             'end ms is not ceil(end_sample * 1000 / $rate)',
           );
         }
-        if (startSample < previousEndSample) {
+        if (range.startSample < previousEndSample) {
           throw ContractViolation(
-            'narration.sentences(${range.$1})',
+            'narration.sentences(${range.sentenceId})',
             'overlapping range',
           );
         }
-        if (endMs > narration.durationMs) {
+        if (range.endMs > narration.durationMs) {
           throw ContractViolation(
-            'narration.sentences(${range.$1})',
+            'narration.sentences(${range.sentenceId})',
             'range exceeds audio duration',
           );
         }
-        previousEndSample = endSample;
+        previousEndSample = range.endSample;
       }
     }
 
